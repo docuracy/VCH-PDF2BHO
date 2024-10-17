@@ -12,3 +12,19 @@ body {
 .alert {
     margin-bottom: 0;
 }
+
+.image-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 4px; /* space between images and arrow */
+}
+
+.image-container img {
+    max-width: 40px;
+    height: auto; /* maintain aspect ratio */
+}
+
+.arrow-icon {
+    font-size: 20px;
+}
