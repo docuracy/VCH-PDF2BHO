@@ -1,6 +1,4 @@
-// app.js
-
-$(document).ready(function() {
+jQuery(document).ready(function ($) {
     // Register Service Worker
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('/service-worker.js')
@@ -13,63 +11,66 @@ $(document).ready(function() {
     }
 
     // Handle Convert Button Click
-    $('#convertBtn').on('click', function() {
+    $('#convertBtn').on('click', function () {
         const fileInput = $('#pdfInput')[0];
         if (fileInput.files.length === 0) {
-            showAlert('Please select a PDF file first.', 'warning');
+            showAlert('Please select at least one PDF file.', 'warning');
             return;
         }
 
-        const file = fileInput.files[0];
-        const fileReader = new FileReader();
+        const zip = new JSZip();
+        const pdfFiles = Array.from(fileInput.files);
 
-        fileReader.onload = function() {
-            const typedarray = new Uint8Array(this.result);
+        const promises = pdfFiles.map(file => {
+            return new Promise((resolve, reject) => {
+                const fileReader = new FileReader();
 
-            pdfjsLib.getDocument(typedarray).promise.then(async (pdf) => {
-                let fullText = '';
-                let metadata = '';
+                fileReader.onload = function () {
+                    const typedarray = new Uint8Array(this.result);
 
-                try {
-                    const meta = await pdf.getMetadata();
-                    metadata += `  <metadata>
-    <title>${escapeXML(meta.info.Title || 'Untitled')}</title>
-    <author>${escapeXML(meta.info.Author || 'Unknown')}</author>
-  </metadata>
-`;
-                } catch (metaErr) {
-                    console.warn('Failed to retrieve metadata:', metaErr);
-                }
+                    pdfjsLib.getDocument(typedarray).promise.then(async (pdf) => {
+                        let fullText = '';
+                        let metadata = '';
 
-                for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-                    const page = await pdf.getPage(pageNum);
-                    const content = await page.getTextContent();
-                    const strings = content.items.map(item => item.str);
-                    fullText += `  <page number="${pageNum}">
-    <content>${escapeXML(strings.join(' '))}</content>
-  </page>
-`;
-                }
+                        try {
+                            const meta = await pdf.getMetadata();
+                            metadata += `<metadata><title>${escapeXML(meta.info.Title || 'Untitled')}</title><author>${escapeXML(meta.info.Author || 'Unknown')}</author></metadata>`;
+                        } catch (metaErr) {
+                            console.warn('Failed to retrieve metadata:', metaErr);
+                        }
 
-                const xmlContent = `<document>
-${metadata}${fullText}</document>`;
+                        for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                            const page = await pdf.getPage(pageNum);
+                            const content = await page.getTextContent();
+                            const strings = content.items.map(item => item.str);
+                            fullText += `<page number="${pageNum}"><content>${escapeXML(strings.join(' '))}</content></page>`;
+                        }
 
-                downloadXML(xmlContent, file.name.replace(/\.pdf$/i, '.xml'));
-                showAlert('XML file has been generated successfully!', 'success');
-            }).catch(err => {
-                console.error('Error parsing PDF:', err);
-                showAlert('Failed to parse PDF.', 'danger');
+                        const xmlContent = `<document>${metadata}${fullText}</document>`;
+                        // Add XML content to the ZIP file
+                        zip.file(file.name.replace(/\.pdf$/i, '.xml'), xmlContent);
+                        resolve();
+                    }).catch(err => {
+                        console.error('Error parsing PDF:', err);
+                        showAlert('Failed to parse PDF: ' + file.name, 'danger');
+                        reject(err);
+                    });
+                };
+
+                fileReader.readAsArrayBuffer(file);
             });
-        };
+        });
 
-        fileReader.readAsArrayBuffer(file);
+        Promise.all(promises).then(() => {
+            // Generate the ZIP file and trigger download
+            zip.generateAsync({ type: 'blob' }).then(function (content) {
+                saveAs(content, 'pdfs_to_xml.zip');
+                showAlert('All XML files have been generated and zipped successfully!', 'success');
+            });
+        }).catch(err => {
+            console.error('Error processing files:', err);
+        });
     });
-
-    // Function to Download XML using FileSaver.js
-    function downloadXML(content, fileName) {
-        const blob = new Blob([content], { type: 'application/xml;charset=utf-8' });
-        saveAs(blob, fileName);
-    }
 
     // Function to Escape XML Special Characters
     function escapeXML(str) {

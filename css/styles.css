@@ -8,3 +8,7 @@ body {
     max-width: 600px;
     margin: 0 auto;
 }
+
+.alert {
+    margin-bottom: 0;
+}
