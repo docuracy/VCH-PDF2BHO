@@ -119,7 +119,7 @@ jQuery(document).ready(function ($) {
 
                     try {
                         const meta = await pdf.getMetadata();
-                        metadata += `<metadata><title>${escapeXML(meta.info.Title || 'Untitled')}</title><author>${escapeXML(meta.info.Author || 'Unknown')}</author></metadata>`;
+                        metadata += `<metadata><title>${escapeXML(meta.info.Title || 'Untitled')}</title><author>${escapeXML(meta.info.Author || 'Unknown')}</author><filename>${escapeXML(fileName)}</filename></metadata>`;
                     } catch (metaErr) {
                         console.warn('Failed to retrieve metadata:', metaErr);
                     }
@@ -127,14 +127,32 @@ jQuery(document).ready(function ($) {
                     for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
                         const page = await pdf.getPage(pageNum);
                         const content = await page.getTextContent();
-                        const strings = content.items.map(item => item.str);
-                        fullText += `<page number="${pageNum}"><content>${escapeXML(strings.join(' '))}</content></page>`;
+
+                        // Create an XML representation of the page content
+                        let pageContent = '';
+                        content.items.forEach(item => {
+                            // Construct the item XML tag with attributes
+                            const itemXML = `<item fontName="${escapeXML(item.fontName)}" fontSize="${escapeXML(item.fontSize)}" width="${escapeXML(item.width)}" height="${escapeXML(item.height)}" textDirection="${escapeXML(item.dir)}">${escapeXML(item.str)}</item>`;
+                            pageContent += itemXML;
+                        });
+
+                        // Append the constructed page content to fullText
+                        fullText += `<page number="${pageNum}"><content>${pageContent}</content></page>`;
                     }
 
                     const xmlContent = `<document>${metadata}${fullText}</document>`;
                     appendLogMessage(`Generated XML for file: ${fileName}, size: ${xmlContent.length} characters`); // Debugging log
-                    // Add XML content to the ZIP file
-                    zip.file(fileName.replace(/\.pdf$/i, '.xml'), xmlContent); // Use the passed zip object
+
+                    // Fetch the XSLT file
+                    const xsltResponse = await fetch('./transform.xslt');
+                    const xsltText = await xsltResponse.text();
+
+                    // Transform the XML using XSLT
+                    const transformedXml = transformXml(xmlContent, xsltText);
+                    appendLogMessage(`Transformed XML for file: ${fileName}, size: ${transformedXml.length} characters`); // Debugging log
+
+                    // Add the transformed XML content to the ZIP file
+                    zip.file(fileName.replace(/\.pdf$/i, '.xml'), transformedXml); // Use the passed zip object
                     resolve();
                 }).catch(err => {
                     console.error('Error parsing PDF:', err);
@@ -152,7 +170,8 @@ jQuery(document).ready(function ($) {
     }
 
     // Function to Escape XML Special Characters
-    function escapeXML(str) {
+    function escapeXML(input) {
+        const str = (input != null) ? String(input) : '';
         return str.replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;')
@@ -174,6 +193,28 @@ jQuery(document).ready(function ($) {
         const logContainer = $('#logContainer');
         logContainer.append('<p>' + message + '</p>').show();
         logContainer.scrollTop(logContainer.prop("scrollHeight"));
+    }
+
+    function transformXml(xml, xslt) {
+        // Create a new XSLTProcessor
+        const xsltProcessor = new XSLTProcessor();
+
+        // Parse the XSLT string into a document
+        const parser = new DOMParser();
+        const xsltDoc = parser.parseFromString(xslt, 'application/xml');
+
+        // Import the XSLT stylesheet
+        xsltProcessor.importStylesheet(xsltDoc);
+
+        // Parse the XML string into a document
+        const xmlDoc = parser.parseFromString(xml, 'application/xml');
+
+        // Perform the transformation
+        const transformedDoc = xsltProcessor.transformToFragment(xmlDoc, document);
+
+        // Serialize the transformed document back to a string
+        const serializer = new XMLSerializer();
+        return serializer.serializeToString(transformedDoc);
     }
 
 });
