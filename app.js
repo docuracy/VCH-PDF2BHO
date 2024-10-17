@@ -1,4 +1,7 @@
 jQuery(document).ready(function ($) {
+    // Set the workerSrc for PDF.js
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.7.570/pdf.worker.min.js';
+
     // Register Service Worker
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('/service-worker.js')
@@ -34,7 +37,11 @@ jQuery(document).ready(function ($) {
 
                         try {
                             const meta = await pdf.getMetadata();
-                            metadata += `<metadata><title>${escapeXML(meta.info.Title || 'Untitled')}</title><author>${escapeXML(meta.info.Author || 'Unknown')}</author></metadata>`;
+                            metadata += `<metadata>
+                                <title>${escapeXML(meta.info.Title || 'Untitled')}</title>
+                                <author>${escapeXML(meta.info.Author || 'Unknown')}</author>
+                              </metadata>
+                            `;
                         } catch (metaErr) {
                             console.warn('Failed to retrieve metadata:', metaErr);
                         }
