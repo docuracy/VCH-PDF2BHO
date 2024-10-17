@@ -13,6 +13,12 @@ jQuery(document).ready(function ($) {
             });
     }
 
+    // Clear logContainer when files are chosen
+    $('#pdfInput').on('change', function () {
+        $('#alertPlaceholder').empty(); // Clear any existing alerts
+        $('#logContainer').hide().html('<p><strong>Logs:</strong></p>'); // Clear the log container
+    });
+
     // Handle Convert Button Click
     $('#convertBtn').on('click', function () {
         const fileInput = $('#pdfInput')[0];
@@ -31,7 +37,7 @@ jQuery(document).ready(function ($) {
             const fileType = (extension === 'pdf') ? 'application/pdf' :
                 (extension === 'zip') ? 'application/zip' : '';
 
-            console.log(`Processing file: ${file.name}, extension: ${extension}, type: ${fileType}`); // Debugging log
+            appendLogMessage(`Processing file: ${file.name}, extension: ${extension}, type: ${fileType}`); // Debugging log
             if (fileType === 'application/zip') {
                 const zipFileReaderPromise = new Promise((resolve, reject) => {
                     const zipFileReader = new FileReader();
@@ -40,8 +46,10 @@ jQuery(document).ready(function ($) {
 
                         // Load the ZIP file from the ArrayBuffer
                         JSZip.loadAsync(arrayBuffer).then(zipContent => {
+                            appendLogMessage(`Loaded ZIP file: ${file.name}`);
                             const pdfPromises = Object.keys(zipContent.files).map(pdfFileName => {
                                 if (pdfFileName.endsWith('.pdf')) {
+                                    appendLogMessage(`Found PDF in ZIP: ${pdfFileName}`);
                                     return zipContent.files[pdfFileName].async('blob').then(blob => {
                                         // Process the PDF and return the promise
                                         return processPDF(blob, pdfFileName, zip);
@@ -52,14 +60,17 @@ jQuery(document).ready(function ($) {
                             // Ensure all PDF promises resolve before completing the ZIP processing
                             return Promise.all(pdfPromises);
                         }).then(() => {
-                            console.log(`Processed all PDFs in ZIP: ${file.name}`);
+                            appendLogMessage(`Processed all PDFs in ZIP: ${file.name}`);
                             resolve(); // Resolve the outer promise when done
                         }).catch(err => {
+                            appendLogMessage(`Error processing ZIP file: ${err}`);
                             console.error('Error processing ZIP file:', err);
                             reject(err); // Reject the outer promise if there's an error
                         });
                     };
                     zipFileReader.onerror = (err) => {
+                        appendLogMessage(`Error reading ZIP file: ${err}`);
+                        console.error('Error reading ZIP file:', err);
                         reject(err); // Reject if FileReader fails
                     };
                     zipFileReader.readAsArrayBuffer(file);
@@ -69,6 +80,7 @@ jQuery(document).ready(function ($) {
                 promises.push(zipFileReaderPromise);
             } else if (fileType === 'application/pdf') {
                 // Process single PDF files directly
+                appendLogMessage(`Processing PDF file: ${file.name}`);
                 promises.push(processPDF(file, file.name, zip)); // Pass the zip object to processPDF
             } else {
                 showAlert('Unsupported file type: ' + file.name, 'danger');
@@ -77,16 +89,21 @@ jQuery(document).ready(function ($) {
 
         // Wait for all promises to resolve
         Promise.all(promises).then(() => {
-            console.log('All PDF files processed successfully. Generating ZIP...'); // Debugging log
+            appendLogMessage('All PDF files processed successfully. Generating ZIP...');
             // Generate the ZIP file and trigger download
             zip.generateAsync({ type: 'blob' }).then(function (content) {
                 saveAs(content, 'pdfs_to_xml.zip');
                 showAlert('All XML files have been generated and zipped successfully!', 'success');
             }).catch(err => {
+                appendLogMessage(`Error generating ZIP: ${err}`);
                 console.error('Error generating ZIP:', err);
             });
         }).catch(err => {
+            appendLogMessage(`Error processing files: ${err}`);
             console.error('Error processing files:', err);
+        }).finally(() => {
+            appendLogMessage('End of file processing.');
+            appendLogMessage('=======================');
         });
     });
 
@@ -95,7 +112,7 @@ jQuery(document).ready(function ($) {
         return new Promise((resolve, reject) => {
             const fileReader = new FileReader();
             fileReader.onload = function () {
-                const typedarray = new Uint8Array(this.result);
+                let typedarray = new Uint8Array(this.result);
                 pdfjsLib.getDocument(typedarray).promise.then(async (pdf) => {
                     let fullText = '';
                     let metadata = '';
@@ -115,7 +132,7 @@ jQuery(document).ready(function ($) {
                     }
 
                     const xmlContent = `<document>${metadata}${fullText}</document>`;
-                    console.log(`Generated XML for file: ${fileName}, size: ${xmlContent.length} characters`); // Debugging log
+                    appendLogMessage(`Generated XML for file: ${fileName}, size: ${xmlContent.length} characters`); // Debugging log
                     // Add XML content to the ZIP file
                     zip.file(fileName.replace(/\.pdf$/i, '.xml'), xmlContent); // Use the passed zip object
                     resolve();
@@ -123,6 +140,10 @@ jQuery(document).ready(function ($) {
                     console.error('Error parsing PDF:', err);
                     showAlert('Failed to parse PDF: ' + fileName, 'danger');
                     reject(err);
+                }).finally(() => {
+                    // Clean up references to potentially large objects to aid garbage collection
+                    typedarray = null;
+                    pdf = null;
                 });
             };
 
@@ -148,4 +169,11 @@ jQuery(document).ready(function ($) {
       </div>`;
         $('#alertPlaceholder').html(alertHtml);
     }
+
+    function appendLogMessage(message) {
+        const logContainer = $('#logContainer');
+        logContainer.append('<p>' + message + '</p>').show();
+        logContainer.scrollTop(logContainer.prop("scrollHeight"));
+    }
+
 });
