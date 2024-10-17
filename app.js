@@ -37,11 +37,7 @@ jQuery(document).ready(function ($) {
 
                         try {
                             const meta = await pdf.getMetadata();
-                            metadata += `<metadata>
-                                <title>${escapeXML(meta.info.Title || 'Untitled')}</title>
-                                <author>${escapeXML(meta.info.Author || 'Unknown')}</author>
-                              </metadata>
-                            `;
+                            metadata += `<metadata><title>${escapeXML(meta.info.Title || 'Untitled')}</title><author>${escapeXML(meta.info.Author || 'Unknown')}</author></metadata>`;
                         } catch (metaErr) {
                             console.warn('Failed to retrieve metadata:', metaErr);
                         }
