@@ -4,7 +4,7 @@ jQuery(document).ready(function ($) {
 
     // Register Service Worker
     if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('/service-worker.js')
+        navigator.serviceWorker.register('./service-worker.js')
             .then(reg => {
                 console.log('Service Worker registered.', reg);
             })
