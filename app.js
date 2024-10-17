@@ -119,6 +119,7 @@ jQuery(document).ready(function ($) {
 
                     try {
                         const meta = await pdf.getMetadata();
+                        console.log('Metadata:', meta);
                         metadata += `<metadata><title>${escapeXML(meta.info.Title || 'Untitled')}</title><author>${escapeXML(meta.info.Author || 'Unknown')}</author><filename>${escapeXML(fileName)}</filename></metadata>`;
                     } catch (metaErr) {
                         console.warn('Failed to retrieve metadata:', metaErr);
@@ -126,13 +127,34 @@ jQuery(document).ready(function ($) {
 
                     for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
                         const page = await pdf.getPage(pageNum);
+
+                        // Retrieve the operator list for the page (required to populate the commonObjs)
+                        await page.getOperatorList();
+                        const fonts = page.commonObjs._objs;
+                        const fontMap = {};
+                        for (const fontKey in fonts) {
+                            const font = fonts[fontKey].data;
+                            if (font) {
+                                fontMap[font.loadedName] = font.name;
+                            }
+                        }
+
                         const content = await page.getTextContent();
 
                         // Create an XML representation of the page content
                         let pageContent = '';
+
+                        // Calculate and append fontSize to each style
+                        Object.keys(content.styles).forEach(styleKey => {
+                            const style = content.styles[styleKey];
+                            style.fontSize = (style?.ascent && style?.descent) ? (style.ascent - style.descent) : 0;
+                        });
                         content.items.forEach(item => {
+                            const fontName = fontMap[item.fontName] || 'Unknown';
+                            const fontFamily = content.styles[item.fontName]?.fontFamily || 'Unknown';
+                            const fontSize = content.styles[item.fontName]?.fontSize || 0;
                             // Construct the item XML tag with attributes
-                            const itemXML = `<item fontName="${escapeXML(item.fontName)}" fontSize="${escapeXML(item.fontSize)}" width="${escapeXML(item.width)}" height="${escapeXML(item.height)}" textDirection="${escapeXML(item.dir)}">${escapeXML(item.str)}</item>`;
+                            const itemXML = `<item n="${escapeXML(fontName)}" f="${escapeXML(fontFamily)}" s="${escapeXML(fontSize)}" d="${escapeXML(item.dir)}">${escapeXML(item.str)}</item>`;
                             pageContent += itemXML;
                         });
 
