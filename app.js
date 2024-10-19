@@ -91,7 +91,7 @@ jQuery(document).ready(function ($) {
         Promise.all(promises).then(() => {
             appendLogMessage('All PDF files processed successfully. Generating ZIP...');
             // Generate the ZIP file and trigger download
-            zip.generateAsync({ type: 'blob' }).then(function (content) {
+            zip.generateAsync({type: 'blob'}).then(function (content) {
                 saveAs(content, 'pdfs_to_xml.zip');
                 showAlert('All XML files have been generated and zipped successfully!', 'success');
             }).catch(err => {
@@ -116,6 +116,12 @@ jQuery(document).ready(function ($) {
                 pdfjsLib.getDocument(typedarray).promise.then(async (pdf) => {
                     let fullText = '';
                     let metadata = '';
+                    let currentEndNote = 1;
+                    let footnoteMappings = [];
+
+                    // Fetch the XSLT file
+                    const xsltResponse = await fetch('./transform.xslt');
+                    const xsltText = await xsltResponse.text();
 
                     try {
                         const meta = await pdf.getMetadata();
@@ -149,32 +155,101 @@ jQuery(document).ready(function ($) {
                             const style = content.styles[styleKey];
                             style.fontSize = (style?.ascent && style?.descent) ? (style.ascent - style.descent) : 0;
                         });
-                        content.items.forEach(item => {
-                            const fontName = fontMap[item.fontName] || 'Unknown';
-                            const fontFamily = content.styles[item.fontName]?.fontFamily || 'Unknown';
-                            const fontSize = content.styles[item.fontName]?.fontSize || 0;
-                            // Construct the item XML tag with attributes
-                            const itemXML = `<item n="${escapeXML(fontName)}" f="${escapeXML(fontFamily)}" s="${escapeXML(fontSize)}" d="${escapeXML(item.dir)}">${escapeXML(item.str)}</item>`;
+
+                        let lastAttributes;
+                        let currentContentBuffer = [];
+
+                        // Function to add item XML to pageContent
+                        const addItemToPageContent = (content) => {
+                            const dehyphenated = content
+                                .map(str => decodeHtmlEntities(str)) // Decode HTML entities
+                                .map((str, index) => str.endsWith('-') ? str.slice(0, -1) : str + (index < content.length - 1 ? ' ' : ''))
+                                .join('') // Join without space
+                                .replace(/\s+/g, ' ') // Replace multiple spaces with a single space
+                                .replace(/ <ref/g, '<ref') // remove space before a <ref> tag
+                                .trim(); // Trim any leading or trailing spaces
+                            const itemXML = `<item n="${escapeXML(lastAttributes.fontName)}" f="${escapeXML(lastAttributes.fontFamily)}" s="${escapeXML(lastAttributes.fontSize)}" d="${escapeXML(content.dir)}">${escapeXML(dehyphenated)}</item>`;
                             pageContent += itemXML;
+                        };
+
+                        // Process each item
+                        content.items.forEach(item => {
+                            console.log('Item Transform:', item.transform);
+
+                            const itemAttributes = {
+                                fontName: fontMap[item.fontName] || 'Unknown',
+                                fontFamily: content.styles[item.fontName]?.fontFamily || 'Unknown',
+                                fontSize: content.styles[item.fontName]?.fontSize || 0,
+                                itemDirection: item.dir,
+                                itemScale: item.transform[0],
+                                itemX: item.transform[4],
+                                itemY: item.transform[5]
+                            };
+
+                            // Initialize lastAttributes with the first item's attributes
+                            if (lastAttributes === undefined) {
+                                lastAttributes = itemAttributes;
+                            }
+
+                            // Negative changes in both itemX and itemY indicate a new line
+                            // TODO: Need additional check to indicate new paragraph: additional difference in itemY?
+                            if (itemAttributes.itemX < lastAttributes.itemX && itemAttributes.itemY < lastAttributes.itemY) {
+                                // Flush buffer to pageContent
+                                if (currentContentBuffer.length > 0) {
+                                    addItemToPageContent(currentContentBuffer);
+                                }
+                                lastAttributes = itemAttributes;
+                                currentContentBuffer = [item.str];
+                            }
+                            // Positive change in itemY and reduction in itemScale indicate superscript (footnote)
+                            else if (itemAttributes.itemY > lastAttributes.itemY && itemAttributes.itemScale < lastAttributes.itemScale) {
+                                // NO NOT update last attributes - i.e. ignore change in font size
+                                currentContentBuffer.push(`<ref idref="n${currentEndNote}">${currentEndNote}</ref>`); // Start new buffer with the current item
+                                footnoteMappings.push({n: currentEndNote, f: item.str, p: pageNum}); // Store footnote mappings
+                                currentEndNote++;
+                            }
+                            // Equal comparisonKeys indicate same style
+                            else if (areAttributesEqual(itemAttributes, lastAttributes, comparisonKeys)) {
+                                // Add to buffer for continuous text in same style
+                                currentContentBuffer.push(item.str);
+                            // Otherwise, different comparisonKeys probably indicate a new item
+                            } else {
+                                // Add buffered content if not empty
+                                if (currentContentBuffer.length > 0) {
+                                    addItemToPageContent(currentContentBuffer);
+                                }
+                                // Update last attributes and reset the buffer
+                                lastAttributes = itemAttributes;
+                                currentContentBuffer = [item.str]; // Start new buffer with the current item
+                            }
+                            console.log('itemAttributes:', itemAttributes);
                         });
 
+                        // Finalize by adding any remaining buffered content
+                        if (currentContentBuffer.length > 0) {
+                            addItemToPageContent(currentContentBuffer);
+                        }
+
+                        console.log('Page:', pageNum, 'Content:', pageContent);
+
+                        // Wrap page content in <document> for transformation
+                        let pageXml = `<page number="${pageNum}"><content>${pageContent}</content></page>`;
+
+                        // Transform the page XML
+                        // pageXml = transformXml(`<document>${pageXml}</document>`, xsltText); // Transform the page XML
+                        // appendLogMessage(`Transformed XML for page ${pageNum} of file: ${fileName}, size: ${pageXml.length} characters`); // Debug
+
                         // Append the constructed page content to fullText
-                        fullText += `<page number="${pageNum}"><content>${pageContent}</content></page>`;
+                        fullText += pageXml;
                     }
+
+                    // TODO: Implement Endnoting of footnotes - use separate endnoteXML object with consecutive numbering
 
                     const xmlContent = `<document>${metadata}${fullText}</document>`;
                     appendLogMessage(`Generated XML for file: ${fileName}, size: ${xmlContent.length} characters`); // Debugging log
 
-                    // Fetch the XSLT file
-                    const xsltResponse = await fetch('./transform.xslt');
-                    const xsltText = await xsltResponse.text();
-
-                    // Transform the XML using XSLT
-                    const transformedXml = transformXml(xmlContent, xsltText);
-                    appendLogMessage(`Transformed XML for file: ${fileName}, size: ${transformedXml.length} characters`); // Debugging log
-
                     // Add the transformed XML content to the ZIP file
-                    zip.file(fileName.replace(/\.pdf$/i, '.xml'), transformedXml); // Use the passed zip object
+                    zip.file(fileName.replace(/\.pdf$/i, '.xml'), xmlContent); // Use the passed zip object
                     resolve();
                 }).catch(err => {
                     console.error('Error parsing PDF:', err);
@@ -190,6 +265,22 @@ jQuery(document).ready(function ($) {
             fileReader.readAsArrayBuffer(file);
         });
     }
+
+    // Helper function to compare relevant attributes between two objects
+    const areAttributesEqual = (attrs1, attrs2, keys) => {
+        return keys.every(key => attrs1[key] === attrs2[key]);
+    };
+
+    // List of keys to compare
+    const comparisonKeys = ['fontName', 'fontFamily', 'fontSize', 'itemDirection', 'itemScale'];
+
+    // Function to decode HTML entities to UTF-8
+    // TODO: THIS DOES NOT WORK! Use a library like he.js instead
+    const decodeHtmlEntities = (html) => {
+        const txt = document.createElement('textarea');
+        txt.innerHTML = html;
+        return txt.value;
+    };
 
     // Function to Escape XML Special Characters
     function escapeXML(input) {
