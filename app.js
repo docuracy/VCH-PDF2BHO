@@ -114,14 +114,25 @@ jQuery(document).ready(function ($) {
             fileReader.onload = function () {
                 let typedarray = new Uint8Array(this.result);
                 pdfjsLib.getDocument(typedarray).promise.then(async (pdf) => {
+
+                    // TODO:
+                    // Separate out the font identification into a separate function
+                    // Refactor as multi-pass operation over items: add attributes on the first pass (for-loop), then process on the second pass (while-loop)
+                    // Track the x-position and width of consecutive items to determine whether a space should be inserted
+                    // Track the y-position and height of consecutive items to determine whether a new paragraph should be started: might need a separate line-height tracker
+                    // Determine whether a font is bold, italic, regular, small-caps, etc.
+                    // Switch <item> tags to <p>, <h>, or other tags based on font size and style
+                    // Add `review` class to anything that needs to be reviewed manually
+                    // Generate HTML initially and render in browser for checking, then convert to BHO-compliant XML using refactored `.xslt` file and `transformXml` function
+
                     let fullText = '';
                     let metadata = '';
                     let currentEndNote = 1;
                     let footnoteMappings = [];
 
                     // Fetch the XSLT file
-                    const xsltResponse = await fetch('./transform.xslt');
-                    const xsltText = await xsltResponse.text();
+                    // const xsltResponse = await fetch('./transform.xslt');
+                    // const xsltText = await xsltResponse.text();
 
                     try {
                         const meta = await pdf.getMetadata();
@@ -163,10 +174,12 @@ jQuery(document).ready(function ($) {
                         const addItemToPageContent = (content) => {
                             const dehyphenated = content
                                 .map(str => decodeHtmlEntities(str)) // Decode HTML entities
+                                // TODO: Spacing should be based on the x-position & width of the items, not like this
+                                // TODO: Need to handle normally-hyphenated words properly, e.g. "non-essential": there are no hard-and-fast rules for this, so <span class='review concatenate> concatenated words for review
                                 .map((str, index) => str.endsWith('-') ? str.slice(0, -1) : str + (index < content.length - 1 ? ' ' : ''))
                                 .join('') // Join without space
                                 .replace(/\s+/g, ' ') // Replace multiple spaces with a single space
-                                .replace(/ <ref/g, '<ref') // remove space before a <ref> tag
+                                .replace(/ <sup/g, '<sup') // remove space before a <sup> tag
                                 .trim(); // Trim any leading or trailing spaces
                             const itemXML = `<item n="${escapeXML(lastAttributes.fontName)}" f="${escapeXML(lastAttributes.fontFamily)}" s="${escapeXML(lastAttributes.fontSize)}" d="${escapeXML(content.dir)}">${escapeXML(dehyphenated)}</item>`;
                             pageContent += itemXML;
@@ -204,7 +217,7 @@ jQuery(document).ready(function ($) {
                             // Positive change in itemY and reduction in itemScale indicate superscript (footnote)
                             else if (itemAttributes.itemY > lastAttributes.itemY && itemAttributes.itemScale < lastAttributes.itemScale) {
                                 // NO NOT update last attributes - i.e. ignore change in font size
-                                currentContentBuffer.push(`<ref idref="n${currentEndNote}">${currentEndNote}</ref>`); // Start new buffer with the current item
+                                currentContentBuffer.push(`<sup idref="n${currentEndNote}">${currentEndNote}</sup>`); // Start new buffer with the current item
                                 footnoteMappings.push({n: currentEndNote, f: item.str, p: pageNum}); // Store footnote mappings
                                 currentEndNote++;
                             }
@@ -275,7 +288,7 @@ jQuery(document).ready(function ($) {
     const comparisonKeys = ['fontName', 'fontFamily', 'fontSize', 'itemDirection', 'itemScale'];
 
     // Function to decode HTML entities to UTF-8
-    // TODO: THIS DOES NOT WORK! Use a library like he.js instead
+    // TODO: Check that this works - escapeXML converts "&" back to "&amp;" which may not be necessary
     const decodeHtmlEntities = (html) => {
         const txt = document.createElement('textarea');
         txt.innerHTML = html;

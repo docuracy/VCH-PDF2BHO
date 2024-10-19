@@ -4,6 +4,14 @@ body {
     background-color: #f8f9fa;
 }
 
+sup {
+    font-size: 0.6rem;
+}
+
+span.review {
+    color: red;
+}
+
 .card {
     max-width: 600px;
     margin: 0 auto;
