@@ -21,108 +21,148 @@ jQuery(document).ready(function ($) {
                 let typedarray = new Uint8Array(this.result);
                 pdfjsLib.getDocument(typedarray).promise.then(async (pdf) => {
 
-                    // TODO:
-                    // Refactor as multi-pass operation over items: add attributes on the first pass (for-loop), then process on the second pass (while-loop)
-                    // Track the x-position and width of consecutive items to determine whether a space should be inserted
-                    // Track the y-position and height of consecutive items to determine whether a new paragraph should be started: might need a separate line-height tracker
-                    // Determine whether a font is bold, italic, regular, small-caps, etc.
-                    // Switch tags to <p>, <h>, or other tags based on font size and style
-                    // Add `review` class to anything that needs to be reviewed manually
-                    // Generate HTML initially and render in browser for checking, then convert to BHO-compliant XML using refactored `.xslt` file and `transformXml` function
-
-                    let docHTML = '';
-                    let currentEndNote = 1;
-                    let footnoteMappings = [];
+                    let docHTML = ''; // Initialize the document HTML content
+                    let endnoteHTML = `<hr class="remove" /><h3 class="remove">ENDNOTES</h3>`; // Initialize the endnote HTML content
+                    let endnoteLookup = []; // Initialize the endnote lookup array
 
                     // Iterate over pages and process content
                     for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
 
                         // Call helper function to get content and font map
                         const { content, fontMap } = await getPageContentAndFonts(pdf, pageNum);
+                        endnoteLookup.push([]);
 
-                        // Calculate and append fontSize to each style
-                        Object.keys(content.styles).forEach(styleKey => {
-                            const style = content.styles[styleKey];
-                            style.fontSize = (style?.ascent && style?.descent) ? (style.ascent - style.descent) : 0;
+                        // TODO:
+                        // Add `review` class to anything that needs to be reviewed manually: build a javascript function to pick options during HTML review
+                        // Add `remove` class to any elements that should be removed on conversion to XML
+
+                        // Loop through items with index, and analyse geometry
+
+                        let column_width = 0;
+
+                        content.items.forEach((item, index) => {
+                            console.log('Item index:', index, item);
+
+                            // Get difference in x and y positions from the previous item
+                            item.dx = item.transform[4] - (content.items[index - 1]?.transform[4] || 0);
+                            item.dy = (content.items[index - 1]?.transform[5] || 9999) - item.transform[5];
+
+                            // Get right-hand x position of the item
+                            item.x_max = item.transform[4] + item.width;
+
+                            // Identify new lines and paragraphs
+                            if (Math.abs(item.dy) < 0.1) { // Allows for a continuation across columns. TODO: Need to check for a threshold value - most consecutive lines at scale 10 have dy = 12
+                                console.log('Same line:', item.str);
+                                column_width = Math.max(column_width, item.x_max); // Update column width
+                                // Get line-height from previous item
+                                item.lineHeight = content.items[index - 1]?.lineHeight || 0;
+                                // Get horizontal distance between items, taking account of width of previous item
+                                item.spaceBefore = item.dx - (content.items[index - 1]?.x_max || 0) > 0.1; // TODO: Need to check for a threshold value
+                            }
+                            else {
+                                // Check for new paragraph: is dy > previous item's line-height, or did the previous line end short of the column width?
+                                item.newParagraph = item.dy > (content.items[index - 1]?.lineHeight || 0) || column_width - (content.items[index - 1]?.x_max || 0) > 0.1; // TODO: Need to check for a threshold value
+
+
+                                if (item.newParagraph) {
+                                    console.log('New paragraph:', item.str);
+                                    // Get line-height from dy
+                                    item.lineHeight = item.dy;
+                                    item.spaceBefore = false; // No space before new paragraph
+                                    column_width = item.x_max; // Update column width
+                                }
+                                else {
+                                    console.log('New line:', item.str);
+                                    column_width = Math.max(column_width, item.x_max); // Update column width
+                                    // Get line-height from previous item (which may have been a new column within the same paragraph)
+                                    item.lineHeight = content.items[index - 1]?.lineHeight || 0;
+                                    // Check for hyphenation: does previous line end with a hyphen?
+                                    if (content.items[index - 1]?.str.endsWith('-')) {
+                                        content.items[index - 1].str = content.items[index - 1].str.slice(0, -1) + '<span class="review hyphen">-</span>'; // Wrap hyphen in a span for review
+                                        item.spaceBefore = false; // No space before hyphenated word
+                                    }
+                                    else {
+                                        item.spaceBefore = true; // Space before new line
+                                    }
+                                }
+                            }
+
+                            // Identify superscript (footnote) items: higher on page, smaller font size, and integer content value
+                            if (item.dy < 0 && item.transform[0] < (content.items[index - 1]?.transform[0] || 0) && parseInt(item.str) > 0) {
+                                const footnoteNumber = parseInt(item.str);
+                                endnoteLookup[pageNum - 1].push(footnoteNumber);
+                                const endnoteNumber = endnoteLookup[pageNum - 1].length + 1;
+                                item.str = `<sup idref="n${endnoteNumber}">${endnoteNumber}</sup>`;
+                            }
+
+                            // Identify footnotes: content begins with an integer followed by a period
+                            const footnoteMatch = item.str.match(/^(\d+)\./);
+                            item.endnote = footnoteMatch;
+                            if (footnoteMatch) {
+                                const footnoteReferenceNumber = parseInt(footnoteMatch[1]);
+                                const endnoteNumber = endnoteLookup[pageNum - 1].indexOf(footnoteReferenceNumber) + 1;
+                                // trim the footnote number from the start of the string
+                                item.str = item.str.replace(footnoteMatch[0], '').trim();
+                                // Wrap the footnote content in a span with a reference ID
+                                item.str = `<span class="footnote-reference" id="n${endnoteNumber}" number="${endnoteNumber}"><span class="remove">${endnoteNumber}. </span>${item.str}</span>`;
+                            }
+
+                            // Look up item font name from fontMap
+                            let fontName = fontMap[item.fontName] || 'Unknown'
+
+                            // Helper function to apply tags
+                            function applyTag(item, index, content, tag, condition, closingTag) {
+                                const previousItem = content.items[index - 1];
+
+                                if (condition(item) && (!previousItem || !condition(previousItem))) {
+                                    item.str = `<${tag}>${item.str}`;
+                                }
+                                if (!condition(item) && previousItem && condition(previousItem)) {
+                                    previousItem.str = `${previousItem.str}</${closingTag}>`;
+                                }
+                                if (index === content.items.length - 1 && condition(item)) {
+                                    item.str = `${item.str}</${closingTag}>`;
+                                }
+                            }
+
+                            // Apply italic based on font name ending with 'it'
+                            applyTag(item, index, content, 'i', (i) => fontName.endsWith('it'), 'i');
+
+                            // Apply bold based on font name containing 'bold'
+                            applyTag(item, index, content, 'b', (i) => fontName.includes('bold'), 'b');
+
+                            // Apply small-caps based on font name ending with 'sc'
+                            applyTag(item, index, content, 'span class="small-caps"', (i) => fontName.endsWith('sc'), 'span');
+
+                            // Apply heading based on item.transform[0] being >= 10
+                            applyTag(item, index, content, 'span class="heading"', (i) => i.transform[0] >= 10, 'span');
+
                         });
 
+                        // Add items to pageHTML
                         let pageHTML = '';
-                        let lastAttributes;
-                        let currentContentBuffer = [];
-
-                        // Function to add item XML to pageHTML
-                        const addItemTopageHTML = (content) => {
-                            const dehyphenated = content
-                                .map(str => decodeHtmlEntities(str)) // Decode HTML entities
-                                // TODO: Spacing should be based on the x-position & width of the items, not like this
-                                // TODO: Need to handle normally-hyphenated words properly, e.g. "non-essential": there are no hard-and-fast rules for this, so <span class='review concatenate> concatenated words for review
-                                .map((str, index) => str.endsWith('-') ? str.slice(0, -1) : str + (index < content.length - 1 ? ' ' : ''))
-                                .join('') // Join without space
-                                .replace(/\s+/g, ' ') // Replace multiple spaces with a single space
-                                .replace(/ <sup/g, '<sup') // remove space before a <sup> tag
-                                .replace(/&/g, '&amp;') // Escape XML special characters
-                                .trim(); // Trim any leading or trailing spaces
-                            const itemXML = `<p n="${escapeXML(lastAttributes.fontName)}" f="${escapeXML(lastAttributes.fontFamily)}" s="${escapeXML(lastAttributes.fontSize)}" d="${escapeXML(content.dir)}">${dehyphenated}</p>`;
-                            pageHTML += itemXML;
-                        };
-
-                        // Process each item
-                        content.items.forEach(item => {
-                            console.log('Item Transform:', item.transform);
-
-                            const itemAttributes = {
-                                fontName: fontMap[item.fontName] || 'Unknown',
-                                fontFamily: content.styles[item.fontName]?.fontFamily || 'Unknown',
-                                fontSize: content.styles[item.fontName]?.fontSize || 0,
-                                itemDirection: item.dir,
-                                itemScale: item.transform[0],
-                                itemX: item.transform[4],
-                                itemY: item.transform[5]
-                            };
-
-                            // Initialize lastAttributes with the first item's attributes
-                            if (lastAttributes === undefined) {
-                                lastAttributes = itemAttributes;
-                            }
-
-                            // Negative changes in both itemX and itemY indicate a new line
-                            // TODO: Need additional check to indicate new paragraph: additional difference in itemY?
-                            if (itemAttributes.itemX < lastAttributes.itemX && itemAttributes.itemY < lastAttributes.itemY) {
-                                // Flush buffer to pageHTML
-                                if (currentContentBuffer.length > 0) {
-                                    addItemTopageHTML(currentContentBuffer);
+                        let buffer = [];
+                        function flushBuffer() {
+                            if (buffer.length > 0) {
+                                let paragraph = `<p>${decodeHtmlEntities(buffer.map(i => (i.spaceBefore ? ' ' : '') + i.str).join('').trim()).replace(/  /g, ' ').replace(/&/g, '&amp;')}</p>`;
+                                if (buffer[0].endnote) {
+                                    endnoteHTML += paragraph;
                                 }
-                                lastAttributes = itemAttributes;
-                                currentContentBuffer = [item.str];
-                            }
-                            // Positive change in itemY and reduction in itemScale indicate superscript (footnote)
-                            else if (itemAttributes.itemY > lastAttributes.itemY && itemAttributes.itemScale < lastAttributes.itemScale) {
-                                // NO NOT update last attributes - i.e. ignore change in font size
-                                currentContentBuffer.push(`<sup idref="n${currentEndNote}">${currentEndNote}</sup>`); // Start new buffer with the current item
-                                footnoteMappings.push({n: currentEndNote, f: item.str, p: pageNum}); // Store footnote mappings
-                                currentEndNote++;
-                            }
-                            // Equal comparisonKeys indicate same style
-                            else if (areAttributesEqual(itemAttributes, lastAttributes, comparisonKeys)) {
-                                // Add to buffer for continuous text in same style
-                                currentContentBuffer.push(item.str);
-                            // Otherwise, different comparisonKeys probably indicate a new item
-                            } else {
-                                // Add buffered content if not empty
-                                if (currentContentBuffer.length > 0) {
-                                    addItemTopageHTML(currentContentBuffer);
+                                else {
+                                    pageHTML += paragraph;
                                 }
-                                // Update last attributes and reset the buffer
-                                lastAttributes = itemAttributes;
-                                currentContentBuffer = [item.str]; // Start new buffer with the current item
+                                buffer = [];
                             }
-                            console.log('itemAttributes:', itemAttributes);
-                        });
-
-                        // Finalize by adding any remaining buffered content
-                        if (currentContentBuffer.length > 0) {
-                            addItemTopageHTML(currentContentBuffer);
                         }
+
+                        while (content.items.length > 0) {
+                            const item = content.items.shift();
+                            if (item.newParagraph) {
+                                flushBuffer();
+                            }
+                            buffer.push(item);
+                        }
+                        flushBuffer();
 
                         console.log('Page:', pageNum, 'Content:', pageHTML);
                         pageHTML += `<hr class="remove" /><p class="pageNum remove">End of page ${pageNum}</p>`;
@@ -130,6 +170,8 @@ jQuery(document).ready(function ($) {
                         // Append the constructed page content to docHTML
                         docHTML += pageHTML;
                     }
+
+                    docHTML += endnoteHTML;
 
                     // TODO: Implement Endnoting of footnotes - use separate endnoteXML object with consecutive numbering
 
@@ -183,6 +225,12 @@ jQuery(document).ready(function ($) {
         const page = await pdf.getPage(pageNum);
         const content = await page.getTextContent();
         const fontMap = await identifyFonts(page);
+
+        // Calculate and append fontSize to each style
+        Object.keys(content.styles).forEach(styleKey => {
+            const style = content.styles[styleKey];
+            style.fontSize = (style?.ascent && style?.descent) ? (style.ascent - style.descent) : 0;
+        });
 
         return { content, fontMap };
     }
