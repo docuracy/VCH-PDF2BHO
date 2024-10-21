@@ -9,6 +9,11 @@ body {
     font-family: serif;
 }
 
+#htmlPreviewContent .heading {
+    font-size: 27px;
+    font-family: serif;
+}
+
 #htmlPreviewContent sup {
     font-size: 0.6rem;
     font-weight: bold;
@@ -32,6 +37,10 @@ body {
 
 #htmlPreviewContent .remove {
     color: green;
+}
+
+#htmlPreviewContent .gutter {
+    color: orange;
 }
 
 .card {

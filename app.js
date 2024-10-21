@@ -21,16 +21,39 @@ jQuery(document).ready(function ($) {
                 let typedarray = new Uint8Array(this.result);
                 pdfjsLib.getDocument(typedarray).promise.then(async (pdf) => {
 
+                    // const commonOpsWithArgs = await findCommonOperatorsWithValues(pdf);
+                    // console.log('Common Operators with Identical Values:', commonOpsWithArgs);
+
                     let docHTML = ''; // Initialize the document HTML content
                     let endnoteHTML = `<hr class="remove" /><h3 class="remove">ENDNOTES</h3>`; // Initialize the endnote HTML content
                     let endnoteLookup = []; // Initialize the endnote lookup array
 
+                    const stylings = {
+                        'remove': {'condition': (i) => (i.fontName.includes('Helvetica') || i.fontName.includes('Myriad-Roman'))},
+                        'italic': {'condition': (i) => i.fontName.endsWith('it')},
+                        'bold': {'condition': (i) => i.fontName.includes('bold')},
+                        'smallCaps': {'condition': (i) => i.fontName.endsWith('sc')},
+                        'heading': {'condition': (i) => i.transform[0] >= 15},
+                        // 'gutter' for items that appear outside of A4 page bounds: Bottom Left: 28.346, 79.37; Top Right: 623.622, 761.920
+                        'gutter': {'condition': (i) => i.transform[4] < 28.346 || i.transform[5] < 79.37 || i.x_max > 623.622 || i.y_max > 761.920},
+                    };
+
                     // Iterate over pages and process content
                     for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
 
+                        // Short-circuit until last page
+                        // if (pageNum < pdf.numPages) {
+                        //     endnoteLookup.push([]);
+                        //     continue;
+                        // }
+
                         // Call helper function to get content and font map
-                        const { content, fontMap } = await getPageContentAndFonts(pdf, pageNum);
+                        const { content, fontMap, quadrilaterals, lines, viewport } = await getPageContentAndFonts(pdf, pageNum);
                         endnoteLookup.push([]);
+
+                        console.log('Quadrilaterals:', quadrilaterals);
+                        console.log('Lines:', lines);
+                        console.log(`Page width x height: ${viewport.width} x ${viewport.height}`);
 
                         // TODO:
                         // Add `review` class to anything that needs to be reviewed manually: build a javascript function to pick options during HTML review
@@ -49,6 +72,8 @@ jQuery(document).ready(function ($) {
 
                             // Get right-hand x position of the item
                             item.x_max = item.transform[4] + item.width;
+                            // Get top y position of the item
+                            item.y_max = item.transform[5] - item.height;
 
                             // Identify new lines and paragraphs
                             if (Math.abs(item.dy) < 0.1) { // Allows for a continuation across columns. TODO: Need to check for a threshold value - most consecutive lines at scale 10 have dy = 12
@@ -109,33 +134,11 @@ jQuery(document).ready(function ($) {
 
                             // Look up item font name from fontMap
                             let fontName = fontMap[item.fontName] || 'Unknown'
+                            item.fontName = fontName;
 
-                            // Helper function to apply tags
-                            function applyTag(item, index, content, tag, condition, closingTag) {
-                                const previousItem = content.items[index - 1];
-
-                                if (condition(item) && (!previousItem || !condition(previousItem))) {
-                                    item.str = `<${tag}>${item.str}`;
-                                }
-                                if (!condition(item) && previousItem && condition(previousItem)) {
-                                    previousItem.str = `${previousItem.str}</${closingTag}>`;
-                                }
-                                if (index === content.items.length - 1 && condition(item)) {
-                                    item.str = `${item.str}</${closingTag}>`;
-                                }
+                            for (const [style, styling] of Object.entries(stylings)) {
+                                item[style] = styling.condition(item);
                             }
-
-                            // Apply italic based on font name ending with 'it'
-                            applyTag(item, index, content, 'i', (i) => fontName.endsWith('it'), 'i');
-
-                            // Apply bold based on font name containing 'bold'
-                            applyTag(item, index, content, 'b', (i) => fontName.includes('bold'), 'b');
-
-                            // Apply small-caps based on font name ending with 'sc'
-                            applyTag(item, index, content, 'span class="small-caps"', (i) => fontName.endsWith('sc'), 'span');
-
-                            // Apply heading based on item.transform[0] being >= 10
-                            applyTag(item, index, content, 'span class="heading"', (i) => i.transform[0] >= 10, 'span');
 
                         });
 
@@ -144,7 +147,14 @@ jQuery(document).ready(function ($) {
                         let buffer = [];
                         function flushBuffer() {
                             if (buffer.length > 0) {
-                                let paragraph = `<p>${decodeHtmlEntities(buffer.map(i => (i.spaceBefore ? ' ' : '') + i.str).join('').trim()).replace(/  /g, ' ').replace(/&/g, '&amp;')}</p>`;
+
+                                // Function to return class list based on item attributes
+                                function getClassList(item) {
+                                    const classList = Object.keys(stylings).filter(attr => item[attr]);
+                                    return classList.length ? ` class="${classList.join(' ')}"` : '';
+                                }
+
+                                let paragraph = `<p>${decodeHtmlEntities(buffer.map(i => `${i.spaceBefore ? ' ' : ''}<span${getClassList(i)}>${i.str}</span>`).join('').trim()).replace(/  /g, ' ').replace(/&/g, '&amp;')}</p>`;
                                 if (buffer[0].endnote) {
                                     endnoteHTML += paragraph;
                                 }
@@ -188,6 +198,9 @@ jQuery(document).ready(function ($) {
                         console.warn('Failed to retrieve metadata:', metaErr);
                     }
 
+                    const stats = await pdf.getStats();
+                    console.log('PDF Stats:', stats);
+
                     docHTML = `<document><head>${metadata}</head><body>${docHTML}</body></document>`;
 
                     // Fetch the XSLT file and transform the HTML document to BHO XML
@@ -225,6 +238,7 @@ jQuery(document).ready(function ($) {
         const page = await pdf.getPage(pageNum);
         const content = await page.getTextContent();
         const fontMap = await identifyFonts(page);
+        const viewport = page.getViewport({ scale: 1 });
 
         // Calculate and append fontSize to each style
         Object.keys(content.styles).forEach(styleKey => {
@@ -232,7 +246,118 @@ jQuery(document).ready(function ($) {
             style.fontSize = (style?.ascent && style?.descent) ? (style.ascent - style.descent) : 0;
         });
 
-        return { content, fontMap };
+        // Retrieve drawing operators and extract potential quadrilaterals from drawing elements
+        const operatorList = await page.getOperatorList();
+        const quadrilaterals = extractQuadrilaterals(operatorList);
+        const lines = extractLineSegments(operatorList);
+
+        return { content, fontMap, quadrilaterals, lines, viewport };
+    }
+
+    // Create a reverse lookup object to map operator numbers to their names
+    const operatorNames = Object.keys(pdfjsLib.OPS).reduce((acc, key) => {
+        acc[pdfjsLib.OPS[key]] = key;
+        return acc;
+    }, {});
+
+    // Function to extract line segments from operator list with operator name logging
+    function extractLineSegments(operatorList) {
+        let lines = [];
+
+        operatorList.fnArray.forEach((fn, index) => {
+            const args = operatorList.argsArray[index];
+
+            if (fn === pdfjsLib.OPS.constructPath) {
+                const operators = args[0]; // Contains the operator data
+                const pathArgs = args[1]; // Contains the path data
+
+                let cursor = 0;
+                let startX = null;
+                let startY = null;
+
+                operators.forEach((op, i) => {
+                    if (op === pdfjsLib.OPS.moveTo) {
+                        // Capture starting point (moveTo)
+                        startX = pathArgs[cursor];
+                        startY = pathArgs[cursor + 1];
+                        cursor += 2;
+                    } else if (op === pdfjsLib.OPS.lineTo) {
+                        // Capture line segment end point (lineTo)
+                        const endX = pathArgs[cursor];
+                        const endY = pathArgs[cursor + 1];
+                        cursor += 2;
+
+                        // If we have a valid start point, create the line segment
+                        if (startX !== null && startY !== null) {
+                            lines.push({
+                                x0: startX,
+                                y0: startY,
+                                x1: endX,
+                                y1: endY
+                            });
+
+                            // Update start point for the next segment
+                            startX = endX;
+                            startY = endY;
+                        }
+                    }
+                });
+            }
+        });
+
+        return lines;
+    }
+
+
+    // Function to extract quadrilaterals from operator list with operator name logging
+    function extractQuadrilaterals(operatorList) {
+        let rectangles = [];
+
+        operatorList.fnArray.forEach((fn, index) => {
+            const args = operatorList.argsArray[index];
+
+            if (fn === pdfjsLib.OPS.rectangle) {
+                rectangles.push({
+                    x0: args[0],
+                    y0: args[1],
+                    x1: args[0] + args[2],
+                    y1: args[1] + args[3],
+                    width: args[2],
+                    height: args[3]
+                });
+            }
+
+            if (fn === pdfjsLib.OPS.constructPath) {
+
+                const operators = args[0]; // Contains the operator data
+                const pathArgs = args[1]; // Contains the path data
+
+                cursor = 0;
+                operators.forEach((op, i) => {
+                    if (op === pdfjsLib.OPS.moveTo) {
+                        // Discard a pair of coordinates
+                        cursor += 2;
+                    }
+                    else if (op === pdfjsLib.OPS.rectangle) {
+                        const rectangle = pathArgs.slice(cursor, cursor + 4);
+                        cursor += 4;
+                        console.log('Operators:', operators.map(op => operatorNames[op]));
+                        console.log('pathArgs:', pathArgs);
+                        console.log('Rectangle:', rectangle);
+                        rectangles.push({
+                            x0: rectangle[0],
+                            y0: rectangle[1],
+                            x1: rectangle[0] + rectangle[2],
+                            y1: rectangle[1] + rectangle[3],
+                            width: rectangle[2],
+                            height: rectangle[3]
+                        });
+                    }
+                });
+            }
+        });
+
+        return rectangles;
     }
 
     // Helper function: Identify and map fonts for a given page
@@ -392,13 +517,13 @@ jQuery(document).ready(function ($) {
         Promise.all(promises).then(() => {
             appendLogMessage('All PDF files processed successfully. Generating ZIP...');
             // Generate the ZIP file and trigger download
-            zip.generateAsync({type: 'blob'}).then(function (content) {
-                saveAs(content, 'pdfs_to_xml.zip');
-                showAlert('All XML files have been generated and zipped successfully!', 'success');
-            }).catch(err => {
-                appendLogMessage(`Error generating ZIP: ${err}`);
-                console.error('Error generating ZIP:', err);
-            });
+            // zip.generateAsync({type: 'blob'}).then(function (content) {
+            //     saveAs(content, 'pdfs_to_xml.zip');
+            //     showAlert('All XML files have been generated and zipped successfully!', 'success');
+            // }).catch(err => {
+            //     appendLogMessage(`Error generating ZIP: ${err}`);
+            //     console.error('Error generating ZIP:', err);
+            // });
         }).catch(err => {
             appendLogMessage(`Error processing files: ${err}`);
             console.error('Error processing files:', err);
@@ -407,5 +532,49 @@ jQuery(document).ready(function ($) {
             appendLogMessage('=======================');
         });
     });
+
+    async function findCommonOperatorsWithValues(pdf) {
+        let commonOpsWithArgs = [];
+
+        // Iterate through each page of the PDF in reverse order
+        for (let pageNum = pdf.numPages; pageNum >= 1; pageNum--) {
+            const page = await pdf.getPage(pageNum);
+            const operatorList = await page.getOperatorList();
+
+            // Store operator-argument pairs for this page
+            let opsWithArgsForPage = [];
+
+            operatorList.fnArray.forEach((fn, index) => {
+                const operatorName = operatorNames[fn];
+                const args = operatorList.argsArray[index];
+
+                // Push an object with the operator name and its arguments
+                opsWithArgsForPage.push({
+                    operator: operatorName,
+                    args: JSON.stringify(args) // Use JSON.stringify to compare the arguments
+                });
+            });
+
+            if (pageNum === pdf.numPages) {
+                // Initialize the commonOpsWithArgs with the last page's operators
+                commonOpsWithArgs = opsWithArgsForPage;
+            } else {
+                // For previous pages, keep only operators with matching args across pages
+                commonOpsWithArgs = commonOpsWithArgs.filter(opWithArg =>
+                    opsWithArgsForPage.some(op =>
+                        op.operator === opWithArg.operator && op.args === opWithArg.args
+                    )
+                );
+            }
+
+            // If no common operators left, stop early
+            if (commonOpsWithArgs.length === 0) {
+                break;
+            }
+        }
+
+        // Return operator-argument pairs that are common across all pages
+        return commonOpsWithArgs;
+    }
 
 });
