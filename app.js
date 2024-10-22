@@ -139,9 +139,8 @@ jQuery(document).ready(function ($) {
                             // Identify superscript (footnote) items: higher on page, smaller font size, and integer content value
                             if (item.dy < 0 && item.height < (previousItem?.height || 0) && parseInt(item.str) > 0) {
                                 item.newParagraph = false; // Footnotes are part of the same paragraph
-                                const footnoteNumber = parseInt(item.str);
-                                endnoteLookup[pageNum - 1].push(endnoteNumber++);
                                 item.str = `<sup idref="n${endnoteNumber}">${endnoteNumber}</sup> `;
+                                endnoteLookup[pageNum - 1].push(endnoteNumber++);
                             }
 
                             // Identify footnotes: content begins with an integer followed by a space
