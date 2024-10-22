@@ -7,6 +7,13 @@
         <!-- Empty template: do not copy this element -->
     </xsl:template>
 
+    <!-- Template to transform <p class="pageNum" start="..."> to <page start="..."/> -->
+    <xsl:template match="p[contains(@class, 'pageNum')]">
+        <page>
+            <xsl:copy-of select="@start"/>
+        </page>
+    </xsl:template>
+
     <!-- Convert <p> elements to <para> elements, preserving attributes -->
     <xsl:template match="p">
         <para>

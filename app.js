@@ -27,15 +27,23 @@ jQuery(document).ready(function ($) {
                     let docHTML = ''; // Initialize the document HTML content
                     let endnoteHTML = `<hr class="remove" /><h3 class="remove">ENDNOTES</h3>`; // Initialize the endnote HTML content
                     let endnoteLookup = []; // Initialize the endnote lookup array
+                    let endnoteNumber = 1; // Initialize the endnote number
 
                     const stylings = {
-                        'remove': {'condition': (i) => (i.fontName.includes('Helvetica') || i.fontName.includes('Myriad-Roman'))},
                         'italic': {'condition': (i) => i.fontName.endsWith('it')},
                         'bold': {'condition': (i) => i.fontName.includes('bold')},
+                        'remove': {
+                            'condition': (i) => (
+                                // /^[A-Z]{6}\+/.test(i.fontName) ||
+                                i.fontName.includes('Helvetica') ||
+                                i.fontName.includes('Myriad-Roman')
+                            )
+                        },
                         'smallCaps': {'condition': (i) => i.fontName.endsWith('sc')},
-                        'heading': {'condition': (i) => i.transform[0] >= 15},
-                        // 'gutter' for items that appear outside of A4 page bounds: Bottom Left: 28.346, 79.37; Top Right: 623.622, 761.920
-                        'gutter': {'condition': (i) => i.transform[4] < 28.346 || i.transform[5] < 79.37 || i.x_max > 623.622 || i.y_max > 761.920},
+                        'heading': {'condition': (i) => i.height >= 15},
+                        'majorHeading': {'condition': (i) => i.height >= 20},
+                        // 'gutter' for items that appear outside the main text area: TODO: Need to check values or use crop marks
+                        'gutter': {'condition': (i) => i.x < 28.346 || i.y < 79.37 || i.x_max > 623.622 || i.y_max > 840},
                     };
 
                     // Iterate over pages and process content
@@ -47,12 +55,17 @@ jQuery(document).ready(function ($) {
                         //     continue;
                         // }
 
+                        // Stop processing after the n-th page
+                        if (pageNum > 5) {
+                            break;
+                        }
+
                         // Call helper function to get content and font map
                         const { content, fontMap, quadrilaterals, lines, viewport } = await getPageContentAndFonts(pdf, pageNum);
                         endnoteLookup.push([]);
 
-                        console.log('Quadrilaterals:', quadrilaterals);
-                        console.log('Lines:', lines);
+                        // console.log('Quadrilaterals:', quadrilaterals);
+                        // console.log('Lines:', lines);
                         console.log(`Page width x height: ${viewport.width} x ${viewport.height}`);
 
                         // TODO:
@@ -61,49 +74,60 @@ jQuery(document).ready(function ($) {
 
                         // Loop through items with index, and analyse geometry
 
-                        let column_width = 0;
+                        let column_right = 0;
 
                         content.items.forEach((item, index) => {
                             console.log('Item index:', index, item);
 
-                            // Get difference in x and y positions from the previous item
-                            item.dx = item.transform[4] - (content.items[index - 1]?.transform[4] || 0);
-                            item.dy = (content.items[index - 1]?.transform[5] || 9999) - item.transform[5];
+                            previousItem = content.items[index - 1];
 
-                            // Get right-hand x position of the item
-                            item.x_max = item.transform[4] + item.width;
-                            // Get top y position of the item
-                            item.y_max = item.transform[5] - item.height;
+                            // Get x and y positions of the item
+                            item.x = item.transform[4];
+                            item.y = item.transform[5];
+                            item.x_max = item.x + item.width;
+                            item.y_max = item.y + item.height;
+
+                            // Get difference in x and y positions from the previous item
+                            item.dx = item.x - (previousItem?.x || 0);
+                            item.dy = (previousItem?.y || 9999) - item.y;
+
+                            item.column_x_max = column_right;
 
                             // Identify new lines and paragraphs
-                            if (Math.abs(item.dy) < 0.1) { // Allows for a continuation across columns. TODO: Need to check for a threshold value - most consecutive lines at scale 10 have dy = 12
+                            if (Math.abs(item.dy) < item.height) { // Allows for superscripts. TODO: Need to check for a threshold value - most consecutive lines at scale 10 have dy = 12
                                 console.log('Same line:', item.str);
-                                column_width = Math.max(column_width, item.x_max); // Update column width
+                                column_right = Math.max(column_right, item.x_max); // Update column width
                                 // Get line-height from previous item
-                                item.lineHeight = content.items[index - 1]?.lineHeight || 0;
+                                item.lineHeight = previousItem?.lineHeight || 0;
                                 // Get horizontal distance between items, taking account of width of previous item
-                                item.spaceBefore = item.dx - (content.items[index - 1]?.x_max || 0) > 0.1; // TODO: Need to check for a threshold value
+                                item.spaceBefore = item.dx - (previousItem?.x_max || 0) > 0.1; // TODO: Need to check for a threshold value
                             }
                             else {
-                                // Check for new paragraph: is dy > previous item's line-height, or did the previous line end short of the column width?
-                                item.newParagraph = item.dy > (content.items[index - 1]?.lineHeight || 0) || column_width - (content.items[index - 1]?.x_max || 0) > 0.1; // TODO: Need to check for a threshold value
+                                item.newParagraph =
+                                    // is the vertical distance between items significantly greater than the height of the previous item?
+                                    Math.abs(item.dy) > 1.5 * (previousItem?.height || 0) ||
+                                    // or did the previous line end short of the column width?
+                                    column_right - (previousItem?.x_max || 0) > 1; // TODO: Need to check for a threshold value
 
+                                if (item.x > previousItem?.x_max && item.y > previousItem?.y) {
+                                    item.newParagraph = false; // This is a probably a continuation of the previous paragraph in a new column
+                                }
 
                                 if (item.newParagraph) {
                                     console.log('New paragraph:', item.str);
                                     // Get line-height from dy
-                                    item.lineHeight = item.dy;
+                                    item.lineHeight = index === 0 ? item.height : item.dy;
                                     item.spaceBefore = false; // No space before new paragraph
-                                    column_width = item.x_max; // Update column width
+                                    column_right = item.x_max; // Update column width
                                 }
                                 else {
                                     console.log('New line:', item.str);
-                                    column_width = Math.max(column_width, item.x_max); // Update column width
+                                    column_right = Math.max(column_right, item.x_max); // Update column width
                                     // Get line-height from previous item (which may have been a new column within the same paragraph)
-                                    item.lineHeight = content.items[index - 1]?.lineHeight || 0;
+                                    item.lineHeight = previousItem?.lineHeight || 0;
                                     // Check for hyphenation: does previous line end with a hyphen?
-                                    if (content.items[index - 1]?.str.endsWith('-')) {
-                                        content.items[index - 1].str = content.items[index - 1].str.slice(0, -1) + '<span class="review hyphen">-</span>'; // Wrap hyphen in a span for review
+                                    if (previousItem?.str.endsWith('-')) {
+                                        previousItem.str = previousItem.str.slice(0, -1) + '<span class="review hyphen">-</span>'; // Wrap hyphen in a span for review
                                         item.spaceBefore = false; // No space before hyphenated word
                                     }
                                     else {
@@ -113,23 +137,24 @@ jQuery(document).ready(function ($) {
                             }
 
                             // Identify superscript (footnote) items: higher on page, smaller font size, and integer content value
-                            if (item.dy < 0 && item.transform[0] < (content.items[index - 1]?.transform[0] || 0) && parseInt(item.str) > 0) {
+                            if (item.dy < 0 && item.height < (previousItem?.height || 0) && parseInt(item.str) > 0) {
+                                item.newParagraph = false; // Footnotes are part of the same paragraph
                                 const footnoteNumber = parseInt(item.str);
-                                endnoteLookup[pageNum - 1].push(footnoteNumber);
-                                const endnoteNumber = endnoteLookup[pageNum - 1].length + 1;
-                                item.str = `<sup idref="n${endnoteNumber}">${endnoteNumber}</sup>`;
+                                endnoteLookup[pageNum - 1].push(endnoteNumber++);
+                                item.str = `<sup idref="n${endnoteNumber}">${endnoteNumber}</sup> `;
                             }
 
-                            // Identify footnotes: content begins with an integer followed by a period
-                            const footnoteMatch = item.str.match(/^(\d+)\./);
-                            item.endnote = footnoteMatch;
-                            if (footnoteMatch) {
+                            // Identify footnotes: content begins with an integer followed by a space
+                            const footnoteMatch = item.str.match(/^(\d+)\s/);
+                            item.endnote = footnoteMatch && item.height === 8.5;
+                            if (item.endnote) {
                                 const footnoteReferenceNumber = parseInt(footnoteMatch[1]);
-                                const endnoteNumber = endnoteLookup[pageNum - 1].indexOf(footnoteReferenceNumber) + 1;
+                                const endnoteReference = endnoteLookup[pageNum - 1][footnoteReferenceNumber - 1];
+                                console.log('Endnote:', endnoteLookup, footnoteReferenceNumber, endnoteReference);
                                 // trim the footnote number from the start of the string
                                 item.str = item.str.replace(footnoteMatch[0], '').trim();
                                 // Wrap the footnote content in a span with a reference ID
-                                item.str = `<span class="footnote-reference" id="n${endnoteNumber}" number="${endnoteNumber}"><span class="remove">${endnoteNumber}. </span>${item.str}</span>`;
+                                item.str = `<p class="footnote-reference" id="n${endnoteReference}" number="${endnoteReference}"><span class="remove">${endnoteReference}. </span>${item.str}</p>`;
                             }
 
                             // Look up item font name from fontMap
@@ -142,48 +167,87 @@ jQuery(document).ready(function ($) {
 
                         });
 
-                        // Add items to pageHTML
-                        let pageHTML = '';
-                        let buffer = [];
-                        function flushBuffer() {
-                            if (buffer.length > 0) {
+                        // Merge items and re-order before pushing to HTML
+                        let mergedItemBuffer = [];
 
-                                // Function to return class list based on item attributes
-                                function getClassList(item) {
-                                    const classList = Object.keys(stylings).filter(attr => item[attr]);
-                                    return classList.length ? ` class="${classList.join(' ')}"` : '';
-                                }
+                        // Start page with number tag
+                        // Extract page number from .gutter items like "VCH Staff 11 txt 5+index_VCHistories 16/01/2013 10:02 Page 15
+                        const printPageNum = String(content.items.filter(i => i.gutter && i.str.includes('Page ')).map(i => parseInt(i.str.split('Page ')[1]))[0]).padStart(3, '0');
+                        docHTML += `<p class="pageNum" start="${printPageNum}">Page ${printPageNum} [PDF ${pageNum}]</p>`;
 
-                                let paragraph = `<p>${decodeHtmlEntities(buffer.map(i => `${i.spaceBefore ? ' ' : ''}<span${getClassList(i)}>${i.str}</span>`).join('').trim()).replace(/  /g, ' ').replace(/&/g, '&amp;')}</p>`;
-                                if (buffer[0].endnote) {
-                                    endnoteHTML += paragraph;
+                        // Function to return class list based on item attributes
+                        function getClassList(item) {
+                            const classList = Object.keys(stylings).filter(attr => attr !== 'italic' && attr !== 'bold' && item[attr]);
+                            return classList.length ? ` class="${classList.join(' ')}"` : '';
+                        }
+
+                        let itemBuffer = [];
+                        function flushItemBuffer() {
+                            if (itemBuffer.length > 0) {
+
+                                // Merge items with same styles
+                                let mergedItem;
+                                let nextItem;
+                                let classes;
+                                while (itemBuffer.length > 0) {
+                                    nextItem = itemBuffer.shift();
+                                    classes = getClassList(nextItem);
+                                    if (classes.length > 0) {
+                                        nextItem.str = `<span${classes}>${nextItem.str}</span>`;
+                                    }
+                                    if (nextItem.italic) {
+                                        nextItem.str = `<i>${nextItem.str}</i>`;
+                                    }
+                                    if (nextItem.bold) {
+                                        nextItem.str = `<b>${nextItem.str}</b>`;
+                                    }
+
+                                    if (mergedItem === undefined) {
+                                        mergedItem = nextItem;
+                                    }
+                                    else {
+                                        mergedItem.str += `${nextItem.spaceBefore ? ' ' : ''}${nextItem.str}`;
+                                        mergedItem.x_max = Math.max(mergedItem.x_max, nextItem.x_max);
+                                    }
                                 }
-                                else {
-                                    pageHTML += paragraph;
-                                }
-                                buffer = [];
+                                mergedItem.str = mergedItem.str
+                                    .replace('</b> <b>', ' ')
+                                    .replace('</i> <i>', ' ')
+                                    .replace(/  /g, ' ')
+                                    .replace(/&/g, '&amp;');
+
+                                mergedItemBuffer.push(mergedItem);
+                                itemBuffer = [];
                             }
                         }
 
                         while (content.items.length > 0) {
                             const item = content.items.shift();
                             if (item.newParagraph) {
-                                flushBuffer();
+                                flushItemBuffer();
                             }
-                            buffer.push(item);
+                            itemBuffer.push(item);
                         }
-                        flushBuffer();
+                        flushItemBuffer();
 
-                        console.log('Page:', pageNum, 'Content:', pageHTML);
-                        pageHTML += `<hr class="remove" /><p class="pageNum remove">End of page ${pageNum}</p>`;
+                        mergedItemBuffer = elevateHeadings(mergedItemBuffer);
 
-                        // Append the constructed page content to docHTML
-                        docHTML += pageHTML;
+                        let newHTMLelement;
+                        mergedItemBuffer.forEach((item, index) => {
+                            const tag = item.majorHeading ? 'h1' : item.heading ? 'h2' : 'p';
+                            newHTMLelement = `<${tag}>${item.str}</${tag}>`;
+                            if (item.endnote) {
+                                endnoteHTML += newHTMLelement;
+                            }
+                            else {
+                                docHTML += newHTMLelement;
+                            }
+                        });
+
+                        docHTML += `<hr class="remove" />`;
                     }
 
                     docHTML += endnoteHTML;
-
-                    // TODO: Implement Endnoting of footnotes - use separate endnoteXML object with consecutive numbering
 
                     showHtmlPreview(docHTML); // Display HTML in modal overlay for checking
                     appendLogMessage(`Generated HTML for file: ${fileName}, size: ${docHTML.length} characters`); // Debugging log
@@ -225,6 +289,28 @@ jQuery(document).ready(function ($) {
 
             fileReader.readAsArrayBuffer(file);
         });
+    }
+
+    function elevateHeadings(paragraphs) {
+        // Iterate through all paragraphs, starting from the second one
+        for (let i = 1; i < paragraphs.length; i++) {
+            // Check if the current paragraph is a heading
+            if (paragraphs[i].heading) {
+                let index = i;
+                const currentHeading = paragraphs[i];
+
+                // Move the heading upwards as long as the preceding paragraph is a gutter item or has a lower y value
+                while ((index > 0 && paragraphs[index - 1].gutter) || (index > 0 && currentHeading.y > paragraphs[index - 1].y)) {
+                    // Swap the heading with the paragraph above it
+                    paragraphs[index] = paragraphs[index - 1];
+                    paragraphs[index - 1] = currentHeading;
+
+                    index--;  // Continue moving upwards
+                }
+            }
+        }
+
+        return paragraphs;
     }
 
     // Display HTML in the modal overlay for checking
@@ -341,9 +427,9 @@ jQuery(document).ready(function ($) {
                     else if (op === pdfjsLib.OPS.rectangle) {
                         const rectangle = pathArgs.slice(cursor, cursor + 4);
                         cursor += 4;
-                        console.log('Operators:', operators.map(op => operatorNames[op]));
-                        console.log('pathArgs:', pathArgs);
-                        console.log('Rectangle:', rectangle);
+                        // console.log('Operators:', operators.map(op => operatorNames[op]));
+                        // console.log('pathArgs:', pathArgs);
+                        // console.log('Rectangle:', rectangle);
                         rectangles.push({
                             x0: rectangle[0],
                             y0: rectangle[1],

@@ -9,14 +9,28 @@ body {
     font-family: serif;
 }
 
+#htmlPreviewContent p {
+    text-align: justify;
+}
+
+#htmlPreviewContent .pageNum {
+    text-align: center;
+    font-family: monospace;
+    color: green;
+}
+
 #htmlPreviewContent .heading {
-    font-size: 27px;
     font-family: serif;
 }
 
 #htmlPreviewContent sup {
-    font-size: 0.6rem;
+    font-size: 0.8rem;
     font-weight: bold;
+    top: -.2rem;
+}
+
+#htmlPreviewContent p.footnote-reference {
+    margin-bottom: -1.5rem;
 }
 
 #htmlPreviewContent span.review {
@@ -29,18 +43,13 @@ body {
     height: 0; /* Set the height to 0 to remove any vertical space */
 }
 
-#htmlPreviewContent p.pageNum.remove {
-    text-align: right;
-    font-style: italic;
-    margin-top: -1.2rem;
-}
-
 #htmlPreviewContent .remove {
     color: green;
 }
 
 #htmlPreviewContent .gutter {
     color: orange;
+    display: none;
 }
 
 .card {
