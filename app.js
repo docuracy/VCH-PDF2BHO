@@ -32,6 +32,7 @@ jQuery(document).ready(function ($) {
                     const stylings = {
                         'italic': {'condition': (i) => i.fontName.toLowerCase().endsWith('it')},
                         'bold': {'condition': (i) => i.fontName.toLowerCase().includes('bold')},
+                        'customItalic': {'condition': (i) => /^[A-Z]{6}\+/.test(i.fontName)},
                         'remove': {
                             'condition': (i) => (
                                 // /^[A-Z]{6}\+/.test(i.fontName) ||
@@ -56,8 +57,12 @@ jQuery(document).ready(function ($) {
                         // }
 
                         // Stop processing after the n-th page
-                        if (pageNum > 5) {
-                            break;
+                        // if (pageNum > 5) {
+                        //     break;
+                        // }
+
+                        if (pageNum > 1) {
+                            docHTML += '<hr class="remove" />'; // Add horizontal rule between pages
                         }
 
                         // Call helper function to get content and font map
@@ -100,6 +105,15 @@ jQuery(document).ready(function ($) {
 
                             item.column_x_max = column_right;
 
+                            // Look up item font name from fontMap
+                            let fontName = fontMap[item.fontName] || 'Unknown'
+                            item.fontName = fontName;
+
+                            for (const [style, styling] of Object.entries(stylings)) {
+                                item[style] = styling.condition(item);
+                                item.spaceBefore = item.spaceBefore || (item[style] && ['italic', 'bold'].includes(style)); // Add space before if item has a style
+                            }
+
                             // Identify new lines and paragraphs
                             if (Math.abs(item.dy) < item.height) { // Allows for superscripts. TODO: Need to check for a threshold value - most consecutive lines at scale 10 have dy = 12
                                 console.log('Same line:', item.str);
@@ -107,11 +121,15 @@ jQuery(document).ready(function ($) {
                                 // Get line-height from previous item
                                 item.lineHeight = previousItem?.lineHeight || 0;
                                 // Get horizontal distance between items, taking account of width of previous item
-                                item.spaceBefore = item.dx - (previousItem?.x_max || 0) > 0; // TODO: Need to check for a threshold value
+                                item.spaceBefore = item.spaceBefore || (item.dx - (previousItem?.x_max || 0) > 0); // TODO: Need to check for a threshold value
                             } else {
                                 item.newParagraph =
                                     // is the vertical distance between items significantly greater than the height of the previous item?
                                     Math.abs(item.dy) > 1.5 * (previousItem?.height || 0) ||
+                                    // or did the previous line have smallCaps and this one doesn't?
+                                    (previousItem?.smallCaps && !item.smallCaps) ||
+                                    // or did the previous line have a custom italic font and this one doesn't?
+                                    (previousItem?.italic && previousItem?.customItalic && !item.italic) ||
                                     // or did the previous line end short of the column width?
                                     column_right - (previousItem?.x_max || 0) > 1; // TODO: Need to check for a threshold value
 
@@ -156,13 +174,8 @@ jQuery(document).ready(function ($) {
                                 // after the first footnote is unpredictable, so text from this point will be processed separately 
                             }
 
-                            // Look up item font name from fontMap
-                            let fontName = fontMap[item.fontName] || 'Unknown'
-                            item.fontName = fontName;
-
-                            for (const [style, styling] of Object.entries(stylings)) {
-                                item[style] = styling.condition(item);
-                                item.spaceBefore = item.spaceBefore || (item[style] && ['italic', 'bold'].includes(style)); // Add space before if item has a style
+                            if (item.smallCaps) {
+                                item.str = item.str.toUpperCase();
                             }
 
                         });
@@ -245,8 +258,6 @@ jQuery(document).ready(function ($) {
                             docHTML += `<${tag}>${item.str}</${tag}>`;
                         }
 
-                        docHTML += `<hr class="remove" />`;
-
                         // ENDNOTES: These need special handling because of peculiarities of layout.
                         // Concatenate all remaining item.str values
                         let remainingContent = mergedItemBuffer
@@ -268,7 +279,6 @@ jQuery(document).ready(function ($) {
                             console.log(`Endnote item ${i}:`, item);
                             if (item) {
                                 // Replace first occurrence of item.str after previousTagEndIndex
-                                console.log('After tag:', remainingContent.slice(previousTagEndIndex));
                                 remainingContent = remainingContent.slice(0, previousTagEndIndex) + remainingContent.slice(previousTagEndIndex).replace(item.str.trim(), `${currentTag}${item.str.trim().slice(`${i}`.length)}`);
                             } else if (iIndex > -1){
                                 remainingContent = remainingContent.slice(0, iIndex) + currentTag + remainingContent.slice(iIndex + `${i} `.length);
@@ -284,7 +294,7 @@ jQuery(document).ready(function ($) {
                             }
                         }
 
-                        endnoteHTML += `<p>${remainingContent.replace(/  /g, ' ').split('***').join('</p><p>')}</p>`;
+                        endnoteHTML += `<p class="endnote">${remainingContent.replace(/  /g, ' ').split('***').join('</p><p class="endnote">')}</p>`;
                     }
 
                     docHTML += endnoteHTML;
@@ -642,13 +652,13 @@ jQuery(document).ready(function ($) {
         Promise.all(promises).then(() => {
             appendLogMessage('All PDF files processed successfully. Generating ZIP...');
             // Generate the ZIP file and trigger download
-            // zip.generateAsync({type: 'blob'}).then(function (content) {
-            //     saveAs(content, 'pdfs_to_xml.zip');
-            //     showAlert('All XML files have been generated and zipped successfully!', 'success');
-            // }).catch(err => {
-            //     appendLogMessage(`Error generating ZIP: ${err}`);
-            //     console.error('Error generating ZIP:', err);
-            // });
+            zip.generateAsync({type: 'blob'}).then(function (content) {
+                saveAs(content, 'pdfs_to_xml.zip');
+                showAlert('All XML files have been generated and zipped successfully!', 'success');
+            }).catch(err => {
+                appendLogMessage(`Error generating ZIP: ${err}`);
+                console.error('Error generating ZIP:', err);
+            });
         }).catch(err => {
             appendLogMessage(`Error processing files: ${err}`);
             console.error('Error processing files:', err);

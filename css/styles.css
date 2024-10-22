@@ -23,6 +23,12 @@ body {
     font-family: serif;
 }
 
+#htmlPreviewContent .smallCaps {
+    /* Text has been converted to upper case */
+    font-size: 1.1rem;
+    font-weight: bold;
+}
+
 #htmlPreviewContent sup {
     font-size: 0.8rem;
     font-weight: bold;

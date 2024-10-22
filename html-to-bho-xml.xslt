@@ -2,6 +2,18 @@
 <xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
     <xsl:output method="xml" indent="yes"/>
 
+    <!-- Template to match <p> elements with class="endnote" -->
+    <xsl:template match="p[contains(@class, 'endnote')]">
+        <note>
+            <!-- Copy the idref attribute from the <span> into <note> -->
+            <xsl:attribute name="idref">
+                <xsl:value-of select="span/@idref"/>
+            </xsl:attribute>
+            <!-- Apply the rest of the templates (content inside <p>) -->
+            <xsl:apply-templates select="node()[not(self::span)]"/>
+        </note>
+    </xsl:template>
+
     <!-- Template to remove elements with class="remove" -->
     <xsl:template match="*[contains(@class, 'remove')]">
         <!-- Empty template: do not copy this element -->
@@ -44,22 +56,6 @@
             <xsl:copy-of select="@*"/>
             <xsl:apply-templates/>
         </ref>
-    </xsl:template>
-
-    <!-- Convert elements with class="footnote" to <note>, preserving attributes -->
-    <xsl:template match="*[contains(@class, 'footnote')]">
-        <note>
-            <xsl:copy-of select="@*"/>
-            <xsl:apply-templates/>
-        </note>
-    </xsl:template>
-
-    <!-- Convert elements with class="footnote-reference" to <note>, preserving attributes -->
-    <xsl:template match="*[contains(@class, 'footnote-reference')]">
-        <note>
-            <xsl:copy-of select="@*"/>
-            <xsl:apply-templates/>
-        </note>
     </xsl:template>
 
     <!-- Identity transform: copies everything as-is -->
