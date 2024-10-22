@@ -30,8 +30,8 @@ jQuery(document).ready(function ($) {
                     let endnoteNumber = 1; // Initialize the endnote number
 
                     const stylings = {
-                        'italic': {'condition': (i) => i.fontName.endsWith('it')},
-                        'bold': {'condition': (i) => i.fontName.includes('bold')},
+                        'italic': {'condition': (i) => i.fontName.toLowerCase().endsWith('it')},
+                        'bold': {'condition': (i) => i.fontName.toLowerCase().includes('bold')},
                         'remove': {
                             'condition': (i) => (
                                 // /^[A-Z]{6}\+/.test(i.fontName) ||
@@ -39,7 +39,7 @@ jQuery(document).ready(function ($) {
                                 i.fontName.includes('Myriad-Roman')
                             )
                         },
-                        'smallCaps': {'condition': (i) => i.fontName.endsWith('sc')},
+                        'smallCaps': {'condition': (i) => i.fontName.toLowerCase().endsWith('sc')},
                         'heading': {'condition': (i) => i.height >= 15},
                         'majorHeading': {'condition': (i) => i.height >= 20},
                         // 'gutter' for items that appear outside the main text area: TODO: Need to check values or use crop marks
@@ -61,7 +61,13 @@ jQuery(document).ready(function ($) {
                         }
 
                         // Call helper function to get content and font map
-                        const { content, fontMap, quadrilaterals, lines, viewport } = await getPageContentAndFonts(pdf, pageNum);
+                        const {
+                            content,
+                            fontMap,
+                            quadrilaterals,
+                            lines,
+                            viewport
+                        } = await getPageContentAndFonts(pdf, pageNum);
                         endnoteLookup.push([]);
 
                         // console.log('Quadrilaterals:', quadrilaterals);
@@ -75,6 +81,7 @@ jQuery(document).ready(function ($) {
                         // Loop through items with index, and analyse geometry
 
                         let column_right = 0;
+                        let found_first_endnote = false;
 
                         content.items.forEach((item, index) => {
                             console.log('Item index:', index, item);
@@ -100,9 +107,8 @@ jQuery(document).ready(function ($) {
                                 // Get line-height from previous item
                                 item.lineHeight = previousItem?.lineHeight || 0;
                                 // Get horizontal distance between items, taking account of width of previous item
-                                item.spaceBefore = item.dx - (previousItem?.x_max || 0) > 0.1; // TODO: Need to check for a threshold value
-                            }
-                            else {
+                                item.spaceBefore = item.dx - (previousItem?.x_max || 0) > 0; // TODO: Need to check for a threshold value
+                            } else {
                                 item.newParagraph =
                                     // is the vertical distance between items significantly greater than the height of the previous item?
                                     Math.abs(item.dy) > 1.5 * (previousItem?.height || 0) ||
@@ -119,8 +125,7 @@ jQuery(document).ready(function ($) {
                                     item.lineHeight = index === 0 ? item.height : item.dy;
                                     item.spaceBefore = false; // No space before new paragraph
                                     column_right = item.x_max; // Update column width
-                                }
-                                else {
+                                } else {
                                     console.log('New line:', item.str);
                                     column_right = Math.max(column_right, item.x_max); // Update column width
                                     // Get line-height from previous item (which may have been a new column within the same paragraph)
@@ -129,8 +134,7 @@ jQuery(document).ready(function ($) {
                                     if (previousItem?.str.endsWith('-')) {
                                         previousItem.str = previousItem.str.slice(0, -1) + '<span class="review hyphen">-</span>'; // Wrap hyphen in a span for review
                                         item.spaceBefore = false; // No space before hyphenated word
-                                    }
-                                    else {
+                                    } else {
                                         item.spaceBefore = true; // Space before new line
                                     }
                                 }
@@ -143,17 +147,13 @@ jQuery(document).ready(function ($) {
                                 endnoteLookup[pageNum - 1].push(endnoteNumber++);
                             }
 
-                            // Identify footnotes: content begins with an integer followed by a space
-                            const footnoteMatch = item.str.match(/^(\d+)\s/);
-                            item.endnote = footnoteMatch && item.height === 8.5;
-                            if (item.endnote) {
-                                const footnoteReferenceNumber = parseInt(footnoteMatch[1]);
-                                const endnoteReference = endnoteLookup[pageNum - 1][footnoteReferenceNumber - 1];
-                                console.log('Endnote:', endnoteLookup, footnoteReferenceNumber, endnoteReference);
-                                // trim the footnote number from the start of the string
-                                item.str = item.str.replace(footnoteMatch[0], '').trim();
-                                // Wrap the footnote content in a span with a reference ID
-                                item.str = `<p class="footnote-reference" id="n${endnoteReference}" number="${endnoteReference}"><span class="remove">${endnoteReference}. </span>${item.str}</p>`;
+                            if (!found_first_endnote) {
+                                // Identify endnotes: content begins with an integer followed by a space
+                                const footnoteMatch = item.str.match(/^(\d+)\s/);
+                                // Endnotes are smaller font size and have a height of 8.5
+                                item.endnote = footnoteMatch && item.height === 8.5;
+                                // Some endnotes are condensed on the same line as the previous item: matching 
+                                // after the first footnote is unpredictable, so text from this point will be processed separately 
                             }
 
                             // Look up item font name from fontMap
@@ -162,6 +162,7 @@ jQuery(document).ready(function ($) {
 
                             for (const [style, styling] of Object.entries(stylings)) {
                                 item[style] = styling.condition(item);
+                                item.spaceBefore = item.spaceBefore || (item[style] && ['italic', 'bold'].includes(style)); // Add space before if item has a style
                             }
 
                         });
@@ -171,8 +172,13 @@ jQuery(document).ready(function ($) {
 
                         // Start page with number tag
                         // Extract page number from .gutter items like "VCH Staff 11 txt 5+index_VCHistories 16/01/2013 10:02 Page 15
-                        const printPageNum = String(content.items.filter(i => i.gutter && i.str.includes('Page ')).map(i => parseInt(i.str.split('Page ')[1]))[0]).padStart(3, '0');
-                        docHTML += `<p class="pageNum" start="${printPageNum}">Page ${printPageNum} [PDF ${pageNum}]</p>`;
+                        // Find first gutter item with "Page "
+                        const metaGutterItem = content.items.find(i => i.gutter && i.str.includes('Page '));
+                        // Extract page number from the string
+                        const printPageNum = (metaGutterItem?.str.split('Page ')[1] || '0').padStart(3, '0');
+                        // Extract date from metaGutterItem
+                        const pdfDate = metaGutterItem?.str.match(/\d{2}\/\d{2}\/\d{4}/)?.[0] || '--/--/----';
+                        docHTML += `<p class="pageNum" start="${printPageNum}">Page ${printPageNum} [PDF ${pdfDate} ${pageNum}]</p>`;
 
                         // Function to return class list based on item attributes
                         function getClassList(item) {
@@ -181,6 +187,7 @@ jQuery(document).ready(function ($) {
                         }
 
                         let itemBuffer = [];
+
                         function flushItemBuffer() {
                             if (itemBuffer.length > 0) {
 
@@ -203,8 +210,7 @@ jQuery(document).ready(function ($) {
 
                                     if (mergedItem === undefined) {
                                         mergedItem = nextItem;
-                                    }
-                                    else {
+                                    } else {
                                         mergedItem.str += `${nextItem.spaceBefore ? ' ' : ''}${nextItem.str}`;
                                         mergedItem.x_max = Math.max(mergedItem.x_max, nextItem.x_max);
                                     }
@@ -220,9 +226,11 @@ jQuery(document).ready(function ($) {
                             }
                         }
 
+                        let endnoting = false;
                         while (content.items.length > 0) {
                             const item = content.items.shift();
-                            if (item.newParagraph) {
+                            endnoting = endnoting || item.endnote;
+                            if (item.newParagraph || endnoting) {
                                 flushItemBuffer();
                             }
                             itemBuffer.push(item);
@@ -231,19 +239,52 @@ jQuery(document).ready(function ($) {
 
                         mergedItemBuffer = elevateHeadings(mergedItemBuffer);
 
-                        let newHTMLelement;
-                        mergedItemBuffer.forEach((item, index) => {
+                        while (mergedItemBuffer.length > 0 && !mergedItemBuffer[0].endnote) {
+                            const item = mergedItemBuffer.shift();
                             const tag = item.majorHeading ? 'h1' : item.heading ? 'h2' : 'p';
-                            newHTMLelement = `<${tag}>${item.str}</${tag}>`;
-                            if (item.endnote) {
-                                endnoteHTML += newHTMLelement;
-                            }
-                            else {
-                                docHTML += newHTMLelement;
-                            }
-                        });
+                            docHTML += `<${tag}>${item.str}</${tag}>`;
+                        }
 
                         docHTML += `<hr class="remove" />`;
+
+                        // ENDNOTES: These need special handling because of peculiarities of layout.
+                        // Concatenate all remaining item.str values
+                        let remainingContent = mergedItemBuffer
+                            .filter(item => !item.gutter) // Exclude items with .gutter = true
+                            .map(item => `${item.spaceBefore ? ' ' : ''}${item.str.trim()}`) // Map remaining items
+                            .join('');
+                        // Loop from 1 to endnoteLookup[pageNum - 1].length
+                        let currentTag = '';
+                        let previousTag;
+                        for (let i = 1; i <= endnoteLookup[pageNum - 1].length; i++) {
+                            // Try first to find `${i} ` at the beginning of one of the mergedItemBuffer items
+                            const endnoteNumber = endnoteLookup[pageNum - 1][i - 1];
+                            previousTag = currentTag;
+                            const previousTagEndIndex = previousTag ? remainingContent.indexOf(previousTag) + previousTag.length : 0;
+                            let iIndex = remainingContent.indexOf(`${i} `, previousTagEndIndex);
+                            currentTag = `${(i !== 1 ? '***' : '')}<span idref="n${endnoteNumber}" class="remove">${endnoteNumber}. [p${pageNum} fn${i}]</span>. `;
+
+                            const item = mergedItemBuffer.find(item => item.str.startsWith(`${i} `));
+                            console.log(`Endnote item ${i}:`, item);
+                            if (item) {
+                                // Replace first occurrence of item.str after previousTagEndIndex
+                                console.log('After tag:', remainingContent.slice(previousTagEndIndex));
+                                remainingContent = remainingContent.slice(0, previousTagEndIndex) + remainingContent.slice(previousTagEndIndex).replace(item.str.trim(), `${currentTag}${item.str.trim().slice(`${i}`.length)}`);
+                            } else if (iIndex > -1){
+                                remainingContent = remainingContent.slice(0, iIndex) + currentTag + remainingContent.slice(iIndex + `${i} `.length);
+                            } else {
+                                // Footnote digits are occasionally separated with a space
+                                const spacedLoopIndex = i.toString().split('').join(' ');
+                                iIndex = remainingContent.indexOf(`${spacedLoopIndex} `, previousTagEndIndex);
+                                if (iIndex > -1) {
+                                    remainingContent = remainingContent.slice(0, iIndex) + currentTag + remainingContent.slice(iIndex + `${spacedLoopIndex} `.length);
+                                } else {
+                                    console.warn(`Footnote ${i} not found on page ${pageNum}`);
+                                }
+                            }
+                        }
+
+                        endnoteHTML += `<p>${remainingContent.replace(/  /g, ' ').split('***').join('</p><p>')}</p>`;
                     }
 
                     docHTML += endnoteHTML;
@@ -323,7 +364,7 @@ jQuery(document).ready(function ($) {
         const page = await pdf.getPage(pageNum);
         const content = await page.getTextContent();
         const fontMap = await identifyFonts(page);
-        const viewport = page.getViewport({ scale: 1 });
+        const viewport = page.getViewport({scale: 1});
 
         // Calculate and append fontSize to each style
         Object.keys(content.styles).forEach(styleKey => {
@@ -336,7 +377,7 @@ jQuery(document).ready(function ($) {
         const quadrilaterals = extractQuadrilaterals(operatorList);
         const lines = extractLineSegments(operatorList);
 
-        return { content, fontMap, quadrilaterals, lines, viewport };
+        return {content, fontMap, quadrilaterals, lines, viewport};
     }
 
     // Create a reverse lookup object to map operator numbers to their names
@@ -422,8 +463,7 @@ jQuery(document).ready(function ($) {
                     if (op === pdfjsLib.OPS.moveTo) {
                         // Discard a pair of coordinates
                         cursor += 2;
-                    }
-                    else if (op === pdfjsLib.OPS.rectangle) {
+                    } else if (op === pdfjsLib.OPS.rectangle) {
                         const rectangle = pathArgs.slice(cursor, cursor + 4);
                         cursor += 4;
                         // console.log('Operators:', operators.map(op => operatorNames[op]));

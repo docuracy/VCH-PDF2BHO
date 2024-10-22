@@ -30,7 +30,8 @@ body {
 }
 
 #htmlPreviewContent p.footnote-reference {
-    margin-bottom: -1.5rem;
+    text-align: left;
+    /*margin-bottom: -1.5rem;*/
 }
 
 #htmlPreviewContent span.review {
