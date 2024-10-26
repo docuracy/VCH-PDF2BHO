@@ -57,9 +57,9 @@ jQuery(document).ready(function ($) {
                         // }
 
                         // Stop processing after the n-th page
-                        if (pageNum > 1) {
-                            break;
-                        }
+                        // if (pageNum > 5) {
+                        //     break;
+                        // }
 
                         if (pageNum > 1) {
                             docHTML += '<hr class="remove" />'; // Add horizontal rule between pages
@@ -69,15 +69,15 @@ jQuery(document).ready(function ($) {
                         const {
                             content,
                             fontMap,
-                            textLayout,
+                            quadrilaterals,
+                            lines,
                             viewport
                         } = await getPageContentAndFonts(pdf, pageNum);
                         endnoteLookup.push([]);
 
+                        // console.log('Quadrilaterals:', quadrilaterals);
+                        // console.log('Lines:', lines);
                         console.log(`Page width x height: ${viewport.width} x ${viewport.height}`);
-                        console.log('Text Layout:', textLayout);
-
-                        continue; // Skip the rest of the processing for now
 
                         // TODO:
                         // Add `review` class to anything that needs to be reviewed manually: build a javascript function to pick options during HTML review
@@ -278,7 +278,7 @@ jQuery(document).ready(function ($) {
                             if (item) {
                                 // Replace first occurrence of item.str after previousTagEndIndex
                                 remainingContent = remainingContent.slice(0, previousTagEndIndex) + remainingContent.slice(previousTagEndIndex).replace(item.str.trim(), `${currentTag}${item.str.trim().slice(`${i}`.length)}`);
-                            } else if (iIndex > -1) {
+                            } else if (iIndex > -1){
                                 remainingContent = remainingContent.slice(0, iIndex) + currentTag + remainingContent.slice(iIndex + `${i} `.length);
                             } else {
                                 // Footnote digits are occasionally separated with a space
@@ -372,23 +372,7 @@ jQuery(document).ready(function ($) {
         const page = await pdf.getPage(pageNum);
         const content = await page.getTextContent();
         const fontMap = await identifyFonts(page);
-        const viewport = await page.getViewport({scale: 1});
-        const operatorList = await page.getOperatorList();
-
-        const cropRange = identifyCropMarks(operatorList);
-        if (!!cropRange.y) {
-            // Convert ranges to top-down reading order
-            cropRange.y = [viewport.height - cropRange.y[0], viewport.height - cropRange.y[1]];
-            console.log('Crop Range:', cropRange);
-        }
-        else {
-            console.warn('Crop Range not found.');
-            // TODO: Use default crop range based on page size
-        }
-
-        // TODO: Find map outlines
-
-        // const quadrilaterals = extractQuadrilaterals(operatorList);
+        const viewport = page.getViewport({scale: 1});
 
         // Calculate and append fontSize to each style
         Object.keys(content.styles).forEach(styleKey => {
@@ -396,156 +380,12 @@ jQuery(document).ready(function ($) {
             style.fontSize = (style?.ascent && style?.descent) ? (style.ascent - style.descent) : 0;
         });
 
-        // Set item coordinates and dimensions
-        // Convert cartesian y-values to top-down reading order (eases identification of footnote numerals)
-        content.items.forEach(item => {
-            item.left = item.transform[4];
-            item.bottom = viewport.height - item.transform[5];
-            item.right = item.left + item.width;
-            item.top = item.bottom - item.height;
-            delete item.transform; // Remove transform array
-        });
-        console.log('Content Items:', content.items);
+        // Retrieve drawing operators and extract potential quadrilaterals from drawing elements
+        const operatorList = await page.getOperatorList();
+        const quadrilaterals = extractQuadrilaterals(operatorList);
+        const lines = extractLineSegments(operatorList);
 
-        // TODO: Discard text falling outside crop range or within map outlines
-
-        const textLayout = getTextLayout(content);
-
-        return {content, fontMap, textLayout, viewport};
-    }
-
-    function getTextLayout(content) {
-
-        // Identify the most commonly-used font and its height
-        const fontCounts = {};
-        content.items.forEach(item => {
-            const key = `${item.fontName}-${item.height}`; // Create a composite key of fontName and height
-            fontCounts[key] = (fontCounts[key] || 0) + 1; // Count occurrences for each unique font-height combination
-        });
-
-        // Identify the most common font-height combination
-        const mostCommonFontKey = Object.keys(fontCounts).reduce((a, b) => fontCounts[a] > fontCounts[b] ? a : b);
-        const [mostCommonFont, mostCommonHeight] = mostCommonFontKey.split('-'); // Split back into fontName and height
-
-        // Items with the most common font and height
-        const mostCommonFontItems = content.items.filter(i => i.fontName === mostCommonFont && i.height === parseFloat(mostCommonHeight));
-
-        // Sort x-coordinates for columns and y-coordinates for rows
-        const xCoordinates = mostCommonFontItems.map(i => i.left).sort((a, b) => a - b);
-        const yCoordinates = mostCommonFontItems.map(i => i.bottom).sort((a, b) => a - b);
-
-        // Define a clustering function to group X coordinates
-        const clusterXCoordinates = (coordinates, threshold) => {
-            const mean = ss.mean(coordinates);
-            const stdDev = ss.standardDeviation(coordinates) || 1;
-            const clusters = {};
-
-            coordinates.forEach(coord => {
-                const clusterKey = Math.round((coord - mean) / (threshold * stdDev));
-                (clusters[clusterKey] ||= []).push(coord); // Push coord into cluster, creating cluster if needed
-            });
-
-            // Calculate mean and standard deviation of cluster sizes
-            const clusterSizes = Object.values(clusters).map(cluster => cluster.length);
-            const sizeMean = ss.mean(clusterSizes);
-            const sizeStdDev = ss.standardDeviation(clusterSizes);
-
-            // Define a sparsity threshold for cluster size
-            const sparsityThreshold = sizeMean - 0.5 * sizeStdDev;
-
-            console.log('Cluster Sizes / Sparsity Threshold:', clusterSizes, sparsityThreshold);
-
-            // Filter clusters based on sparsity threshold and map to ranges
-            return Object.values(clusters)
-                .filter(cluster => cluster.length >= sparsityThreshold)
-                .map(cluster => [Math.min(...cluster), Math.max(...cluster)])
-                .sort((a, b) => a[0] - b[0]);
-        };
-
-        const xThreshold = .5; // TODO: May need to be adjusted
-        const filteredColumns = clusterXCoordinates(xCoordinates, xThreshold);
-
-
-        const clusterYCoordinates = (sortedCoords, threshold) => {
-            const clusters = [];
-            let currentCluster = [];
-
-            for (let i = 0; i < sortedCoords.length; i++) {
-                const coord = sortedCoords[i];
-
-                // If the current cluster is empty or the distance to the last coordinate in the current cluster is within the threshold
-                if (currentCluster.length === 0 || (coord - currentCluster[currentCluster.length - 1] <= threshold)) {
-                    currentCluster.push(coord);
-                } else {
-                    // Push the completed cluster and start a new one
-                    clusters.push([Math.min(...currentCluster), Math.max(...currentCluster)]);
-                    currentCluster = [coord]; // Start new cluster
-                }
-            }
-
-            // Push the last cluster if it exists
-            if (currentCluster.length > 0) {
-                clusters.push([Math.min(...currentCluster), Math.max(...currentCluster)]);
-            }
-
-            return clusters;
-        };
-
-        const yThreshold = 2 * mostCommonFontItems.reduce((sum, item) => sum + item.height, 0) / mostCommonFontItems.length || 0;
-        const filteredRows = clusterYCoordinates(yCoordinates, yThreshold);
-
-        // Find maximum .right for each item in each column
-        const overlappingColumnRanges = filteredColumns.map(column => {
-            const rightMax = mostCommonFontItems
-                .filter(i => i.left >= column[0] && i.left <= column[1])
-                .reduce((acc, i) => Math.max(acc, i.right), 0);
-            return [column[0], rightMax];
-        });
-
-        // Now filter out encompassed ranges
-        const columnRanges = overlappingColumnRanges.filter(currentRange =>
-            !overlappingColumnRanges.some(otherRange =>
-                currentRange[0] >= otherRange[0] && currentRange[1] <= otherRange[1] && currentRange !== otherRange
-            )
-        );
-
-        // Find minimum top for each item in each row
-        const rowRanges = filteredRows.map(row => {
-            const topsInRow = mostCommonFontItems
-                .filter(i => i.bottom >= row[0] && i.bottom <= row[1])
-                .map(i => i.top); // Collect all tops in the row
-
-            const topMin = topsInRow.length > 0 ? Math.min(...topsInRow) : Infinity; // Set to Infinity if no items
-            return [topMin, row[1]];
-        });
-
-        mostCommonFontBottom = rowRanges[rowRanges.length - 1][1];
-        potentialFootnotes = content.items.filter(i => i.bottom > mostCommonFontBottom);
-        footnoteRowRange = [];
-
-        const potentialFootnoteFontCounts = {};
-        potentialFootnotes.forEach(item => {
-            const key = `${item.fontName}-${item.height}`; // Create a composite key of fontName and height
-            potentialFootnoteFontCounts[key] = (potentialFootnoteFontCounts[key] || 0) + 1; // Count occurrences for each unique font-height combination
-        });
-
-        if (Object.keys(potentialFootnoteFontCounts).length === 0) {
-            console.log('No potential footnotes found.');
-        } else {
-            // Identify the most common font-height combination among potential footnotes
-            const footnoteFontKey = Object.keys(potentialFootnoteFontCounts).reduce((a, b) => potentialFootnoteFontCounts[a] > potentialFootnoteFontCounts[b] ? a : b);
-            const [footnoteFont, footnoteHeight] = footnoteFontKey.split('-'); // Split back into fontName and height
-            console.log('Footnote Font:', footnoteFont, 'Height:', footnoteHeight);
-
-            // Deduce row range for footnotes
-            footnoteRowRange = [Math.min(...potentialFootnotes.map(i => i.top)), Math.max(...potentialFootnotes.map(i => i.bottom))];
-        }
-
-        return {
-            columns: columnRanges,
-            rows: rowRanges,
-            footnoteRow: footnoteRowRange
-        };
+        return {content, fontMap, quadrilaterals, lines, viewport};
     }
 
     // Create a reverse lookup object to map operator numbers to their names
@@ -554,182 +394,54 @@ jQuery(document).ready(function ($) {
         return acc;
     }, {});
 
-    function identifyCropMarks(operatorList, lengthThreshold = [9, 16], coordTolerance = 1) {
-        const cropMarks = [];
-        let cropRange = {};
+    // Function to extract line segments from operator list with operator name logging
+    function extractLineSegments(operatorList) {
+        let lines = [];
 
         operatorList.fnArray.forEach((fn, index) => {
-            const operatorName = operatorNames[fn] || `Unknown (${fn})`;
             const args = operatorList.argsArray[index];
 
-            // Check if this is a text operation
-            if (operatorName === "showText" && Array.isArray(args[0])) {
-                const text = args[0].map(item => item.unicode || '').join('');
-                const widths = args[0].map(item => item.width);
-                console.log(`Operation: ${operatorName}, Text: "${text}", Widths: ${JSON.stringify(widths)}`);
-            }
-            // Check for constructPath operation
-            else if (operatorName === "constructPath" && Array.isArray(args)) {
-                const [commandArray, coordinatesArray] = args;
+            if (fn === pdfjsLib.OPS.constructPath) {
+                const operators = args[0]; // Contains the operator data
+                const pathArgs = args[1]; // Contains the path data
 
-                // Iterate over command array to log suboperations
-                commandArray.forEach((command, index) => {
-                    const coordIndex = index * 2; // Assuming each command has 2 coordinates
-                    const coords = coordinatesArray.slice(coordIndex, coordIndex + 2);
-                    const commandName = operatorNames[command] || `Unknown Command (${command})`;
+                let cursor = 0;
+                let startX = null;
+                let startY = null;
 
-                    console.log(`Suboperation: ${commandName}, Coordinates: ${JSON.stringify(coords)}`);
+                operators.forEach((op, i) => {
+                    if (op === pdfjsLib.OPS.moveTo) {
+                        // Capture starting point (moveTo)
+                        startX = pathArgs[cursor];
+                        startY = pathArgs[cursor + 1];
+                        cursor += 2;
+                    } else if (op === pdfjsLib.OPS.lineTo) {
+                        // Capture line segment end point (lineTo)
+                        const endX = pathArgs[cursor];
+                        const endY = pathArgs[cursor + 1];
+                        cursor += 2;
+
+                        // If we have a valid start point, create the line segment
+                        if (startX !== null && startY !== null) {
+                            lines.push({
+                                x0: startX,
+                                y0: startY,
+                                x1: endX,
+                                y1: endY
+                            });
+
+                            // Update start point for the next segment
+                            startX = endX;
+                            startY = endY;
+                        }
+                    }
                 });
-            }
-            else {
-                // Log other operations in their basic form
-                console.log(`Operation: ${operatorName}, Arguments: ${JSON.stringify(args)}`);
-            }
-
-            // Check for black or particular grey stroke color to start
-            if (operatorName === "setStrokeRGBColor" &&
-                typeof args === "object" &&
-                args !== null &&
-                ((args["0"] === 0 && args["1"] === 0 && args["2"] === 0)||(args["0"] === 6 && args["1"] === 6 && args["2"] === 12))
-                ) {
-                let foundMarks = [];
-
-                // Check for 8 sets of operations at specified intervals
-                for (let i = 1; i <= 8; i++) {
-                    const transformIndex = index + 3 * i; // 3-step interval for transform
-                    const pathIndex = transformIndex + 1; // 3-step interval for constructPath
-                    const strokeIndex = pathIndex + 1; // 3-step interval for stroke
-
-                    // Ensure indices are within bounds
-                    if (
-                        transformIndex >= operatorList.fnArray.length ||
-                        pathIndex >= operatorList.fnArray.length ||
-                        strokeIndex >= operatorList.fnArray.length
-                    ) {
-                        continue; // Skip this iteration if any index is out of bounds
-                    }
-
-                    const transformFn = operatorNames[operatorList.fnArray[transformIndex]] || `Unknown (${transformIndex})`;
-                    const constructPathFn = operatorNames[operatorList.fnArray[pathIndex]] || `Unknown (${pathIndex})`;
-                    const strokeFn = operatorNames[operatorList.fnArray[strokeIndex]] || `Unknown (${strokeIndex})`;
-
-                    // Check for transform operation
-                    if (transformFn === "transform") {
-                        // Check for constructPath operation
-                        if (constructPathFn === "constructPath" && Array.isArray(operatorList.argsArray[pathIndex])) {
-                            const pathArgs = operatorList.argsArray[pathIndex];
-                            const [pathArgsSet, coords] = pathArgs;
-
-                            // Check if the path arguments match the required pattern
-                            if (
-                                Array.isArray(pathArgsSet) &&
-                                pathArgsSet[0] === 13 && pathArgsSet[1] === 14 &&
-                                (coords[2] === 0 || coords[3] === 0) // Either x or y is zero
-                            ) {
-                                // Check for stroke operation
-                                if (strokeFn === "stroke") {
-                                    foundMarks.push({
-                                        transform: {
-                                            name: operatorNames[transformFn],
-                                            args: operatorList.argsArray[transformIndex]
-                                        },
-                                        constructPath: {
-                                            name: operatorNames[constructPathFn],
-                                            args: pathArgs
-                                        },
-                                        stroke: {
-                                            name: operatorNames[strokeFn],
-                                            args: operatorList.argsArray[strokeIndex]
-                                        }
-                                    });
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (foundMarks.length === 8) {
-                    // Assuming the crop marks are found in the following order: top-left-vertical, top-left-horizontal,
-                    // top-right-vertical, top-right-horizontal, bottom-left-vertical, bottom-left-horizontal,
-                    // bottom-right-vertical, bottom-right-horizontal
-                    cropRange = {
-                        x: [
-                            foundMarks[0].transform.args[4],
-                            foundMarks[0].transform.args[4] +
-                            foundMarks[1].transform.args[4] +
-                            foundMarks[2].transform.args[4]
-                        ],
-                        y: [
-                            foundMarks[0].transform.args[5] + foundMarks[1].transform.args[5],
-                            foundMarks[0].transform.args[5] +
-                            foundMarks[1].transform.args[5] +
-                            foundMarks[2].transform.args[5] +
-                            foundMarks[3]?.transform.args[5] +
-                            foundMarks[4]?.transform.args[5] +
-                            foundMarks[5]?.transform.args[5]
-                        ]
-                    }
-                    console.log('Crop Range found by primary method.');
-                    cropMarks.push(...foundMarks);
-                }
-                else {
-                    let operator = operatorNames[operatorList.fnArray[index + 4]] || `Unknown (${pathIndex})`;
-                    if (operator === 'constructPath') {
-                        let pathArgs = operatorList.argsArray[index + 4];
-                        const targetArray = [13, 14, 13, 14, 13, 14, 13, 14, 13, 14, 13, 14, 13, 14, 13, 14];
-                        if (Array.isArray(pathArgs) &&
-                            Array.isArray(pathArgs[0]) &&
-                            pathArgs[0].length === targetArray.length &&
-                            pathArgs[0].every((val, index) => val === targetArray[index])) {
-                            operator = operatorNames[operatorList.fnArray[index + 3]] || `Unknown (${pathIndex})`;
-                            if (operator === 'transform') {
-                                const transformArgs = operatorList.argsArray[index + 3];
-                                pathArgs = pathArgs[1];
-                                cropRange = {
-                                    x: [pathArgs[14] - pathArgs[24], pathArgs[14] - pathArgs[16]],
-                                    y: [transformArgs[5], transformArgs[5] + pathArgs[9]]
-                                }
-                                console.log('Crop Range found by secondary method.');
-                            }
-                        }
-                    }
-                }
-                if (Object.keys(cropRange).length === 0) {
-                    // Check for 4 sets of operations at specified intervals
-                    for (let i = 1; i <= 4; i++) {
-                        const pathIndex = index + 5 + 2 * i; // 2-step interval for constructPath
-                        const strokeIndex = pathIndex + 1; // 2-step interval for stroke
-
-                        // Ensure indices are within bounds
-                        if (
-                            pathIndex >= operatorList.fnArray.length ||
-                            strokeIndex >= operatorList.fnArray.length
-                        ) {
-                            continue; // Skip this iteration if any index is out of bounds
-                        }
-
-                        const constructPathFn = operatorNames[operatorList.fnArray[pathIndex]] || `Unknown (${pathIndex})`;
-                        const strokeFn = operatorNames[operatorList.fnArray[strokeIndex]] || `Unknown (${strokeIndex})`;
-
-                        if (strokeFn === "stroke") {
-                            if (constructPathFn === "constructPath" && Array.isArray(operatorList.argsArray[pathIndex])) {
-                                const pathArgs = operatorList.argsArray[pathIndex][1];
-                                if (pathIndex - index === 7) {
-                                    cropRange['y'] = [pathArgs[1], pathArgs[5]];
-                                }
-                                else if (pathIndex - index === 11) {
-                                    cropRange['x']= [pathArgs[0], pathArgs[4]];
-                                    console.log('Crop Range found by tertiary method.');
-                                }
-                            }
-                        }
-                    }
-                }
             }
         });
 
-        return cropRange;
+        return lines;
     }
+
 
     // Function to extract quadrilaterals from operator list with operator name logging
     function extractQuadrilaterals(operatorList) {
@@ -937,15 +649,14 @@ jQuery(document).ready(function ($) {
         // Wait for all promises to resolve
         Promise.all(promises).then(() => {
             appendLogMessage('All PDF files processed successfully. Generating ZIP...');
-
             // Generate the ZIP file and trigger download
-            // zip.generateAsync({type: 'blob'}).then(function (content) {
-            //     saveAs(content, 'pdfs_to_xml.zip');
-            //     showAlert('All XML files have been generated and zipped successfully!', 'success');
-            // }).catch(err => {
-            //     appendLogMessage(`Error generating ZIP: ${err}`);
-            //     console.error('Error generating ZIP:', err);
-            // });
+            zip.generateAsync({type: 'blob'}).then(function (content) {
+                saveAs(content, 'pdfs_to_xml.zip');
+                showAlert('All XML files have been generated and zipped successfully!', 'success');
+            }).catch(err => {
+                appendLogMessage(`Error generating ZIP: ${err}`);
+                console.error('Error generating ZIP:', err);
+            });
         }).catch(err => {
             appendLogMessage(`Error processing files: ${err}`);
             console.error('Error processing files:', err);
