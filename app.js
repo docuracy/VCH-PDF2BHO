@@ -373,6 +373,7 @@ jQuery(document).ready(function ($) {
         const operatorList = await page.getOperatorList();
 
         appendLogMessage(`Page size: ${viewport.width.toFixed(2)} x ${viewport.height.toFixed(2)}`);
+        // listOperators(operatorList);
 
         const cropRange = identifyCropMarks(operatorList);
         if (!!cropRange.y) {
@@ -392,7 +393,9 @@ jQuery(document).ready(function ($) {
 
         // TODO: Find map outlines
 
-        // const quadrilaterals = extractQuadrilaterals(operatorList);
+        const quadrilaterals = extractQuadrilaterals(operatorList, cropRange, viewport);
+        console.log('Quadrilaterals:', quadrilaterals);
+        appendLogMessage(`Quadrilaterals: ${quadrilaterals.length}`);
 
         // Calculate and append fontSize to each style
         Object.keys(content.styles).forEach(styleKey => {
@@ -560,11 +563,8 @@ jQuery(document).ready(function ($) {
         return acc;
     }, {});
 
-    function identifyCropMarks(operatorList, lengthThreshold = [9, 16], coordTolerance = 1) {
-        const cropMarks = [];
-        let cropRange = {};
-
-        operatorList.fnArray.forEach((fn, index) => {
+    function listOperators(operatorList) {
+        const operatorListArray = operatorList.fnArray.map((fn, index) => {
             const operatorName = operatorNames[fn] || `Unknown (${fn})`;
             const args = operatorList.argsArray[index];
 
@@ -584,6 +584,11 @@ jQuery(document).ready(function ($) {
                     const coords = coordinatesArray.slice(coordIndex, coordIndex + 2);
                     const commandName = operatorNames[command] || `Unknown Command (${command})`;
 
+                    // Alert orthogonal lineTo with long length
+                    if (commandName === 'lineTo' && (coords[0] > 100 || coords[1] > 100) && (coords[0] === 0 || coords[1] === 0)) {
+                        console.warn(`Long lineTo operation`);
+                    }
+
                     console.log(`Suboperation: ${commandName}, Coordinates: ${JSON.stringify(coords)}`);
                 });
             }
@@ -591,6 +596,16 @@ jQuery(document).ready(function ($) {
                 // Log other operations in their basic form
                 console.log(`Operation: ${operatorName}, Arguments: ${JSON.stringify(args)}`);
             }
+        });
+    }
+
+    function identifyCropMarks(operatorList, lengthThreshold = [9, 16], coordTolerance = 1) {
+        const cropMarks = [];
+        let cropRange = {};
+
+        operatorList.fnArray.forEach((fn, index) => {
+            const operatorName = operatorNames[fn] || `Unknown (${fn})`;
+            const args = operatorList.argsArray[index];
 
             // Check for black or particular grey stroke color to start
             if (operatorName === "setStrokeRGBColor" &&
@@ -738,7 +753,7 @@ jQuery(document).ready(function ($) {
     }
 
     // Function to extract quadrilaterals from operator list with operator name logging
-    function extractQuadrilaterals(operatorList) {
+    function extractQuadrilaterals(operatorList, cropRange, viewport) {
         let rectangles = [];
 
         operatorList.fnArray.forEach((fn, index) => {
@@ -784,7 +799,37 @@ jQuery(document).ready(function ($) {
             }
         });
 
-        return rectangles;
+        // Convert y-values to top-down reading order and set absolute width and height
+        rectangles.forEach(rect => {
+                rect.y0 = viewport.height - rect.y0;
+                rect.y1 = viewport.height - rect.y1;
+                // Swap x0 and x1 if x0 > x1
+                if (rect.x0 > rect.x1) {
+                    [rect.x0, rect.x1] = [rect.x1, rect.x0];
+                }
+                // Set absolute width and height
+                rect.width = Math.abs(rect.width);
+                rect.height = Math.abs(rect.height);
+            }
+        );
+        console.log('Rectangles:', rectangles);
+
+        // Filter out rectangles outside the crop range
+        rectangles = rectangles.filter(rect => {
+            return rect.x0 >= cropRange.x[0] && rect.x1 <= cropRange.x[1] &&
+                rect.y0 >= cropRange.y[0] && rect.y1 <= cropRange.y[1];
+        });
+        console.log('Filtered Rectangles:', rectangles);
+
+        // Find largest rectangle by area
+        const largestRect = rectangles.reduce((acc, rect) => {
+            const area = rect.width * rect.height;
+            return area > acc.area ? {area, rect} : acc;
+        }
+        , {area: 0, rect: null});
+        console.log('Largest Rectangle:', largestRect);
+
+        return largestRect;
     }
 
     // Helper function: Identify and map fonts for a given page
