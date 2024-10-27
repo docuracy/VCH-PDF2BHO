@@ -74,9 +74,6 @@ jQuery(document).ready(function ($) {
                         } = await getPageContentAndFonts(pdf, pageNum);
                         endnoteLookup.push([]);
 
-                        console.log(`Page width x height: ${viewport.width} x ${viewport.height}`);
-                        console.log('Text Layout:', textLayout);
-
                         continue; // Skip the rest of the processing for now
 
                         // TODO:
@@ -375,16 +372,23 @@ jQuery(document).ready(function ($) {
         const viewport = await page.getViewport({scale: 1});
         const operatorList = await page.getOperatorList();
 
+        appendLogMessage(`Page size: ${viewport.width.toFixed(2)} x ${viewport.height.toFixed(2)}`);
+
         const cropRange = identifyCropMarks(operatorList);
         if (!!cropRange.y) {
             // Convert ranges to top-down reading order
-            cropRange.y = [viewport.height - cropRange.y[0], viewport.height - cropRange.y[1]];
-            console.log('Crop Range:', cropRange);
+            cropRange.y = [viewport.height.toFixed(2) - cropRange.y[0].toFixed(2), viewport.height.toFixed(2) - cropRange.y[1].toFixed(2)];
         }
         else {
             console.warn('Crop Range not found.');
-            // TODO: Use default crop range based on page size
+            // Use default crop range based on printed page size 595.276 x 864.567
+            const gutterX = (viewport.width - 595.276) / 2;
+            const gutterY = (viewport.height - 864.567) / 2;
+            cropRange.x = [gutterX, viewport.width - gutterX];
+            cropRange.y = [gutterY, viewport.height - gutterY];
         }
+        appendLogMessage(`Crop Range: x: ${cropRange.x[0].toFixed(2)} to ${cropRange.x[1].toFixed(2)}; y: ${cropRange.y[0].toFixed(2)} to ${cropRange.y[1].toFixed(2)}`);
+        appendLogMessage(`Cropped size: ${cropRange.x[1].toFixed(2) - cropRange.x[0].toFixed(2)} x ${cropRange.y[1].toFixed(2) - cropRange.y[0].toFixed(2)}`);
 
         // TODO: Find map outlines
 
@@ -410,6 +414,8 @@ jQuery(document).ready(function ($) {
         // TODO: Discard text falling outside crop range or within map outlines
 
         const textLayout = getTextLayout(content);
+        appendLogMessage(`Text Layout: ${textLayout.columns.length} column(s), ${textLayout.rows.length} row(s) ${textLayout.footnoteRow.length > 0 ? '+footnotes' : '(no footnotes)'}`);
+        console.log('Text Layout:', textLayout);
 
         return {content, fontMap, textLayout, viewport};
     }
