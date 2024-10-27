@@ -459,6 +459,16 @@ jQuery(document).ready(function ($) {
         });
         console.log('Content Items:', content.items);
 
+        // Sort items within each column of each row by line and then by left position
+        textLayout.rows.forEach(row => {
+            textLayout.columns.forEach(column => {
+                const itemsInColumn = content.items.filter(i => i.row === row.index && i.column === column.index);
+                // TODO: Consider superscripts
+                itemsInColumn.sort((a, b) => a.bottom - b.bottom || a.left - b.left);
+            });
+            // TODO: Push to new item array
+        });
+
         return {content, fontMap, textLayout, viewport};
     }
 
