@@ -410,9 +410,18 @@ jQuery(document).ready(function ($) {
             item.top = item.bottom - item.height;
             delete item.transform; // Remove transform array
         });
-        console.log('Content Items:', content.items);
+        console.log('Unfiltered content Items:', content.items);
 
-        // TODO: Discard text falling outside crop range or within map outlines
+        // Discard content items falling outside crop range or within map outlines
+        content.items = content.items.filter(item =>
+            item.left >= cropRange.x[0] && item.right <= cropRange.x[1] &&
+            item.bottom >= cropRange.y[0] && item.top <= cropRange.y[1] &&
+            !mapBorders.some(border =>
+                item.left >= border.x0 && item.right <= border.x1 &&
+                item.bottom >= border.y0 && item.top <= border.y1
+            )
+        );
+        console.log('Content Items:', content.items);
 
         const textLayout = getTextLayout(content);
         appendLogMessage(`Text Layout: ${textLayout.columns.length} column(s), ${textLayout.rows.length} row(s) ${textLayout.footnoteRow.length > 0 ? '+footnotes' : '(no footnotes)'}`);
