@@ -421,11 +421,43 @@ jQuery(document).ready(function ($) {
                 item.bottom >= border.y0 && item.top <= border.y1
             )
         );
-        console.log('Content Items:', content.items);
 
         const textLayout = getTextLayout(content);
         appendLogMessage(`Text Layout: ${textLayout.columns.length} column(s), ${textLayout.rows.length} row(s) ${textLayout.footnoteRow.length > 0 ? '+footnotes' : '(no footnotes)'}`);
         console.log('Text Layout:', textLayout);
+
+        // Add textLayoutRows
+        textLayout.rows.forEach((row, index) => {
+            row.columnised = true;
+            row.range = [row[0], row[1]];
+            delete row[0];
+            delete row[1];
+        });
+        // Add rows to fill gaps in cropRange.y
+        // Start with a row at the top of the cropped area and add rows for each gap
+        const paddedRows = [{range: [cropRange.y[0], textLayout.rows[0].range[0]], columnised: false}];
+        for (let i = 0; i < textLayout.rows.length - 1; i++) {
+            paddedRows.push(textLayout.rows[i]);
+            const gap = textLayout.rows[i + 1].range[0] - textLayout.rows[i].range[1];
+            if (gap > 1) {
+                paddedRows.push({range: [textLayout.rows[i].range[1], textLayout.rows[i + 1].range[0]], columnised: false});
+            }
+        }
+        paddedRows.push(textLayout.rows[textLayout.rows.length - 1]);
+        // Add a row at the bottom of the main area
+        paddedRows.push({range: [textLayout.rows[textLayout.rows.length - 1].range[1], cropRange.y[1]], columnised: false});
+        textLayout.rows = paddedRows;
+        console.log('Text Layout with padded rows:', textLayout);
+
+        // Tag items with row and column numbers
+        content.items.forEach(item => {
+            item.row = textLayout.rows.findIndex(row => item.bottom >= row.range[0] && item.top <= row.range[1]);
+            // If row is columnised, find the column
+            if (textLayout.rows[item.row].columnised) {
+                item.column = textLayout.columns.findIndex(column => item.left >= column[0] && item.right <= column[1]);
+            }
+        });
+        console.log('Content Items:', content.items);
 
         return {content, fontMap, textLayout, viewport};
     }
