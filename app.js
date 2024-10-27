@@ -391,11 +391,9 @@ jQuery(document).ready(function ($) {
         appendLogMessage(`Crop Range: x: ${cropRange.x[0].toFixed(2)} to ${cropRange.x[1].toFixed(2)}; y: ${cropRange.y[0].toFixed(2)} to ${cropRange.y[1].toFixed(2)}`);
         appendLogMessage(`Cropped size: ${cropRange.x[1].toFixed(2) - cropRange.x[0].toFixed(2)} x ${cropRange.y[1].toFixed(2) - cropRange.y[0].toFixed(2)}`);
 
-        // TODO: Find map outlines
-
-        const quadrilaterals = extractQuadrilaterals(operatorList, cropRange, viewport);
-        console.log('Quadrilaterals:', quadrilaterals);
-        appendLogMessage(`Quadrilaterals: ${quadrilaterals.length}`);
+        const mapBorders = findMap(operatorList, cropRange, viewport);
+        console.log('Map Borders:', mapBorders);
+        appendLogMessage(`${mapBorders.length} map(s) found`);
 
         // Calculate and append fontSize to each style
         Object.keys(content.styles).forEach(styleKey => {
@@ -752,8 +750,8 @@ jQuery(document).ready(function ($) {
         return cropRange;
     }
 
-    // Function to extract quadrilaterals from operator list with operator name logging
-    function extractQuadrilaterals(operatorList, cropRange, viewport) {
+    // Function to extract rectangles from operator list
+    function findMap(operatorList, cropRange, viewport) {
         let rectangles = [];
 
         operatorList.fnArray.forEach((fn, index) => {
@@ -799,7 +797,7 @@ jQuery(document).ready(function ($) {
             }
         });
 
-        // Convert y-values to top-down reading order and set absolute width and height
+        // Convert y-values to top-down reading order, set absolute width and height, and calculate area
         rectangles.forEach(rect => {
                 rect.y0 = viewport.height - rect.y0;
                 rect.y1 = viewport.height - rect.y1;
@@ -810,26 +808,38 @@ jQuery(document).ready(function ($) {
                 // Set absolute width and height
                 rect.width = Math.abs(rect.width);
                 rect.height = Math.abs(rect.height);
+                rect.area = rect.width * rect.height;
             }
         );
-        console.log('Rectangles:', rectangles);
+
+        // Filter out rectangles with area less than 10% of the crop area
+        const cropArea = (cropRange.x[1] - cropRange.x[0]) * (cropRange.y[1] - cropRange.y[0]);
+        rectangles = rectangles.filter(rect => rect.area > 0.1 * cropArea);
 
         // Filter out rectangles outside the crop range
         rectangles = rectangles.filter(rect => {
             return rect.x0 >= cropRange.x[0] && rect.x1 <= cropRange.x[1] &&
                 rect.y0 >= cropRange.y[0] && rect.y1 <= cropRange.y[1];
         });
-        console.log('Filtered Rectangles:', rectangles);
 
-        // Find largest rectangle by area
-        const largestRect = rectangles.reduce((acc, rect) => {
-            const area = rect.width * rect.height;
-            return area > acc.area ? {area, rect} : acc;
-        }
-        , {area: 0, rect: null});
-        console.log('Largest Rectangle:', largestRect);
+        // Sort rectangles by area in descending order
+        rectangles.sort((rect1, rect2) => rect2.area - rect1.area);
 
-        return largestRect;
+        // Filter out rectangles within other rectangles
+        rectangles = rectangles.filter((rect1, i) => {
+            // Check if rect1 is within any other rect
+            return !rectangles.some((rect2, j) => {
+                return (
+                    i !== j && // Make sure we're not comparing the same rectangle
+                    rect1.x0 >= rect2.x0 &&
+                    rect1.x1 <= rect2.x1 &&
+                    rect1.y0 >= rect2.y0 &&
+                    rect1.y1 <= rect2.y1
+                );
+            });
+        });
+
+        return rectangles;
     }
 
     // Helper function: Identify and map fonts for a given page
