@@ -2,21 +2,6 @@
 // Description: Contains functions for extracting text from PDFs.
 
 
-function augmentItems(items) {
-    // Add item coordinates and dimensions
-    // Convert cartesian y-values to top-down reading order (eases identification of footnote numerals)
-    items.forEach(item => {
-        item.left = item.transform[4];
-        item.bottom = item.transform[5];
-        item.right = item.left + item.width;
-        item.top = item.bottom + item.height;
-        item.area = item.width * item.height;
-        delete item.transform; // Remove transform array
-    });
-    return items;
-}
-
-
 // Helper function to retrieve page, its text content, and identified fonts
 async function getPageContentAndFonts(pdf, pageNum) {
     const page = await pdf.getPage(pageNum);
