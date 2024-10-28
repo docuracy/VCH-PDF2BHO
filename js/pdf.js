@@ -68,12 +68,14 @@ function processPDF(file, fileName, zip) {  // Accept zip as a parameter
                 console.log(`Footnote Font: ${footFont.fontName} @ ${footFont.fontSize}`);
 
                 const columns = findColumns(pdf.numPages, defaultFont, footFont);
-                console.log('Columns:', columns);
+                console.log('Columns:', columns || '(none)');
 
-                // Iterate over pages to identify rows
-                // for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-                //     findRows(pageNum, defaultFont, footFont);
-                // }
+                if (columns) {
+                    // Iterate over pages to identify rows
+                    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                        tagRowsAndColumns(pageNum, defaultFont, footFont, columns);
+                    }
+                }
 
                 let docHTML = ''; // Initialize the document HTML content
                 let endnoteHTML = `<hr class="remove" /><h3 class="remove">ENDNOTES</h3>`; // Initialize the endnote HTML content
@@ -87,14 +89,6 @@ function processPDF(file, fileName, zip) {  // Accept zip as a parameter
                         docHTML += '<hr class="remove" />'; // Add horizontal rule between pages
                         break;
                     }
-
-                    // Call helper function to get content and font map
-                    const {
-                        content,
-                        fontMap,
-                        textLayout,
-                        viewport
-                    } = await getPageContentAndFonts(pdf, pageNum);
                     endnoteLookup.push([]);
                 }
 
