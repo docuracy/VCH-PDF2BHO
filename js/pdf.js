@@ -20,31 +20,60 @@ function processPDF(file, fileName, zip) {  // Accept zip as a parameter
                         masterFontMap = pageFontMap;
                     }
                     else {
-                        // Merge page font map into master font map, adding areas for duplicate fonts
+                        // Merge page font map with master font map
                         for (const font in pageFontMap) {
-                            if (font in masterFontMap) {
-                                masterFontMap[font].area += pageFontMap[font].area;
+                            if (!(font in masterFontMap)) {
+                                masterFontMap[font] = { name: pageFontMap[font].name, sizes: {} };
                             }
-                            else {
-                                masterFontMap[font] = pageFontMap[font];
+
+                            for (const size in pageFontMap[font].sizes) {
+                                if (size in masterFontMap[font].sizes) {
+                                    masterFontMap[font].sizes[size].area += pageFontMap[font].sizes[size].area;
+                                } else {
+                                    masterFontMap[font].sizes[size] = {
+                                        area: pageFontMap[font].sizes[size].area
+                                    };
+                                }
                             }
                         }
                     }
                 }
 
                 // Find the most common font
-                const defaultFont = Object.keys(masterFontMap).reduce((a, b) => masterFontMap[a].area > masterFontMap[b].area ? a : b);
+                const defaultFont = Object.entries(masterFontMap).reduce((mostCommon, [fontName, fontEntry]) => {
+                    Object.entries(fontEntry.sizes).forEach(([size, sizeEntry]) => {
+                        if (sizeEntry.area > mostCommon.maxArea) {
+                            mostCommon = { fontName, fontSize: parseFloat(size), maxArea: sizeEntry.area };
+                        }
+                    });
+                    return mostCommon;
+                }, { fontName: null, fontSize: null, maxArea: 0 });
 
                 // Iterate over pages to preprocess footnote areas and remove header
                 for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
                     analyseTopAndBottom(pageNum, masterFontMap, defaultFont);
                 }
                 // Find the most common footArea font
-                const footFont = Object.keys(masterFontMap).reduce((a, b) => masterFontMap[a].footarea > masterFontMap[b].footarea ? a : b);
+                const footFont = Object.entries(masterFontMap).reduce((mostCommon, [fontName, fontEntry]) => {
+                    Object.entries(fontEntry.sizes).forEach(([size, sizeEntry]) => {
+                        if (sizeEntry.footarea > mostCommon.maxFootArea) {
+                            mostCommon = { fontName, fontSize: parseFloat(size), maxFootArea: sizeEntry.footarea };
+                        }
+                    });
+                    return mostCommon;
+                }, { fontName: null, fontSize: null, maxFootArea: 0 });
 
                 console.log('Master Font Map:', masterFontMap);
-                console.log('Default Font:', defaultFont);
-                console.log('Footnote Font:', footFont);
+                console.log(`Default Font: ${defaultFont.fontName} @ ${defaultFont.fontSize}`);
+                console.log(`Footnote Font: ${footFont.fontName} @ ${footFont.fontSize}`);
+
+                const columns = findColumns(pdf.numPages, defaultFont, footFont);
+                console.log('Columns:', columns);
+
+                // Iterate over pages to identify rows
+                // for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                //     findRows(pageNum, defaultFont, footFont);
+                // }
 
                 let docHTML = ''; // Initialize the document HTML content
                 let endnoteHTML = `<hr class="remove" /><h3 class="remove">ENDNOTES</h3>`; // Initialize the endnote HTML content
@@ -54,7 +83,7 @@ function processPDF(file, fileName, zip) {  // Accept zip as a parameter
                 // Iterate over pages and process content
                 for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
 
-                    if (pageNum > 1) {
+                    if (pageNum > 0) {
                         docHTML += '<hr class="remove" />'; // Add horizontal rule between pages
                         break;
                     }
@@ -74,7 +103,7 @@ function processPDF(file, fileName, zip) {  // Accept zip as a parameter
                 showHtmlPreview(docHTML); // Display HTML in modal overlay for checking
                 appendLogMessage(`Generated HTML for file: ${fileName}, size: ${docHTML.length} characters`); // Debugging log
 
-                docHTML = `<document><head>${metadata}</head><body>${docHTML}</body></document>`;
+                docHTML = `<document><head></head><body>${docHTML}</body></document>`;
 
                 // Fetch the XSLT file and transform the HTML document to BHO XML
                 const xsltResponse = await fetch('./xml/html-to-bho-xml.xslt');
@@ -117,6 +146,7 @@ function augmentItems(items, viewport) {
 
 
 async function storePageData(pdf, pageNum) {
+    appendLogMessage(`====================`);
     appendLogMessage(`Processing page ${pageNum}...`);
     const page = await pdf.getPage(pageNum);
     const content = await page.getTextContent();
@@ -124,7 +154,6 @@ async function storePageData(pdf, pageNum) {
     const operatorList = await page.getOperatorList();
 
     localStorage.setItem(`page-${pageNum}-viewport`, JSON.stringify(viewport));
-    appendLogMessage(`====================`);
     appendLogMessage(`Page size: ${viewport.width.toFixed(2)} x ${viewport.height.toFixed(2)}`);
 
     const cropRange = identifyCropMarks(operatorList);
@@ -145,8 +174,6 @@ async function storePageData(pdf, pageNum) {
     appendLogMessage(`Cropped size: ${cropRange.x[1].toFixed(2) - cropRange.x[0].toFixed(2)} x ${cropRange.y[1].toFixed(2) - cropRange.y[0].toFixed(2)}`);
 
     const drawingBorders = findMap(operatorList, cropRange, viewport);
-    localStorage.setItem(`page-${pageNum}-drawingBorders`, JSON.stringify(drawingBorders));
-    appendLogMessage(`${drawingBorders.length} drawing(s) found`);
 
     augmentItems(content.items, viewport);
     // Discard content items falling outside crop range or within drawing outlines
@@ -158,6 +185,27 @@ async function storePageData(pdf, pageNum) {
             item.bottom >= border.y0 && item.top <= border.y1
         )
     );
+
+    if (drawingBorders.length > 0) {
+        localStorage.setItem(`page-${pageNum}-drawingBorders`, JSON.stringify(drawingBorders));
+        appendLogMessage(`${drawingBorders.length} drawing(s) found`);
+
+        const drawings = await extractDrawingsAsBase64(page, viewport, drawingBorders);
+        localStorage.setItem(`page-${pageNum}-drawings`, JSON.stringify(drawings));
+        // Add new items to represent drawings
+        content.items.push(...drawings.map(drawing => ({
+            'str': '',
+            'fontName': 'drawing',
+            'top': drawing.y0,
+            'left': drawing.x0,
+            'bottom': drawing.y1,
+            'right': drawing.x1,
+            'width': drawing.x1 - drawing.x0,
+            'height': drawing.y1 - drawing.y0,
+            'area': (drawing.x1 - drawing.x0) * (drawing.y1 - drawing.y0)
+        })));
+    }
+
     localStorage.setItem(`page-${pageNum}-items`, JSON.stringify(content.items));
 
     const fonts = page.commonObjs._objs;
@@ -165,18 +213,24 @@ async function storePageData(pdf, pageNum) {
     for (const fontKey in fonts) {
         const font = fonts[fontKey]?.data;
         if (font) {
-            fontMap[font.loadedName] = {'name': font.name, 'area': 0, 'footarea': 0};
+            fontMap[font.loadedName] = { 'name': font.name, 'sizes': {} };
         }
     }
 
     // Calculate font areas
     content.items.forEach(item => {
         if (item.fontName in fontMap) {
-            fontMap[item.fontName].area += item.area;
+            const size = item.height; // Use item.height as the font size identifier
+
+            // Initialize size entry if it doesn't exist
+            if (!fontMap[item.fontName].sizes[size]) {
+                fontMap[item.fontName].sizes[size] = { 'area': 0, 'footarea': 0 };
+            }
+
+            // Accumulate area for this font size
+            fontMap[item.fontName].sizes[size].area += item.area;
         }
     });
-
-    // TODO: Save images of drawings
 
     return fontMap;
 }
@@ -185,14 +239,17 @@ function analyseTopAndBottom(pageNum, masterFontMap, defaultFont) {
     let content = JSON.parse(localStorage.getItem(`page-${pageNum}-items`));
 
     // Find bottom of lowest instance of default font
-    const defaultFontBottom = Math.max(...content.filter(item => item.fontName === defaultFont).map(item => item.bottom));
+    const defaultFontBottom = Math.max(...content.filter(item => item.fontName === defaultFont.fontName && item.height === defaultFont.fontSize).map(item => item.bottom));
 
-    // Augment foot area for items below the default font's lowest position
+    // Accumulate foot area for items below the default font's lowest position
     content
         .filter(item => item.top > defaultFontBottom)
         .forEach(item => {
-            if (masterFontMap[item.fontName]) {
-                masterFontMap[item.fontName].footarea += item.area;
+            const fontEntry = masterFontMap[item.fontName];
+            const fontSize = item.height;
+
+            if (fontEntry && fontEntry.sizes[fontSize]) {
+                fontEntry.sizes[fontSize].footarea += item.area;
             }
         });
 
@@ -200,13 +257,14 @@ function analyseTopAndBottom(pageNum, masterFontMap, defaultFont) {
     const topItemBottom = Math.min(...content.map(item => item.bottom));
     const topLineItems = content.filter(item => item.top <= topItemBottom);
     const pageNumberItem = topLineItems.find(item => /^\d+$/.test(item.str));
-    console.log(`Page ${pageNum} - Page Number Item: ${pageNumberItem?.str || 'Not Found'}`, topLineItems);
-
-    localStorage.setItem(`page-${pageNum}-pageNumber`, pageNumberItem?.str || '');
 
     if (pageNumberItem) {
+        localStorage.setItem(`page-${pageNum}-pageNumber`, pageNumberItem?.str || '');
         // Remove header items
         content = content.filter(item => item.top > topItemBottom);
         localStorage.setItem(`page-${pageNum}-items`, JSON.stringify(content));
+    }
+    else {
+        console.warn(`Page ${pageNum} - Page Number Not Found`);
     }
 }

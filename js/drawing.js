@@ -285,3 +285,45 @@ function findMap(operatorList, cropRange, viewport) {
 
     return rectangles;
 }
+
+
+async function extractDrawingsAsBase64(page, viewport, drawingBorders) {
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+
+    // Set the canvas size to the page dimensions
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+
+    // Render PDF page to the canvas
+    await page.render({ canvasContext: context, viewport: viewport }).promise;
+
+    // Process each crop rectangle
+    const base64Images = await Promise.all(
+        drawingBorders.map(async (rect) => {
+            // Create a temporary canvas to hold the cropped region
+            const tempCanvas = document.createElement("canvas");
+            const tempContext = tempCanvas.getContext("2d");
+            tempCanvas.width = rect.width;
+            tempCanvas.height = rect.height;
+
+            // Crop the specified region from the main canvas
+            tempContext.drawImage(
+                canvas,      // Source canvas
+                rect.x0,     // Source x
+                viewport.height - rect.y0,     // Source y (bottom-up)
+                rect.width,       // Source width
+                rect.height,      // Source height
+                0,           // Destination x
+                0,           // Destination y
+                rect.width,       // Destination width
+                rect.height       // Destination height
+            );
+
+            // Convert the cropped region to a base64 data URL
+            return tempCanvas.toDataURL("image/png");
+        })
+    );
+
+    return base64Images; // Array of base64 images
+}

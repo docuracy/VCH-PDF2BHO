@@ -250,3 +250,70 @@ function identifyFonts(page) {
         return fontMap;
     });
 }
+
+
+function findColumns(numPages, defaultFont, footFont, columnSpacing = 11.75, significanceThreshold = 0.5) {
+    let columnItems = [];
+
+    for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+        const items = JSON.parse(localStorage.getItem(`page-${pageNum}-items`));
+        columnItems.push(...items.filter(item => {
+            return (item.fontName === defaultFont.fontName && item.height === defaultFont.fontSize) ||
+                (item.fontName === footFont.fontName && item.height === footFont.fontSize);
+        }));
+    }
+
+    // Extract leftmost values and crop range
+    const leftMin = Math.min(...columnItems.map(item => item.left));
+    const rightMax = Math.max(...columnItems.map(item => item.right));
+    const marginWidth = rightMax - leftMin;
+    const columnWidth2 = (marginWidth - columnSpacing) / 2;
+    const columnWidth3 = (marginWidth - 2 * columnSpacing) / 3;
+    const columnCentres = [leftMin + columnWidth2, leftMin + columnWidth3, (rightMax - leftMin) / 2, rightMax - columnWidth3, rightMax - columnWidth2];
+
+    // Initialize groupedCentres with the calculated column centres
+    const groupedCentres = columnCentres.reduce((acc, centre) => {
+        acc[centre] = 0; // Initialize counts to zero
+        return acc;
+    }, {});
+
+    // Extract centre points from the columnItems
+    const centres = columnItems.map(item => item.left + item.width / 2);
+
+    // Group centres into closest seeded centre
+    centres.forEach(centre => {
+        const closestCentre = columnCentres.reduce((closest, current) =>
+            Math.abs(current - centre) < Math.abs(closest - centre) ? current : closest
+        );
+        groupedCentres[closestCentre] += 1; // Increment count for the closest group
+    });
+
+    // Log the counts table for each grouped centre
+    console.log('Potential Columns:');
+    console.table(groupedCentres);
+
+    // Convert grouped centers to an array of entries
+    const centreEntries = Object.entries(groupedCentres)
+        .map(([centre, count]) => ({ centre: parseFloat(centre), count }))
+        .sort((a, b) => b.count - a.count); // Sort by count descending
+
+    // Determine if there are significantly more tallies
+    const maxCount = centreEntries[0].count;
+    const significantGroups = centreEntries.filter(entry => entry.count >= maxCount * significanceThreshold);
+
+    // Calculate column boundaries based on significant groups
+    const maxColumnWidth = marginWidth / significantGroups.length;
+
+    // Find maximum width for items whose .width is less than columnWidth
+    const maxItemWidth = Math.max(
+        ...columnItems
+            .filter(item => item.width < maxColumnWidth)
+            .map(item => item.width),
+        0
+    );
+
+    return {
+        count: significantGroups.length,
+        width: maxItemWidth
+    };
+}
