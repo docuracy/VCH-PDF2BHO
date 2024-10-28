@@ -194,8 +194,9 @@ function identifyCropMarks(operatorList) {
     return cropRange;
 }
 
+
 // Function to extract rectangles from operator list
-function findMap(operatorList, cropRange, viewport) {
+function findDrawings(operatorList, cropRange, viewport) {
     let rectangles = [];
 
     operatorList.fnArray.forEach((fn, index) => {

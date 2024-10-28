@@ -167,7 +167,7 @@ async function storePageData(pdf, pageNum) {
     appendLogMessage(`Crop Range: x: ${cropRange.x[0].toFixed(2)} to ${cropRange.x[1].toFixed(2)}; y: ${cropRange.y[0].toFixed(2)} to ${cropRange.y[1].toFixed(2)}`);
     appendLogMessage(`Cropped size: ${cropRange.x[1].toFixed(2) - cropRange.x[0].toFixed(2)} x ${cropRange.y[1].toFixed(2) - cropRange.y[0].toFixed(2)}`);
 
-    const drawingBorders = findMap(operatorList, cropRange, viewport);
+    const drawingBorders = findDrawings(operatorList, cropRange, viewport);
 
     augmentItems(content.items, viewport);
     // Discard content items falling outside crop range or within drawing outlines
@@ -187,12 +187,12 @@ async function storePageData(pdf, pageNum) {
         const drawings = await extractDrawingsAsBase64(page, viewport, drawingBorders);
         localStorage.setItem(`page-${pageNum}-drawings`, JSON.stringify(drawings));
         // Add new items to represent drawings
-        content.items.push(...drawings.map(drawing => ({
+        content.items.push(...drawingBorders.map(drawing => ({
             'str': '',
             'fontName': 'drawing',
             'top': drawing.y0,
             'left': drawing.x0,
-            'bottom': drawing.y1,
+            'bottom': drawing.y0, // Use top value to ensure that label follows drawing in reading layout
             'right': drawing.x1,
             'width': drawing.x1 - drawing.x0,
             'height': drawing.y1 - drawing.y0,
