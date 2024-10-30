@@ -49,9 +49,28 @@ function processPDF(file, fileName, zip) {  // Accept zip as a parameter
                     return mostCommon;
                 }, { fontName: null, fontSize: null, maxArea: 0 });
 
-                // Iterate over pages to preprocess footnote areas and remove header
+                // Identify header fonts (larger than default font or name ending in "SC") and rank by size
+                const headerFontSizes = Array.from(
+                    new Set(
+                        Object.entries(masterFontMap)
+                            .flatMap(([fontName, fontEntry]) => {
+                                return Object.entries(fontEntry.sizes)
+                                    .filter(([size]) => {
+                                        const fontSize = parseFloat(size);
+                                        const isLargerThanDefault = fontSize > defaultFont.fontSize;
+                                        const isSameAsDefault = fontSize === defaultFont.fontSize;
+                                        const isSmallCaps = masterFontMap[fontName].name.endsWith("SC");
+                                        return isLargerThanDefault // || (isSmallCaps && isSameAsDefault); // DISABLED: Would need means to differentiate between small caps and regular text
+                                    })
+                                    .map(([size]) => parseFloat(size)); // Extract the size as a number
+                            })
+                    )
+                ).sort((a, b) => b - a);
+                console.log('headerFontSizes:', headerFontSizes);
+
+                // Iterate over pages to preprocess footnote areas and remove header; tag headers and italic, bold, and capital fonts
                 for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-                    analyseTopAndBottom(pageNum, masterFontMap, defaultFont);
+                    headerFooterAndFonts(pageNum, masterFontMap, defaultFont, headerFontSizes);
                 }
                 // Find the most common footArea font
                 const footFont = Object.entries(masterFontMap).reduce((mostCommon, [fontName, fontEntry]) => {
@@ -70,26 +89,18 @@ function processPDF(file, fileName, zip) {  // Accept zip as a parameter
                 const columns = findColumns(pdf.numPages, defaultFont, footFont);
                 console.log('Columns:', columns || '(none)');
 
-                if (columns) {
-                    // Iterate over pages to identify rows
-                    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-                        tagRowsAndColumns(pageNum, defaultFont, footFont, columns);
-                    }
-                }
-
                 let docHTML = ''; // Initialize the document HTML content
                 let endnoteHTML = `<hr class="remove" /><h3 class="remove">ENDNOTES</h3>`; // Initialize the endnote HTML content
-                let endnoteLookup = []; // Initialize the endnote lookup array
-                let endnoteNumber = 1; // Initialize the endnote number
 
-                // Iterate over pages and process content
-                for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-
-                    if (pageNum > 0) {
-                        docHTML += '<hr class="remove" />'; // Add horizontal rule between pages
-                        break;
+                let maxEndnote = 0;
+                if (columns) { // TODO: Fix tagRowsAndColumns to handle null columns
+                    // Iterate over pages to identify rows and then process items
+                    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                        let pageHTML = '';
+                        [maxEndnote, pageHTML, pageEndnoteHTML] = await tagRowsAndColumns(pageNum, defaultFont, footFont, columns, maxEndnote, pdf);
+                        docHTML += `${pageHTML}<hr class="remove" />`; // Add horizontal rule between pages
+                        endnoteHTML += pageEndnoteHTML;
                     }
-                    endnoteLookup.push([]);
                 }
 
                 docHTML += endnoteHTML;
@@ -142,10 +153,15 @@ function augmentItems(items, viewport) {
 async function storePageData(pdf, pageNum) {
     appendLogMessage(`====================`);
     appendLogMessage(`Processing page ${pageNum}...`);
+    console.log(`Processing page ${pageNum}...`);
     const page = await pdf.getPage(pageNum);
     const content = await page.getTextContent();
     const viewport = await page.getViewport({scale: 1});
     const operatorList = await page.getOperatorList();
+
+    if (pageNum === 22) {
+        listOperators(operatorList); // Debugging log
+    }
 
     localStorage.setItem(`page-${pageNum}-viewport`, JSON.stringify(viewport));
     appendLogMessage(`Page size: ${viewport.width.toFixed(2)} x ${viewport.height.toFixed(2)}`);
@@ -153,7 +169,7 @@ async function storePageData(pdf, pageNum) {
     const cropRange = identifyCropMarks(operatorList);
     if (!!cropRange.y) {
         // Convert ranges to top-down reading order
-        cropRange.y = [viewport.height.toFixed(2) - cropRange.y[0].toFixed(2), viewport.height.toFixed(2) - cropRange.y[1].toFixed(2)];
+        cropRange.y = [viewport.height - cropRange.y[0], viewport.height - cropRange.y[1]];
     }
     else {
         console.warn('Crop Range not found: using defaults.');
@@ -175,32 +191,25 @@ async function storePageData(pdf, pageNum) {
         item.left >= cropRange.x[0] && item.right <= cropRange.x[1] &&
         item.bottom >= cropRange.y[0] && item.top <= cropRange.y[1] &&
         !drawingBorders.some(border =>
-            item.left >= border.x0 && item.right <= border.x1 &&
-            item.bottom >= border.y0 && item.top <= border.y1
+            item.left >= border.left && item.right <= border.right &&
+            item.bottom <= border.bottom && item.top >= border.top
         )
     );
 
     if (drawingBorders.length > 0) {
         localStorage.setItem(`page-${pageNum}-drawingBorders`, JSON.stringify(drawingBorders));
         appendLogMessage(`${drawingBorders.length} drawing(s) found`);
-
-        const drawings = await extractDrawingsAsBase64(page, viewport, drawingBorders);
-        localStorage.setItem(`page-${pageNum}-drawings`, JSON.stringify(drawings));
         // Add new items to represent drawings
-        content.items.push(...drawingBorders.map(drawing => ({
+        content.items.push(...drawingBorders.map(drawingBorder => ({
+            ...drawingBorder,
+            'bottom': drawingBorder.top, // Switch to top value to ensure that label follows drawing in reading layout
             'str': '',
             'fontName': 'drawing',
-            'top': drawing.y0,
-            'left': drawing.x0,
-            'bottom': drawing.y0, // Use top value to ensure that label follows drawing in reading layout
-            'right': drawing.x1,
-            'width': drawing.x1 - drawing.x0,
-            'height': drawing.y1 - drawing.y0,
-            'area': (drawing.x1 - drawing.x0) * (drawing.y1 - drawing.y0)
+            'paragraph': true
         })));
     }
 
-    localStorage.setItem(`page-${pageNum}-items`, JSON.stringify(content.items));
+    localStorage.setItem(`page-${pageNum}-items`, LZString.compressToUTF16(JSON.stringify(content.items)));
 
     const fonts = page.commonObjs._objs;
     const fontMap = {};
@@ -229,14 +238,14 @@ async function storePageData(pdf, pageNum) {
     return fontMap;
 }
 
-function analyseTopAndBottom(pageNum, masterFontMap, defaultFont) {
-    let content = JSON.parse(localStorage.getItem(`page-${pageNum}-items`));
+function headerFooterAndFonts(pageNum, masterFontMap, defaultFont, headerFontSizes) {
+    let items = JSON.parse(LZString.decompressFromUTF16(localStorage.getItem(`page-${pageNum}-items`)));
 
     // Find bottom of lowest instance of default font
-    const defaultFontBottom = Math.max(...content.filter(item => item.fontName === defaultFont.fontName && item.height === defaultFont.fontSize).map(item => item.bottom));
+    const defaultFontBottom = Math.max(...items.filter(item => item.fontName === defaultFont.fontName && item.height === defaultFont.fontSize).map(item => item.bottom));
 
     // Accumulate foot area for items below the default font's lowest position
-    content
+    items
         .filter(item => item.top > defaultFontBottom)
         .forEach(item => {
             const fontEntry = masterFontMap[item.fontName];
@@ -248,17 +257,47 @@ function analyseTopAndBottom(pageNum, masterFontMap, defaultFont) {
         });
 
     // Identify the top line and extract the page number (items do not typically share the exact same bottom position)
-    const topItemBottom = Math.min(...content.map(item => item.bottom));
-    const topLineItems = content.filter(item => item.top <= topItemBottom);
+    const topItemBottom = Math.min(...items.map(item => item.bottom));
+    const topLineItems = items.filter(item => item.top <= topItemBottom);
     const pageNumberItem = topLineItems.find(item => /^\d+$/.test(item.str));
 
     if (pageNumberItem) {
         localStorage.setItem(`page-${pageNum}-pageNumber`, pageNumberItem?.str || '');
         // Remove header items
-        content = content.filter(item => item.top > topItemBottom);
-        localStorage.setItem(`page-${pageNum}-items`, JSON.stringify(content));
+        items = items.filter(item => item.top > topItemBottom);
     }
     else {
-        console.warn(`Page ${pageNum} - Page Number Not Found`);
+        console.error(`Page ${pageNum} - Page Number Not Found`);
     }
+
+    // Identify font styles
+    const fontStyles = {
+        'italic': /-It$|Italic|Oblique/,
+        'bold': /Bold|Semibold/,
+        'capital': /SC$/
+    };
+    items.forEach(item => {
+        const fontEntry = masterFontMap[item.fontName];
+        if (fontEntry) { // drawings have no font entry
+            // Apply header tags
+            if (headerFontSizes.includes(item.height)) {
+                // Get the index of the font size in the sorted array and normalise between 2 and 6-maximum
+                const index = headerFontSizes.indexOf(item.height);
+                item.header = index > 6 ? 6 : index;
+            }
+            // Apply font styles
+            for (const style in fontStyles) {
+                if (fontStyles[style].test(masterFontMap[item.fontName].name)) {
+                    if (style === 'capital') {
+                        // Many such strings are entirely lowercase, but "Small Caps are to be rendered as Ordinary Text, and not marked up".
+                        item.str = titleCase(item.str);
+                        continue; // Skip to next style
+                    }
+                    item[style] = true;
+                }
+            }
+        }
+    });
+
+    localStorage.setItem(`page-${pageNum}-items`, LZString.compressToUTF16(JSON.stringify(items)));
 }

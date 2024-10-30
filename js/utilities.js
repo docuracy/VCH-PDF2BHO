@@ -30,6 +30,62 @@ const decodeHtmlEntities = (html) => {
     return txt.value;
 };
 
+// Function to capitalise the first letter of each word in a string
+function titleCase(str) {
+    const skipWords = ['and', 'the', 'of', 'in', 'on', 'at', 'with', 'to'];
+    return str
+        .replace(/\s+/g, ' ')
+        .split(' ')
+        .map((word, index) => {
+            const lowerWord = word.toLowerCase(); // Convert the word to lowercase
+            // Capitalise if it's the first word or not a skip word
+            if (index === 0 || !skipWords.includes(lowerWord)) {
+                const hyphenatedParts = lowerWord.split('-'); // Split by hyphen
+                // Capitalise the first letter of the first part
+                hyphenatedParts[0] = hyphenatedParts[0].charAt(0).toUpperCase() + hyphenatedParts[0].slice(1);
+                // Capitalise the first letter of any subsequent parts if they are not skip words
+                for (let i = 1; i < hyphenatedParts.length; i++) {
+                    if (!skipWords.includes(hyphenatedParts[i])) {
+                        hyphenatedParts[i] = hyphenatedParts[i].charAt(0).toUpperCase() + hyphenatedParts[i].slice(1);
+                    }
+                }
+                return hyphenatedParts.join('-'); // Join the hyphenated parts back together
+            }
+            return lowerWord; // Return the lowercased word if it's a skip word
+        })
+        .join(' ');
+}
+
+// Wrap strings in HTML style tags
+function wrapStrings(items) {
+    items.forEach(item => {
+        if (item.header) {
+            item.str = `<h${item.header}>${item.str}</h${item.header}>`;
+            delete item.header;
+            delete item.fontName
+        } else if (item.bold) {
+            item.str = `<strong>${item.str}</strong>`;
+            delete item.bold;
+            delete item.fontName
+        } else if (item.italic) {
+            item.str = `<em>${item.str}</em>`;
+            delete item.italic;
+            delete item.fontName
+        }
+    });
+}
+
+
+function trimStrings(items) {
+    items.forEach(item => {
+        item.str = item.str
+            .replace(/\s+/g, ' ')                   // Replace multiple spaces with a single space
+            .replace(/\s([,.])/g, '$1')             // Remove space before commas or full stops
+            .replace(/(\()\s+/g, '$1');             // Remove space after opening brackets
+    });
+}
+
+
 // Function to Escape XML Special Characters
 function escapeXML(input) {
     const str = (input != null) ? String(input) : '';

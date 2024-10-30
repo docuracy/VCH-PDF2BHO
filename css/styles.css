@@ -9,7 +9,7 @@ body {
     font-family: serif;
 }
 
-#htmlPreviewContent p {
+#htmlPreviewContent div {
     text-align: justify;
 }
 
@@ -21,6 +21,10 @@ body {
 
 #htmlPreviewContent .heading {
     font-family: serif;
+}
+
+#htmlPreviewContent h6 {
+    font-size: 1.2rem;
 }
 
 #htmlPreviewContent .smallCaps {
@@ -35,9 +39,21 @@ body {
     top: -.2rem;
 }
 
-#htmlPreviewContent p.footnote-reference {
+#htmlPreviewContent .endnote {
     text-align: left;
     /*margin-bottom: -1.5rem;*/
+}
+
+#htmlPreviewContent .drawing {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+#htmlPreviewContent img {
+    border: #beddbe 2px solid;
+    margin: 10px;
 }
 
 #htmlPreviewContent span.review {
