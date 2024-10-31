@@ -70,7 +70,7 @@ function findColumns(numPages, defaultFont, footFont, columnSpacing = 11.75, sig
 
 
 async function tagRowsAndColumns(pageNum, defaultFont, footFont, columns, maxEndnote, pdf) {
-    const items = JSON.parse(LZString.decompressFromUTF16(localStorage.getItem(`page-${pageNum}-items`)));
+    let items = JSON.parse(LZString.decompressFromUTF16(localStorage.getItem(`page-${pageNum}-items`)));
     const pageNumeral = JSON.parse(localStorage.getItem(`page-${pageNum}-pageNumber`));
     const cropRange = JSON.parse(localStorage.getItem(`page-${pageNum}-cropRange`));
     const drawingBorders = JSON.parse(localStorage.getItem(`page-${pageNum}-drawingBorders`));
@@ -156,7 +156,18 @@ async function tagRowsAndColumns(pageNum, defaultFont, footFont, columns, maxEnd
     localStorage.setItem(`page-${pageNum}-rows`, JSON.stringify(rows));
 
     // Tag items with row and column numbers; normalise bottoms of superscript items
-    let nextFootnoteNumber = 0;
+    // Initialise set to store found footnote numbers
+    let foundFootnoteIndices = new Set();
+
+    // Find the lowest bottom of default font items
+    const defaultBottom = Math.max(...items.filter(item => item.fontName === defaultFont.fontName && item.height === defaultFont.fontSize).map(item => item.bottom) || 0);
+    // Find the highest top of foot font items which are below defaultBottom
+    const footnoteTop = Math.min(...items.filter(item => item.fontName === footFont.fontName && item.height === footFont.fontSize && item.top > defaultBottom).map(item => item.top) || Infinity);
+
+    // Split off as footnotes any items below footnoteTop, and remove them from the main items array
+    let footnotes = items.filter(item => item.top >= footnoteTop);
+    items = items.filter(item => item.top < footnoteTop);
+
     items.forEach((item, index) => {
         item.row = rows.findIndex(row => item.top >= row.range[0] && item.bottom <= row.range[1]);
         // If row is columnised, find the column
@@ -165,7 +176,10 @@ async function tagRowsAndColumns(pageNum, defaultFont, footFont, columns, maxEnd
         }
         // Footnote Indices: Normalise attributes of integer superscript items (assumes that item and previous item are rendered in reading order)
         if (item.bottom < items[index - 1]?.bottom && /^\d+$/.test(item.str)) {
-            item.footIndex = true;
+            const footIndex = parseInt(item.str);
+            foundFootnoteIndices.add(footIndex);
+            item.footIndex = footIndex;
+            item.str = String(footIndex + maxEndnote);
             item.bottom = items[index - 1].bottom; // Required for sorting
             item.height = items[index - 1].height; // Required for merging
             item.fontName = items[index - 1].fontName; // Required for merging
@@ -174,52 +188,13 @@ async function tagRowsAndColumns(pageNum, defaultFont, footFont, columns, maxEnd
         if (item.bottom === items[index + 1]?.bottom && /^\d+.$/.test(item.str)) {
             item.drawingNumber = true;
         }
-        // Footnotes
-        if (item.fontName === footFont.fontName && item.height === footFont.fontSize && item.row === rows.length - 2) {
-            item.footnote = true;
-            if (item.str.endsWith('.')) {
-                item.paragraph = true;
-            }
-            // Identify footnote numbers
-            const initialNumber = item.str.match(/^\d+(\s|$)/);
-            if ((items[index - 1]?.footnote !== true || items[index - 1]?.paragraph === true) && initialNumber) {
-                item.footNumber = true;
-            }
-            if (initialNumber) {
-                nextFootnoteNumber = parseInt(initialNumber) + 1;
-            }
-            // Identify shared-line footnotes by searching for the next number
-            const match = item.str.match(`(\\.\\s{3,})(${nextFootnoteNumber})`);
-            if (match) {
-                item.str = item.str.replace(match[0], `.@@@${match[2]}`);
-                item.splitFootnote = true;
-            }
-        }
     });
+
+    processFootnotes(rows, columnRanges, footnotes, pageNum, pageNumeral, maxEndnote, foundFootnoteIndices);
+    footnotes = null;
 
     // Sort items in reading order based on row and column (allow tolerance in bottom)
     items.sort((a, b) => a.row - b.row || a.column - b.column || a.bottom - b.bottom + b.height / 2 || a.left - b.left);
-
-    /////////////////////////////
-    // FOOTNOTES -> ENDNOTES
-    /////////////////////////////
-
-    // Split footnote items from main text items
-    const firstFootnoteIndex = items.findIndex(item => item.footnote);
-    let footnotes = [];
-    if (firstFootnoteIndex !== -1) {
-        footnotes = items.slice(firstFootnoteIndex);
-        items.splice(firstFootnoteIndex);
-    }
-
-    processFootnotes(footnotes, pageNum, maxEndnote);
-
-    // Release footnotes from memory
-    footnotes = null;
-
-    /////////////////////////////
-    // MAIN TEXT
-    /////////////////////////////
 
     // Identify paragraph ends and line-end hyphenations
     items.forEach((item, index) => {
@@ -325,86 +300,121 @@ async function tagRowsAndColumns(pageNum, defaultFont, footFont, columns, maxEnd
     appendLogMessage(`Row Ranges: ${JSON.stringify(rows)}`);
     appendLogMessage(`Column Ranges: ${JSON.stringify(columnRanges)}`);
 
+    maxEndnote += Math.max(...(foundFootnoteIndices.size ? foundFootnoteIndices : [0]));
+
+    // console.log(`Page ${pageNum}: maxEndnote is ${maxEndnote}`);
+
     return [maxEndnote, pageHTML];
 }
 
 
-function processFootnotes(footnotes, pageNum, maxEndnote) {
+function processFootnotes(rows, columnRanges, footnotes, pageNum, pageNumeral, maxEndnote, foundFootnoteIndices) {
 
+    footnotes.forEach((item, index) => {
+        item.row = rows.findIndex(row => item.top >= row.range[0] && item.bottom <= row.range[1]);
+        // If row is columnised, find the column
+        if (rows[item.row]?.columnised) {
+            item.column = columnRanges.findIndex(column => item.left >= column[0] && item.right <= column[1]);
+        }
+        item.footnote = true;
+    });
+
+    // Sort footnotes in reading order based on row and column (allow tolerance in bottom)
+    footnotes.sort((a, b) => a.row - b.row || a.column - b.column || a.bottom - b.bottom + b.height / 2 || a.left - b.left);
+
+    let nextFootnoteIndex = 1;
+    const maxFootnoteIndex = Math.max(...(foundFootnoteIndices.size ? foundFootnoteIndices : [0]));
+    footnotes.forEach((item, index) => {
+        // Create a regex pattern that allows spaces between digits (occasionally these are split, commonly for example, "1 1" instead of "11")
+        const spacedDigitsPattern = nextFootnoteIndex.toString().split('').join('\\s*');
+
+        console.log(`Testing [${structuredClone(item.str)}] with [${spacedDigitsPattern}]`);
+
+        if (nextFootnoteIndex <= maxFootnoteIndex) {
+            // Identify footnote numbers
+            const initialNumber = item.str.match(new RegExp(`^(${spacedDigitsPattern})(\\s|$)`));
+            if (initialNumber) {
+                item.str = item.str.replace(initialNumber[1], `${nextFootnoteIndex}`);
+                item.footNumber = nextFootnoteIndex++;
+                console.log(`Found footnote ${nextFootnoteIndex}`);
+            }
+        }
+        if (nextFootnoteIndex <= maxFootnoteIndex) {
+            const regex = new RegExp(`(\\.\\s{3,})(${spacedDigitsPattern})`);
+            // Identify possible shared-line footnotes by searching for the next number
+            const match = item.str.match(regex);
+            if (match) {
+                item.str = item.str.replace(match[0], `.@@@${nextFootnoteIndex}`);
+                item.splitFootnote = nextFootnoteIndex;
+                console.log(`Found split footnote ${nextFootnoteIndex}`);
+            }
+        }
+    });
+
+    // Log the footnotes array
+    // console.log(`Footnotes:`, structuredClone(footnotes));
+
+    let foundFootnoteNumbers = new Set(footnotes.map(item => item.footNumber));
     // Split footnotes tagged with splitFootnote
     for (let i = footnotes.length - 1; i >= 0; i--) { // Start from the end and move to the beginning
         const item = footnotes[i];
 
-        if (item.splitFootnote === true) {
+        if (item.splitFootnote && !foundFootnoteNumbers.has(item.splitFootnote)) {
             const [first, second] = item.str.split('@@@');
             item.str = first;
 
             // Create a new item with the second part of the string
             const newItem = {...item, str: second};
-            newItem.footNumber = true;
+            newItem.footNumber = item.splitFootnote;
+            delete item.splitFootnote;
 
             // Insert the new item into the original footnotes array right after the current item
             footnotes.splice(i + 1, 0, newItem);
-
-            // Mark the current item as a paragraph
-            item.paragraph = true;
         }
     }
-    // Fix footnote numbers split by a rogue space, then split numbers into separate items
-    for (let i = footnotes.length - 1; i >= 0; i--) { // Start from the end and move to the beginning
-        const item = footnotes[i];
-
-        if (item.footNumber === true) {
-            if (item.str.match(/^\d\s\d/)) {
-                item.str = item.str.replace(/^(\d)\s(\d)/, '$1$2');
-            }
-
-            // Use regex to match leading digits and keep the rest of the string
-            const match = item.str.match(/^(\d+)(.*)/); // Match leading digits and everything else
-            if (match) {
-                // Set item.str to only the leading digits (keep the digits)
-                item.str = match[1].trim(); // Keep just the digits and trim any whitespace
-
-                // Create a new item with the rest of the text after the digits
-                const newItem = {
-                    ...item,
-                    str: match[2].trim(), // The rest of the string after the digits
-                    footNumber: false // Set footNumber to false for the new item
-                };
-
-                // Insert the new footnote into the original footnotes array right after the current item
-                footnotes.splice(i + 1, 0, newItem);
-            }
-        }
-    }
-
-    // Find footnote indices and increment endnote numbers
-    footnotes.filter(item => item.footIndex === true).forEach((item, index) => {
-        // find matching footnote
-        const footnote = footnotes.find(footnote => footnote.footnote === true && footnote.str === item.str);
-        maxEndnote++;
-        const footnoteIndex = item.str
-        item.str = `<sup data-footnote-index="${footnoteIndex}" data-endnote-index="${maxEndnote}">${maxEndnote}</sup>`;
-        if (footnote) {
-            footnote.str = `<span data-footnote-index="${footnoteIndex}" data-endnote="${maxEndnote}">${maxEndnote}</span>`;
-        } else {
-            console.error(`Page ${pageNum}: footnote not found for index ${footnoteIndex} (${maxEndnote})`);
-            item.str += '/??/'
-        }
-    });
 
     wrapStrings(footnotes);
 
-    // Merge footnotes with the previous item if they don't have a footnumber
+    // Merge footnotes with the previous item if they don't have a footNumber
     for (let i = footnotes.length - 1; i > 0; i--) { // Start from the end and move to the beginning
         const currentItem = footnotes[i];
         const previousItem = footnotes[i - 1];
-        if (!currentItem.footnumber) {
+        if (!currentItem.footNumber) {
             previousItem.str += ' ' + currentItem.str;
-            previousItem.footnote = true;
             footnotes.splice(i, 1); // Remove the current item after merging
         }
     }
+
+    // Identify any foundFootnoteIndices that are not foundFootnoteNumbers
+    foundFootnoteNumbers = new Set(footnotes.map(item => item.footNumber));
+    const missingFootnoteIndices = [...foundFootnoteIndices].filter(index => !foundFootnoteNumbers.has(index));
+
+    missingFootnoteIndices.forEach(footnoteIndex => {
+        let fixed = false;
+        footnotes.forEach(item => {
+            // Pad the footnote index with spaces between digits
+            const paddedIndex = footnoteIndex.toString().split('').join(' ');
+            // Use a regular expression to test and replace only at the start of the string
+            const regex = new RegExp(`^${paddedIndex}`);
+            if (regex.test(item.str)) {
+                item.str = item.str.replace(regex, footnoteIndex);
+                item.footNumber = footnoteIndex;
+                fixed = true;
+            }
+        });
+        if (!fixed) {
+            console.warn(`Page ${pageNum}: no footnote found for index ${footnoteIndex}`);
+        }
+    });
+
+    // Replace footnote numbers with endnote numbers
+    footnotes.forEach((item, index) => {
+        item.endnoteNumber = maxEndnote + item.footNumber;
+        const regex = new RegExp(`^${item.footNumber}`);
+        if (regex.test(item.str)) {
+            item.str = item.str.replace(regex, `<a id="endnote${item.endnoteNumber}" href="#endnoteIndex${item.endnoteNumber}" data-footnote="${item.footNumber}" data-endnote="${item.endnoteNumber}" title="p.${pageNumeral} fn.${item.footNumber}">${item.endnoteNumber}</a>`);
+        }
+    });
 
     trimStrings(footnotes);
 

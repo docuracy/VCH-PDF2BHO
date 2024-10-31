@@ -80,6 +80,7 @@ function trimStrings(items) {
     items.forEach(item => {
         item.str = item.str
             .replace(/\s+/g, ' ')                   // Replace multiple spaces with a single space
+            .replace('@@@', ' ')                    // Remove @@@ used as potential endnote markers
             .replace(/\s([,.])/g, '$1')             // Remove space before commas or full stops
             .replace(/(\()\s+/g, '$1');             // Remove space after opening brackets
     });

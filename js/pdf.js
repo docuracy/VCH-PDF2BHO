@@ -162,9 +162,9 @@ async function storePageData(pdf, pageNum) {
     const viewport = await page.getViewport({scale: 1});
     const operatorList = await page.getOperatorList();
 
-    if (pageNum === 22) {
-        listOperators(operatorList); // Debugging log
-    }
+    // if (pageNum === 22) {
+    //     listOperators(operatorList); // Debugging log
+    // }
 
     localStorage.setItem(`page-${pageNum}-viewport`, JSON.stringify(viewport));
     appendLogMessage(`Page size: ${viewport.width.toFixed(2)} x ${viewport.height.toFixed(2)}`);
