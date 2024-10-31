@@ -212,13 +212,10 @@ async function tagRowsAndColumns(pageNum, defaultFont, footFont, columns, maxEnd
         items.splice(firstFootnoteIndex);
     }
 
-    processFootnotes(footnotes, maxEndnote);
+    processFootnotes(footnotes, pageNum, maxEndnote);
 
-    // Construct endnote HTML
-    let endnoteHTML = '';
-    footnotes.forEach(item => {
-        endnoteHTML += `<div class="endnote">${item.str}</div>`;
-    });
+    // Release footnotes from memory
+    footnotes = null;
 
     /////////////////////////////
     // MAIN TEXT
@@ -318,8 +315,6 @@ async function tagRowsAndColumns(pageNum, defaultFont, footFont, columns, maxEnd
         items.str = '';
     });
 
-    // Reappend processed footnotes back to the original items array and save to localStorage
-    items.push(...footnotes);
     try {
         localStorage.setItem(`page-${pageNum}-items`, LZString.compressToUTF16(JSON.stringify(items)));
     } catch (error) {
@@ -330,10 +325,11 @@ async function tagRowsAndColumns(pageNum, defaultFont, footFont, columns, maxEnd
     appendLogMessage(`Row Ranges: ${JSON.stringify(rows)}`);
     appendLogMessage(`Column Ranges: ${JSON.stringify(columnRanges)}`);
 
-    return [maxEndnote, pageHTML, endnoteHTML];
+    return [maxEndnote, pageHTML];
 }
 
-function processFootnotes(footnotes, maxEndnote) {
+
+function processFootnotes(footnotes, pageNum, maxEndnote) {
 
     // Split footnotes tagged with splitFootnote
     for (let i = footnotes.length - 1; i >= 0; i--) { // Start from the end and move to the beginning
@@ -344,7 +340,7 @@ function processFootnotes(footnotes, maxEndnote) {
             item.str = first;
 
             // Create a new item with the second part of the string
-            const newItem = { ...item, str: second };
+            const newItem = {...item, str: second};
             newItem.footNumber = true;
 
             // Insert the new item into the original footnotes array right after the current item
@@ -411,5 +407,7 @@ function processFootnotes(footnotes, maxEndnote) {
     }
 
     trimStrings(footnotes);
+
+    localStorage.setItem(`page-${pageNum}-footnotes`, LZString.compressToUTF16(JSON.stringify(footnotes)));
 
 }

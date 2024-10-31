@@ -90,20 +90,23 @@ function processPDF(file, fileName, zip) {  // Accept zip as a parameter
                 console.log('Columns:', columns || '(none)');
 
                 let docHTML = ''; // Initialize the document HTML content
-                let endnoteHTML = `<hr class="remove" /><h3 class="remove">ENDNOTES</h3>`; // Initialize the endnote HTML content
 
                 let maxEndnote = 0;
                 if (columns) { // TODO: Fix tagRowsAndColumns to handle null columns
                     // Iterate over pages to identify rows and then process items
                     for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
                         let pageHTML = '';
-                        [maxEndnote, pageHTML, pageEndnoteHTML] = await tagRowsAndColumns(pageNum, defaultFont, footFont, columns, maxEndnote, pdf);
+                        [maxEndnote, pageHTML] = await tagRowsAndColumns(pageNum, defaultFont, footFont, columns, maxEndnote, pdf);
                         docHTML += `${pageHTML}<hr class="remove" />`; // Add horizontal rule between pages
-                        endnoteHTML += pageEndnoteHTML;
                     }
                 }
 
-                docHTML += endnoteHTML;
+                // Loop through pages to add footnotes to endnotes
+                docHTML += `<hr class="remove" /><h3 class="remove">ENDNOTES</h3>`;
+                docHTML += Array.from({ length: pdf.numPages }, (_, i) => {
+                    const footnotes = JSON.parse(LZString.decompressFromUTF16(localStorage.getItem(`page-${i + 1}-footnotes`)));
+                    return footnotes.map(item => `<div class="endnote">${item.str}</div>`).join('');
+                }).join('');
 
                 showHtmlPreview(docHTML); // Display HTML in modal overlay for checking
                 appendLogMessage(`Generated HTML for file: ${fileName}, size: ${docHTML.length} characters`); // Debugging log
