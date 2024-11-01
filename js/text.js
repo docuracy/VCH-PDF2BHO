@@ -247,33 +247,6 @@ async function tagRowsAndColumns(pageNum, defaultFont, footFont, columns, maxEnd
         }
     });
 
-    // items.forEach((item, index) => {
-    //     const thisBlockItems = items.filter(i => i.row === item.row && i.column === item.column);
-    //     const nextBlockItems = thisBlockItems.includes(items[index + 1]) ? thisBlockItems : items.filter(i => i.row === items[index + 1]?.row + 1 && i.column === items[index + 1]?.column);
-    //     const isPreviousItemSameLine = items[index - 1]?.bottom > item.bottom - item.height / 2 && items[index - 1]?.column === item.column;
-    //     const isNextItemInRow = items[index + 1]?.row === item.row;
-    //     const isNextItemSameLine = items[index + 1]?.bottom < item.bottom + item.height / 2 && items[index + 1]?.column === item.column;
-    //     const isNextItemTabbed = isNextItemSameLine && items[index + 1]?.left - 2 * tolerance > item.right;
-    //     const isItemAtLineEnd = item.right + tolerance > Math.max(...thisBlockItems.map(i => i.right));
-    //     const isItemIndented = item.left - tolerance > Math.min(...thisBlockItems.map(i => i.left)) && !isPreviousItemSameLine;
-    //     const isNextItemIndented = items[index + 1]?.left - tolerance > Math.min(...nextBlockItems.map(i => i.left)) && !isNextItemSameLine;
-    //     const isMidCaption = thisBlockItems[0]?.fontName === 'drawing' && item.italic && items[index + 1]?.italic;
-    //     item.indented = isItemIndented;
-    //     item.nextIndented = isNextItemIndented;
-    //     item.isNextItemSameLine = isNextItemSameLine;
-    //     item.isPreviousItemSameLine = isPreviousItemSameLine;
-    //     if (
-    //         isNextItemIndented && !isItemIndented ||
-    //         (item.str?.endsWith('.') && !isItemAtLineEnd && !isNextItemSameLine && !isMidCaption) ||
-    //         item.bold && !items[index + 1]?.bold ||
-    //         (isItemIndented && item.italic && !isNextItemSameLine && !isMidCaption) ||
-    //         (item.italic && isNextItemTabbed) ||
-    //         !isNextItemInRow
-    //     ) {
-    //         item.paragraph = true;
-    //     }
-    // });
-
     console.log(structuredClone(items));
 
     // Wrap footnote indices in superscript tags
