@@ -232,8 +232,8 @@ async function tagRowsAndColumns(pageNum, defaultFont, footFont, columns, maxEnd
         item.str = `<sup><a id="endnoteIndex${endnoteNumber}" href="#endnote${endnoteNumber}" data-footnote="${item.footIndex}" data-endnote="${endnoteNumber}">${endnoteNumber}</a></sup>`;
     });
 
-    // Merge consecutive items which share font, italic, bold, and capital properties, and if the first item is not a paragraph end
-    const properties = ['row', 'fontName', 'height', 'header', 'italic', 'bold'];
+    // Merge consecutive items which share row, font, italic, bold, and capital properties, and if the first item is not a paragraph end
+    let properties = ['row', 'fontName', 'height', 'header', 'italic', 'bold'];
     for (let i = items.length - 1; i > 0; i--) { // Start from the end and move to the beginning
         const currentItem = items[i];
         const previousItem = items[i - 1];
@@ -242,7 +242,7 @@ async function tagRowsAndColumns(pageNum, defaultFont, footFont, columns, maxEnd
         if (!previousItem.paragraph) {
             // Merge if all properties match and the previous item is not a paragraph end
             if (properties.every(prop => currentItem[prop] === previousItem[prop])) {
-                const joint = previousItem.hyphenated ? '<span class="line-end-hyphen">-</span>' : currentItem.footIndex ? '' : ' ';
+                const joint = previousItem.hyphenated ? '<span class="line-end-hyphen" data-bs-title="Hyphen found at the end of a line - will be removed from XML." data-bs-toggle="tooltip">-</span>' : currentItem.footIndex ? '' : ' ';
                 previousItem.str = `${previousItem.str}${joint}${currentItem.str}`;
                 if (currentItem.paragraph) {
                     previousItem.paragraph = true;
@@ -257,23 +257,28 @@ async function tagRowsAndColumns(pageNum, defaultFont, footFont, columns, maxEnd
 
     wrapStrings(items);
 
-    // Repeat merging of consecutive items until no more merges are possible
-    // let merged = true;
-    // while (merged) {
-    //     merged = false;
-    //     for (let i = items.length - 1; i > 0; i--) { // Start from the end and move to the beginning
-    //         const currentItem = items[i];
-    //         const previousItem = items[i - 1];
-    //         if (!previousItem.paragraph) {
-    //             previousItem.str += ' ' + currentItem.str;
-    //             if (currentItem.paragraph) {
-    //                 previousItem.paragraph = true;
-    //             }
-    //             items.splice(i, 1); // Remove the current item after merging
-    //             merged = true;
-    //         }
-    //     }
-    // }
+    // Merge consecutive items within the same row if the first item is not a paragraph end
+    properties = ['row'];
+    for (let i = items.length - 1; i > 0; i--) { // Start from the end and move to the beginning
+        const currentItem = items[i];
+        const previousItem = items[i - 1];
+
+        // Check if previousItem exists and both items have all required properties
+        if (!previousItem.paragraph) {
+            // Merge if all properties match and the previous item is not a paragraph end
+            if (properties.every(prop => currentItem[prop] === previousItem[prop])) {
+                const joint = previousItem.hyphenated ? '<span class="line-end-hyphen" data-bs-title="Hyphen found at the end of a line - will be removed from XML." data-bs-toggle="tooltip">-</span>' : currentItem.footIndex ? '' : ' ';
+                previousItem.str = `${previousItem.str}${joint}${currentItem.str}`;
+                if (currentItem.paragraph) {
+                    previousItem.paragraph = true;
+                }
+                delete previousItem.area;
+                delete previousItem.right;
+                delete previousItem.width;
+                items.splice(i, 1); // Remove the current item after merging
+            }
+        }
+    }
 
     trimStrings(items);
 
@@ -290,10 +295,11 @@ async function tagRowsAndColumns(pageNum, defaultFont, footFont, columns, maxEnd
         } else {
             // Create an HTML string for the tooltip content
             const tooltipContent = Object.entries(item)
+                .filter(([key]) => key !== 'str')
                 .map(([key, value]) => `<strong>${escapeXML(key)}:</strong> ${escapeXML(value)}`)
                 .join('<br>');
 
-            pageHTML += `<div class="tooltip-item" data-bs-title="${tooltipContent}" data-bs-toggle="tooltip">${item.str}</div>`;
+            pageHTML += `<div class="paragraph tooltip-item" data-bs-title="${tooltipContent}" data-bs-toggle="tooltip">${item.str}</div>`;
         }
     });
 
@@ -417,7 +423,7 @@ function processFootnotes(rows, columnRanges, footnotes, pageNum, pageNumeral, m
             let joint = ' ';
             // Wrap last character of the previous item with a span if it ends with a hyphen
             if (previousItem.str.endsWith('-')) {
-                previousItem.str = previousItem.str.slice(0, -1) + '<span class="line-end-hyphen" title="Hyphen found at the end of a line - will be removed from XML.">-</span>';
+                previousItem.str = previousItem.str.slice(0, -1) + '<span class="line-end-hyphen" data-bs-title="Hyphen found at the end of a line - will be removed from XML." data-bs-toggle="tooltip">-</span>';
                 joint = '';
             }
             previousItem.str += joint + currentItem.str;

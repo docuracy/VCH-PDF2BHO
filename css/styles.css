@@ -6,11 +6,13 @@ body {
 
 #htmlPreviewContent {
     font-size: 16px;
-    font-family: serif;
+    font-family: "Ledger", serif;
 }
 
-#htmlPreviewContent div {
+#htmlPreviewContent .paragraph {
     text-align: justify;
+    margin-bottom: 0.5rem;
+    background: #d3d3d338;
 }
 
 #htmlPreviewContent .pageNum {
