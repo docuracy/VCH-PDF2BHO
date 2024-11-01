@@ -200,32 +200,79 @@ async function tagRowsAndColumns(pageNum, defaultFont, footFont, columns, maxEnd
 
     // Identify paragraph ends
     const tolerance = 5;
+
+    function isSameBlock(item, reference) {
+        return item.row === reference.row && item.column === reference.column;
+    }
+
+    function calculateBlockEdges(blockItems) {
+        return {
+            maxRight: Math.max(...blockItems.map(i => i.right)),
+            minLeft: Math.min(...blockItems.map(i => i.left))
+        };
+    }
+
     items.forEach((item, index) => {
-        const thisBlockItems = items.filter(i => i.row === item.row && i.column === item.column);
-        const nextBlockItems = thisBlockItems.includes(items[index + 1]) ? thisBlockItems : items.filter(i => i.row === items[index + 1]?.row + 1 && i.column === items[index + 1]?.column);
-        const isPreviousItemSameLine = items[index - 1]?.bottom > item.bottom - item.height / 2 && items[index - 1]?.column === item.column;
-        const isNextItemInRow = items[index + 1]?.row === item.row;
-        const isNextItemSameLine = items[index + 1]?.bottom < item.bottom + item.height / 2 && items[index + 1]?.column === item.column;
-        const isNextItemTabbed = isNextItemSameLine && items[index + 1]?.left - 2 * tolerance > item.right;
-        const isItemAtLineEnd = item.right + tolerance > Math.max(...thisBlockItems.map(i => i.right));
-        const isItemIndented = item.left - tolerance > Math.min(...thisBlockItems.map(i => i.left)) && !isPreviousItemSameLine;
-        const isNextItemIndented = items[index + 1]?.left - tolerance > Math.min(...nextBlockItems.map(i => i.left)) && !isNextItemSameLine;
-        const isMidCaption = thisBlockItems[0]?.fontName === 'drawing' && item.italic && items[index + 1]?.italic;
-        item.indented = isItemIndented;
-        item.nextIndented = isNextItemIndented;
-        item.isNextItemSameLine = isNextItemSameLine;
-        item.isPreviousItemSameLine = isPreviousItemSameLine;
-        if (
-            isNextItemIndented && !isItemIndented ||
-            (item.str?.endsWith('.') && !isItemAtLineEnd && !isNextItemSameLine && !isMidCaption) ||
-            item.bold && !items[index + 1]?.bold ||
-            (isItemIndented && item.italic && !isNextItemSameLine && !isMidCaption) ||
-            (item.italic && isNextItemTabbed) ||
-            !isNextItemInRow
-        ) {
+        const nextItem = items[index + 1];
+        const prevItem = items[index - 1];
+        const thisBlockItems = items.filter(i => isSameBlock(i, item));
+        const nextBlockItems = thisBlockItems.includes(nextItem)
+            ? thisBlockItems
+            : items.filter(i => i.row === nextItem?.row + 1 && i.column === nextItem?.column);
+
+        const { maxRight: thisBlockMaxRight, minLeft: thisBlockMinLeft } = calculateBlockEdges(thisBlockItems);
+        const { minLeft: nextBlockMinLeft } = calculateBlockEdges(nextBlockItems);
+
+        item.isPreviousItemSameLine = prevItem?.isNextItemSameLine;
+        item.isItemAtLineEnd = item.right + tolerance > thisBlockMaxRight;
+        item.isItemIndented = item.left - tolerance > thisBlockMinLeft && !item.isPreviousItemSameLine;
+
+        item.isNextItemInRow = nextItem?.row === item.row;
+        item.isNextItemSameLine = nextItem?.bottom < item.bottom + item.height / 2 && nextItem?.column === item.column;
+        item.isNextItemTabbed = item.isNextItemSameLine && nextItem?.left - 2 * tolerance > item.right;
+        item.isNextItemIndented = nextItem?.left - tolerance > nextBlockMinLeft && !item.isNextItemSameLine;
+        item.isMidCaption = thisBlockItems[0]?.fontName === 'drawing' && item.italic && nextItem?.italic;
+
+        const isEndOfParagraph = (
+            (item.isNextItemIndented && !item.isItemIndented) ||
+            (item.str?.endsWith('.') && !item.isItemAtLineEnd && !item.isNextItemSameLine && !item.isMidCaption) ||
+            (item.bold && !nextItem?.bold) ||
+            (item.isItemIndented && item.italic && !item.isNextItemSameLine && !item.isMidCaption) ||
+            (item.italic && item.isNextItemTabbed) ||
+            !item.isNextItemInRow
+        );
+
+        if (isEndOfParagraph) {
             item.paragraph = true;
         }
     });
+
+    // items.forEach((item, index) => {
+    //     const thisBlockItems = items.filter(i => i.row === item.row && i.column === item.column);
+    //     const nextBlockItems = thisBlockItems.includes(items[index + 1]) ? thisBlockItems : items.filter(i => i.row === items[index + 1]?.row + 1 && i.column === items[index + 1]?.column);
+    //     const isPreviousItemSameLine = items[index - 1]?.bottom > item.bottom - item.height / 2 && items[index - 1]?.column === item.column;
+    //     const isNextItemInRow = items[index + 1]?.row === item.row;
+    //     const isNextItemSameLine = items[index + 1]?.bottom < item.bottom + item.height / 2 && items[index + 1]?.column === item.column;
+    //     const isNextItemTabbed = isNextItemSameLine && items[index + 1]?.left - 2 * tolerance > item.right;
+    //     const isItemAtLineEnd = item.right + tolerance > Math.max(...thisBlockItems.map(i => i.right));
+    //     const isItemIndented = item.left - tolerance > Math.min(...thisBlockItems.map(i => i.left)) && !isPreviousItemSameLine;
+    //     const isNextItemIndented = items[index + 1]?.left - tolerance > Math.min(...nextBlockItems.map(i => i.left)) && !isNextItemSameLine;
+    //     const isMidCaption = thisBlockItems[0]?.fontName === 'drawing' && item.italic && items[index + 1]?.italic;
+    //     item.indented = isItemIndented;
+    //     item.nextIndented = isNextItemIndented;
+    //     item.isNextItemSameLine = isNextItemSameLine;
+    //     item.isPreviousItemSameLine = isPreviousItemSameLine;
+    //     if (
+    //         isNextItemIndented && !isItemIndented ||
+    //         (item.str?.endsWith('.') && !isItemAtLineEnd && !isNextItemSameLine && !isMidCaption) ||
+    //         item.bold && !items[index + 1]?.bold ||
+    //         (isItemIndented && item.italic && !isNextItemSameLine && !isMidCaption) ||
+    //         (item.italic && isNextItemTabbed) ||
+    //         !isNextItemInRow
+    //     ) {
+    //         item.paragraph = true;
+    //     }
+    // });
 
     console.log(structuredClone(items));
 
