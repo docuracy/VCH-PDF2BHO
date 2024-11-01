@@ -104,7 +104,12 @@ function processPDF(file, fileName, zip) {  // Accept zip as a parameter
                 // Loop through pages to add footnotes to endnotes
                 docHTML += `<hr class="remove" /><h3 class="remove">ENDNOTES</h3>`;
                 docHTML += Array.from({ length: pdf.numPages }, (_, i) => {
-                    const footnotes = JSON.parse(LZString.decompressFromUTF16(localStorage.getItem(`page-${i + 1}-footnotes`)));
+                    let footnotes;
+                    try {
+                        footnotes = JSON.parse(LZString.decompressFromUTF16(localStorage.getItem(`page-${i + 1}-footnotes`)));
+                    } catch (err) {
+                        footnotes = [];
+                    }
                     return footnotes.map(item => `<div class="endnote">${item.str}</div>`).join('');
                 }).join('');
 

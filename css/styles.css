@@ -62,8 +62,14 @@ body {
     margin: 10px;
 }
 
-#htmlPreviewContent span.review {
+#htmlPreviewContent span.review,
+#htmlPreviewContent .line-end-hyphen {
     color: red;
+    cursor: pointer;
+}
+
+.tooltip-inner {
+    text-align: left;
 }
 
 #htmlPreviewContent hr.remove {
