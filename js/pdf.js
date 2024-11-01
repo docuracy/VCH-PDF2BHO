@@ -167,9 +167,10 @@ async function storePageData(pdf, pageNum) {
     const viewport = await page.getViewport({scale: 1});
     const operatorList = await page.getOperatorList();
 
-    // if (pageNum === 22) {
-    //     listOperators(operatorList); // Debugging log
+    // if (pageNum === 5) {
+    //     console.log(structuredClone(content.items));
     // }
+
 
     localStorage.setItem(`page-${pageNum}-viewport`, JSON.stringify(viewport));
     appendLogMessage(`Page size: ${viewport.width.toFixed(2)} x ${viewport.height.toFixed(2)}`);
@@ -218,6 +219,7 @@ async function storePageData(pdf, pageNum) {
     }
 
     localStorage.setItem(`page-${pageNum}-items`, LZString.compressToUTF16(JSON.stringify(content.items)));
+    localStorage.setItem(`page-${pageNum}-nullTexts`, JSON.stringify(findNullTexts(operatorList)));
 
     const fonts = page.commonObjs._objs;
     const fontMap = {};
@@ -248,6 +250,9 @@ async function storePageData(pdf, pageNum) {
 
 function headerFooterAndFonts(pageNum, masterFontMap, defaultFont, headerFontSizes) {
     let items = JSON.parse(LZString.decompressFromUTF16(localStorage.getItem(`page-${pageNum}-items`)));
+    const nullTexts = JSON.parse(localStorage.getItem(`page-${pageNum}-nullTexts`));
+    // console.log(`Null Texts: ${nullTexts.length}`, nullTexts);
+    localStorage.removeItem(`page-${pageNum}-nullTexts`);
 
     // Find bottom of lowest instance of default font
     const defaultFontBottom = Math.max(...items.filter(item => item.fontName === defaultFont.fontName && item.height === defaultFont.fontSize).map(item => item.bottom));
@@ -296,13 +301,23 @@ function headerFooterAndFonts(pageNum, masterFontMap, defaultFont, headerFontSiz
             // Apply font styles
             for (const style in fontStyles) {
                 if (fontStyles[style].test(masterFontMap[item.fontName].name)) {
-                    if (style === 'capital') {
+                    if (['capital', 'bold'].includes(style)) {
                         // Many such strings are entirely lowercase, but "Small Caps are to be rendered as Ordinary Text, and not marked up".
                         item.str = titleCase(item.str);
                         continue; // Skip to next style
                     }
                     item[style] = true;
                 }
+            }
+        }
+    });
+
+    // Replace null texts in italicised items e.g. "Wr in ehi l l" -> "Wringehill"
+    items.forEach(item => {
+        if (item.italic) {
+            const nullText = nullTexts.find(nullText => nullText.compressedText === item.str.replace(/\s+/g, ''),);
+            if (nullText) {
+                item.str = nullText.text;
             }
         }
     });

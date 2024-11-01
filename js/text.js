@@ -192,35 +192,38 @@ async function tagRowsAndColumns(pageNum, defaultFont, footFont, columns, maxEnd
         }
     });
 
-    // TODO: Re-enable footnotes processing
     processFootnotes(rows, columnRanges, footnotes, pageNum, pageNumeral, maxEndnote, foundFootnoteIndices);
     footnotes = null;
 
     // Sort items in reading order based on row and column (allow tolerance in bottom)
     items.sort((a, b) => a.row - b.row || a.column - b.column || a.bottom - b.bottom + b.height / 2 || a.left - b.left);
 
-    // Identify paragraph ends and line-end hyphenations
+    // Identify paragraph ends
+    const tolerance = 5;
     items.forEach((item, index) => {
         const thisBlockItems = items.filter(i => i.row === item.row && i.column === item.column);
+        const nextBlockItems = thisBlockItems.includes(items[index + 1]) ? thisBlockItems : items.filter(i => i.row === items[index + 1]?.row + 1 && i.column === items[index + 1]?.column);
+        const isPreviousItemSameLine = items[index - 1]?.bottom > item.bottom - item.height / 2 && items[index - 1]?.column === item.column;
         const isNextItemInRow = items[index + 1]?.row === item.row;
-        const isNextItemSameLine = items[index + 1]?.bottom < item.bottom + item.height / 2;
-        const isNextItemTabbed = isNextItemSameLine && items[index + 1]?.left - 1 > item.right;
-        const isItemAtLineEnd = item.right + 1 > Math.max(...thisBlockItems.map(i => i.right));
-        const isNextItemIndented = items[index + 1]?.bottom >= item.bottom + item.height && items[index + 1]?.left - 1 > Math.min(...thisBlockItems.map(i => i.left));
+        const isNextItemSameLine = items[index + 1]?.bottom < item.bottom + item.height / 2 && items[index + 1]?.column === item.column;
+        const isNextItemTabbed = isNextItemSameLine && items[index + 1]?.left - 2 * tolerance > item.right;
+        const isItemAtLineEnd = item.right + tolerance > Math.max(...thisBlockItems.map(i => i.right));
+        const isItemIndented = item.left - tolerance > Math.min(...thisBlockItems.map(i => i.left)) && !isPreviousItemSameLine;
+        const isNextItemIndented = items[index + 1]?.left - tolerance > Math.min(...nextBlockItems.map(i => i.left)) && !isNextItemSameLine;
+        const isMidCaption = thisBlockItems[0]?.fontName === 'drawing' && item.italic && items[index + 1]?.italic;
+        item.indented = isItemIndented;
+        item.nextIndented = isNextItemIndented;
+        item.isNextItemSameLine = isNextItemSameLine;
+        item.isPreviousItemSameLine = isPreviousItemSameLine;
         if (
-            !isNextItemInRow ||
-            isNextItemIndented ||
-            (item.str?.endsWith('.') && !isItemAtLineEnd && !isNextItemSameLine) ||
-            item.bold ||
-            (item.italic && !isNextItemSameLine) ||
-            (item.italic && isNextItemTabbed)
+            isNextItemIndented && !isItemIndented ||
+            (item.str?.endsWith('.') && !isItemAtLineEnd && !isNextItemSameLine && !isMidCaption) ||
+            item.bold && !items[index + 1]?.bold ||
+            (isItemIndented && item.italic && !isNextItemSameLine && !isMidCaption) ||
+            (item.italic && isNextItemTabbed) ||
+            !isNextItemInRow
         ) {
             item.paragraph = true;
-        }
-
-        if (item.str?.endsWith('-') && isItemAtLineEnd) {
-            item.str = item.str.slice(0, -1);
-            item.hyphenated = true;
         }
     });
 
@@ -232,53 +235,11 @@ async function tagRowsAndColumns(pageNum, defaultFont, footFont, columns, maxEnd
         item.str = `<sup><a id="endnoteIndex${endnoteNumber}" href="#endnote${endnoteNumber}" data-footnote="${item.footIndex}" data-endnote="${endnoteNumber}">${endnoteNumber}</a></sup>`;
     });
 
-    // Merge consecutive items which share row, font, italic, bold, and capital properties, and if the first item is not a paragraph end
-    let properties = ['row', 'fontName', 'height', 'header', 'italic', 'bold'];
-    for (let i = items.length - 1; i > 0; i--) { // Start from the end and move to the beginning
-        const currentItem = items[i];
-        const previousItem = items[i - 1];
-
-        // Check if previousItem exists and both items have all required properties
-        if (!previousItem.paragraph) {
-            // Merge if all properties match and the previous item is not a paragraph end
-            if (properties.every(prop => currentItem[prop] === previousItem[prop])) {
-                const joint = previousItem.hyphenated ? '<span class="line-end-hyphen" data-bs-title="Hyphen found at the end of a line - will be removed from XML." data-bs-toggle="tooltip">-</span>' : currentItem.footIndex ? '' : ' ';
-                previousItem.str = `${previousItem.str}${joint}${currentItem.str}`;
-                if (currentItem.paragraph) {
-                    previousItem.paragraph = true;
-                }
-                delete previousItem.area;
-                delete previousItem.right;
-                delete previousItem.width;
-                items.splice(i, 1); // Remove the current item after merging
-            }
-        }
-    }
+    mergeItems(items, ['row', 'fontName', 'height', 'header', 'italic', 'bold']);
 
     wrapStrings(items);
 
-    // Merge consecutive items within the same row if the first item is not a paragraph end
-    properties = ['row'];
-    for (let i = items.length - 1; i > 0; i--) { // Start from the end and move to the beginning
-        const currentItem = items[i];
-        const previousItem = items[i - 1];
-
-        // Check if previousItem exists and both items have all required properties
-        if (!previousItem.paragraph) {
-            // Merge if all properties match and the previous item is not a paragraph end
-            if (properties.every(prop => currentItem[prop] === previousItem[prop])) {
-                const joint = previousItem.hyphenated ? '<span class="line-end-hyphen" data-bs-title="Hyphen found at the end of a line - will be removed from XML." data-bs-toggle="tooltip">-</span>' : currentItem.footIndex ? '' : ' ';
-                previousItem.str = `${previousItem.str}${joint}${currentItem.str}`;
-                if (currentItem.paragraph) {
-                    previousItem.paragraph = true;
-                }
-                delete previousItem.area;
-                delete previousItem.right;
-                delete previousItem.width;
-                items.splice(i, 1); // Remove the current item after merging
-            }
-        }
-    }
+    mergeItems(items, ['row']);
 
     trimStrings(items);
 
@@ -293,13 +254,14 @@ async function tagRowsAndColumns(pageNum, defaultFont, footFont, columns, maxEnd
         if (item.fontName === 'drawing') {
             pageHTML += `<div class="drawing">${item.str}</div>`;
         } else {
+            const classes = ['paragraph', 'tooltip-item'];
+            if (item.drawingNumber) classes.push('drawing-label');
             // Create an HTML string for the tooltip content
-            const tooltipContent = Object.entries(item)
-                .filter(([key]) => key !== 'str')
+            const tooltipContent = Object.entries(item).filter(([key]) => key !== 'str')
                 .map(([key, value]) => `<strong>${escapeXML(key)}:</strong> ${escapeXML(value)}`)
                 .join('<br>');
 
-            pageHTML += `<div class="paragraph tooltip-item" data-bs-title="${tooltipContent}" data-bs-toggle="tooltip">${item.str}</div>`;
+            pageHTML += `<div class="${classes.join(' ')}" data-bs-title="${tooltipContent}" data-bs-toggle="tooltip">${item.str}</div>`;
         }
     });
 
@@ -310,7 +272,6 @@ async function tagRowsAndColumns(pageNum, defaultFont, footFont, columns, maxEnd
             html: true,
             trigger: 'manual',  // Manual control over show/hide
             boundary: 'window',  // Prevent tooltip from overflowing
-            delay: { show: 100, hide: 100 }
         });
 
         // Show tooltip on mouse enter and hide on mouse leave (default is unreliable)
@@ -346,6 +307,37 @@ async function tagRowsAndColumns(pageNum, defaultFont, footFont, columns, maxEnd
     // console.log(`Page ${pageNum}: maxEndnote is ${maxEndnote}`);
 
     return [maxEndnote, pageHTML];
+}
+
+
+function dehyphenate(item, nextItem) {
+    if (item.str.endsWith('-') && ((item.right + 1 > nextItem.left) || (item.column < nextItem.column))) {
+        item.str = item.str.slice(0, -1) + '<span class="line-end-hyphen" data-bs-title="Hyphen found at the end of a line - will be removed from XML." data-bs-toggle="tooltip">-</span>';
+    } else if ((!nextItem.footIndex) && (!nextItem.str.startsWith(')'))) {
+        item.str += ' ';
+    }
+    item.str += nextItem.str;
+}
+
+
+function mergeItems(items, properties) {
+    for (let i = items.length - 1; i > 0; i--) { // Start from the end and move to the beginning
+        const currentItem = items[i];
+        const previousItem = items[i - 1];
+        if (!previousItem.paragraph) {
+            // Merge if all properties match and the previous item is not a paragraph end
+            if (properties.every(prop => currentItem[prop] === previousItem[prop])) {
+                dehyphenate(previousItem, currentItem);
+                if (currentItem.paragraph) {
+                    previousItem.paragraph = true;
+                }
+                delete previousItem.area;
+                delete previousItem.right;
+                delete previousItem.width;
+                items.splice(i, 1); // Remove the current item after merging
+            }
+        }
+    }
 }
 
 
@@ -420,13 +412,7 @@ function processFootnotes(rows, columnRanges, footnotes, pageNum, pageNumeral, m
         const currentItem = footnotes[i];
         const previousItem = footnotes[i - 1];
         if (!currentItem.footNumber) {
-            let joint = ' ';
-            // Wrap last character of the previous item with a span if it ends with a hyphen
-            if (previousItem.str.endsWith('-')) {
-                previousItem.str = previousItem.str.slice(0, -1) + '<span class="line-end-hyphen" data-bs-title="Hyphen found at the end of a line - will be removed from XML." data-bs-toggle="tooltip">-</span>';
-                joint = '';
-            }
-            previousItem.str += joint + currentItem.str;
+            dehyphenate(previousItem, currentItem);
             footnotes.splice(i, 1); // Remove the current item after merging
         }
     }

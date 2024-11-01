@@ -8,6 +8,29 @@ const operatorNames = Object.keys(pdfjsLib.OPS).reduce((acc, key) => {
     return acc;
 }, {});
 
+
+function findNullTexts(operatorList) {
+    const nullTexts = [];
+    operatorList.fnArray.forEach((fn, index) => {
+        const operatorName = operatorNames[fn] || `Unknown (${fn})`;
+        const args = operatorList.argsArray[index];
+
+        // Check if this is a text operation
+        if (operatorName === "showText" && Array.isArray(args[0])) {
+            const text = args[0].map(item => item.unicode || '').join('');
+            const paddedText = args[0].map(item => item.unicode || ' ').join('');
+            if (text.length < paddedText.length) {
+                nullTexts.push({
+                    compressedText: text.replace(/\s+/g, ''),
+                    text: text
+                });
+            }
+        }
+    });
+    return nullTexts;
+}
+
+
 function listOperators(operatorList) {
     const operatorListArray = operatorList.fnArray.map((fn, index) => {
         const operatorName = operatorNames[fn] || `Unknown (${fn})`;
