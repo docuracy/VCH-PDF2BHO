@@ -44,13 +44,18 @@ function listOperators(operatorList) {
         }
         // Check for constructPath operation
         else if (operatorName === "constructPath" && Array.isArray(args)) {
+            console.log(`Operation ${index}: ${operatorName}, Arguments: ${JSON.stringify(args)}`);
             const [commandArray, coordinatesArray] = args;
 
             // Iterate over command array to log suboperations
+            coordCursor = 0;
             commandArray.forEach((command, i) => {
-                const coordIndex = i * 2; // Assuming each command has 2 coordinates
-                const coords = coordinatesArray.slice(coordIndex, coordIndex + 2);
                 const commandName = operatorNames[command] || `Unknown Command (${command})`;
+
+                const coordCount = commandName === 'rectangle' ? 4 : 2;
+                const coords = coordinatesArray.slice(coordCursor, coordCursor + coordCount);
+
+                coordCursor += coordCount;
 
                 // Alert orthogonal lineTo with long length
                 if (commandName === 'lineTo' && (coords[0] > 100 || coords[1] > 100) && (coords[0] === 0 || coords[1] === 0)) {
@@ -67,7 +72,11 @@ function listOperators(operatorList) {
     });
 }
 
-function identifyCropMarks(operatorList) {
+// console.log(`Segmenting page ${pageNum}...`);
+// const segments = await segmentPage(page, viewport);
+// console.log('segments:',segments);
+
+function identifyCropMarks(page, viewport, operatorList) {
     const cropMarks = [];
     let cropRange = {};
 
@@ -214,19 +223,145 @@ function identifyCropMarks(operatorList) {
         }
     });
 
+    if (!!cropRange.y) {
+        // Convert ranges to top-down reading order
+        cropRange.y = [viewport.height - cropRange.y[0], viewport.height - cropRange.y[1]];
+    }
+    else {
+        console.warn('Crop Range not found: using defaults.');
+        // Use default crop range based on printed page size 595.276 x 864.567
+        const gutterX = (viewport.width - 595.276) / 2;
+        const gutterY = (viewport.height - 864.567) / 2;
+        cropRange.x = [gutterX, viewport.width - gutterX];
+        cropRange.y = [gutterY, viewport.height - gutterY];
+    }
+
+    // Shave 2px off the crop range to ensure the crop marks are not included
+    if (!!cropRange.x) {
+        cropRange.x = [cropRange.x[0] + 2, cropRange.x[1] - 2];
+    }
+    if (!!cropRange.y) {
+        cropRange.y = [cropRange.y[0] + 2, cropRange.y[1] - 2];
+    }
+
     return cropRange;
 }
 
 
+function normaliseRectangles(rectangles, viewport) {
+    return rectangles.map(rect => {
+        const normalisedRect = { ...rect };
+
+        // Convert y-values to top-down reading order, set absolute width and height, and calculate area
+        if (normalisedRect.y0 > normalisedRect.y1) {
+            [normalisedRect.y0, normalisedRect.y1] = [normalisedRect.y1, normalisedRect.y0];
+        }
+        if (normalisedRect.x0 > normalisedRect.x1) {
+            [normalisedRect.x0, normalisedRect.x1] = [normalisedRect.x1, normalisedRect.x0];
+        }
+        normalisedRect.top = viewport.height - normalisedRect.y1;
+        normalisedRect.left = normalisedRect.x0;
+        normalisedRect.bottom = viewport.height - normalisedRect.y0;
+        normalisedRect.right = normalisedRect.x1;
+        normalisedRect.width = normalisedRect.right - normalisedRect.left;
+        normalisedRect.height = normalisedRect.bottom - normalisedRect.top;
+        normalisedRect.area = normalisedRect.width * normalisedRect.height;
+
+        return normalisedRect;
+    });
+}
+
+
 // Function to extract rectangles from operator list
-function findDrawings(operatorList, cropRange, viewport) {
+function findRectangles(operatorList, cropRange, viewport, embeddedImages) {
     let rectangles = [];
+    let origin = [0, 0];
 
     operatorList.fnArray.forEach((fn, index) => {
         const args = operatorList.argsArray[index];
 
         const nextOperator = index < operatorList.fnArray.length - 1 ? operatorList.fnArray[index + 1] : null;
         const nextOp = nextOperator ? operatorNames[nextOperator] || `Unknown (${nextOperator})` : null;
+
+        if (fn === pdfjsLib.OPS.transform) {
+            origin = [args[4], args[5]];
+        }
+
+        function addRectangle(args, move = [0, 0]) {
+            rectangles.push({
+                x0: origin[0] + move[0] + args[0],
+                y0: origin[1] + move[1] + args[1],
+                x1: origin[0] + move[0] + args[0] + args[2],
+                y1: origin[1] + move[1] + args[1] + args[3],
+                type: `transform (#${index})`,
+                nextOp: nextOp
+            });
+        }
+
+        if (fn === pdfjsLib.OPS.rectangle) {
+            addRectangle(args);
+        }
+
+        if (fn === pdfjsLib.OPS.constructPath) {
+
+            const operators = args[0]; // Contains the operator data
+            const pathArgs = args[1]; // Contains the path data
+
+            if (operators[0] === 13 && operators[1] === 19) {
+                const move = [pathArgs[0], pathArgs[1]];
+                addRectangle(pathArgs.slice(2), move);
+            } else if (operators[1] === 19) {
+                addRectangle(pathArgs.slice(0, 4));
+            }
+        }
+    });
+
+    rectangles = normaliseRectangles(rectangles, viewport);
+
+    // Keep rectangles within 10% - 90% of the crop area
+    const cropArea = (cropRange.x[1] - cropRange.x[0]) * (cropRange.y[1] - cropRange.y[0]);
+    rectangles = rectangles.filter(rect => rect.area > 0.1 * cropArea && rect.area < 0.9 * cropArea);
+
+    // Filter out rectangles outside the crop range
+    rectangles = rectangles.filter(rect => {
+        return rect.left >= cropRange.x[0] && rect.right <= cropRange.x[1] &&
+            rect.top >= cropRange.y[0] && rect.bottom <= cropRange.y[1];
+    });
+
+    // Sort rectangles by area in descending order
+    rectangles.sort((rect1, rect2) => rect2.area - rect1.area);
+
+    // Filter out rectangles which contain embedded images and are within +10% of the image area
+    rectangles = rectangles.filter(rect => {
+        return !embeddedImages.some(image => {
+            return (
+                rect.left >= image.left &&
+                rect.right <= image.right &&
+                rect.top >= image.top &&
+                rect.bottom <= image.bottom &&
+                rect.area < 1.1 * image.area
+            );
+        });
+    });
+
+    return rectangles;
+}
+
+
+// Function to extract rectangles from operator list
+function findDrawings(operatorList, cropRange, viewport) {
+    let rectangles = [];
+    let origin = [0, 0];
+
+    operatorList.fnArray.forEach((fn, index) => {
+        const args = operatorList.argsArray[index];
+
+        const nextOperator = index < operatorList.fnArray.length - 1 ? operatorList.fnArray[index + 1] : null;
+        const nextOp = nextOperator ? operatorNames[nextOperator] || `Unknown (${nextOperator})` : null;
+
+        if (fn === pdfjsLib.OPS.transform) {
+            origin = [args[4], args[5]];
+        }
 
         // Detect images
         if (fn === pdfjsLib.OPS.paintImageXObject) {
@@ -241,15 +376,19 @@ function findDrawings(operatorList, cropRange, viewport) {
             });
         }
 
-        if (fn === pdfjsLib.OPS.rectangle) {
+        function addRectangle(args, move = [0, 0]) {
             rectangles.push({
-                x0: args[0],
-                y0: args[1],
-                x1: args[0] + args[2],
-                y1: args[1] + args[3],
-                type: `rectangle (#${index})`,
+                x0: origin[0] + move[0] + args[0],
+                y0: origin[1] + move[1] + args[1],
+                x1: origin[0] + move[0] + args[0] + args[2],
+                y1: origin[1] + move[1] + args[1] + args[3],
+                type: `transform (#${index})`,
                 nextOp: nextOp
             });
+        }
+
+        if (fn === pdfjsLib.OPS.rectangle) {
+            addRectangle(args);
         }
 
         if (fn === pdfjsLib.OPS.constructPath) {
@@ -257,48 +396,16 @@ function findDrawings(operatorList, cropRange, viewport) {
             const operators = args[0]; // Contains the operator data
             const pathArgs = args[1]; // Contains the path data
 
-            cursor = 0;
-            operators.forEach((op, i) => {
-
-                if (op === pdfjsLib.OPS.moveTo) {
-                    // Discard a pair of coordinates
-                    cursor += 2;
-                } else if (op === pdfjsLib.OPS.rectangle) {
-                    const rectangle = pathArgs.slice(cursor, cursor + 4);
-                    cursor += 4;
-                    // console.log('Operators:', operators.map(op => operatorNames[op]));
-                    // console.log('pathArgs:', pathArgs);
-                    // console.log('Rectangle:', rectangle);
-                    rectangles.push({
-                        x0: rectangle[0],
-                        y0: rectangle[1],
-                        x1: rectangle[0] + rectangle[2],
-                        y1: rectangle[1] + rectangle[3],
-                        type: `constructPath (#${index})`,
-                        nextOp: nextOp
-                    });
-                }
-            });
+            if (operators[0] === 13 && operators[1] === 19) {
+                const move = [pathArgs[0], pathArgs[1]];
+                addRectangle(pathArgs.slice(2), move);
+            } else if (operators[1] === 19) {
+                addRectangle(pathArgs.slice(0, 4));
+            }
         }
     });
 
-    // Convert y-values to top-down reading order, set absolute width and height, and calculate area
-    rectangles.forEach(rect => {
-            if (rect.y0 > rect.y1) {
-                [rect.y0, rect.y1] = [rect.y1, rect.y0];
-            }
-            if (rect.x0 > rect.x1) {
-                [rect.x0, rect.x1] = [rect.x1, rect.x0];
-            }
-            rect.top = viewport.height - rect.y1;
-            rect.left = rect.x0;
-            rect.bottom = viewport.height - rect.y0;
-            rect.right = rect.x1;
-            rect.width = rect.right - rect.left;
-            rect.height = rect.bottom - rect.top;
-            rect.area = rect.width * rect.height;
-        }
-    );
+    rectangles = normaliseRectangles(rectangles, viewport);
 
     // Keep rectangles within 10% - 90% of the crop area
     const cropArea = (cropRange.x[1] - cropRange.x[0]) * (cropRange.y[1] - cropRange.y[0]);
@@ -421,16 +528,98 @@ function processRectangles(rectangles) {
 }
 
 
-async function extractDrawingsAsBase64(page, viewport, drawingBorders) {
+async function renderPageToCanvas(page, viewport) {
     const canvas = document.createElement("canvas");
     const context = canvas.getContext("2d");
-
-    // Set the canvas size to the page dimensions
     canvas.width = viewport.width;
     canvas.height = viewport.height;
 
-    // Render PDF page to the canvas
-    await page.render({ canvasContext: context, viewport: viewport }).promise;
+    // Render the page to the canvas
+    await page.render({ canvasContext: context, viewport }).promise;
+
+    return canvas;
+}
+
+
+function eraseOutsideCropRange(data, cropRange, canvasWidth, canvasHeight) {
+    const [xMin, xMax] = cropRange.x;
+    const [yMin, yMax] = cropRange.y;
+    const whitePixel = new Uint8ClampedArray([255, 255, 255, 255]);
+
+    for (let y = 0; y < canvasHeight; y++) {
+        const rowStartIndex = y * canvasWidth * 4;
+
+        for (let x = 0; x < canvasWidth; x++) {
+            if (x < xMin || x > xMax || y < yMin || y > yMax) {
+                data.set(whitePixel, rowStartIndex + x * 4);
+            }
+        }
+    }
+}
+
+
+function getEmbeddedImages(operatorList, viewport) {
+    const images = [];
+
+    operatorList.fnArray.forEach((fn, index) => {
+        const operatorName = operatorNames[fn] || `Unknown (${fn})`;
+
+        // Check for image operations
+        if (operatorName === "paintImageXObject") {
+            const transformArgs = operatorList.argsArray[index - 2];
+            images.push({
+                x0: transformArgs[4],
+                y0: transformArgs[5],
+                x1: transformArgs[4] + transformArgs[0],
+                y1: transformArgs[5] + transformArgs[3],
+                type: `paintImageXObject (#${index})`
+            });
+        }
+    });
+
+    return normaliseRectangles(images, viewport);
+}
+
+
+const worker = new Worker("js/segmenter.js");
+function segmentPage(page, viewport, operatorList) {
+    return new Promise(async (resolve, reject) => {
+        const cropRange = identifyCropMarks(page, viewport, operatorList);
+        const canvas = await renderPageToCanvas(page, viewport);
+        const context = canvas.getContext("2d");
+        const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+        const embeddedImages = getEmbeddedImages(operatorList, viewport);
+        const rectangles = findRectangles(operatorList, cropRange, viewport, embeddedImages);
+
+        eraseOutsideCropRange(imageData.data, cropRange, canvas.width, canvas.height);
+        context.putImageData(imageData, 0, 0);
+
+        // Event listener for the worker message that resolves this promise
+        const handleWorkerMessage = (e) => {
+            if (e.data.action === "result") {
+                worker.removeEventListener("message", handleWorkerMessage); // Clean up listener
+                resolve({cropRange: cropRange, embeddedImages: embeddedImages, rectangles: rectangles, segmentation: e.data.result}); // Resolve the promise with the worker's result
+            }
+        };
+
+        // Listen for the worker's response
+        worker.addEventListener("message", handleWorkerMessage);
+
+        // Handle errors in the worker
+        worker.onerror = (error) => {
+            worker.removeEventListener("message", handleWorkerMessage);
+            reject(error);
+        };
+
+        // Send ImageData to worker for OpenCV processing
+        worker.postMessage({ action: "segmentPage", imageData });
+    });
+}
+
+
+async function extractDrawingsAsBase64(page, viewport, drawingBorders) {
+    const canvas = await renderPageToCanvas(page, viewport);
+    const context = canvas.getContext("2d");
 
     // Process each crop rectangle
     const base64Images = await Promise.all(

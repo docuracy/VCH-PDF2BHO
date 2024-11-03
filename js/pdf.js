@@ -12,9 +12,12 @@ function processPDF(file, fileName, zip) {  // Accept zip as a parameter
                 // Start by clearing localStorage of any previous data
                 localStorage.clear();
 
+                // Discard all except the first `n` pages (set to `Infinity` to process all pages)
+                const maxPages = Infinity
+
                 // Iterate over pages to find crop, map, and table bounds; create font dictionary; store augmented items in localStorage
                 let masterFontMap = {};
-                for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                for (let pageNum = 1; pageNum <= Math.min(pdf.numPages, maxPages); pageNum++) {
                     const pageFontMap = await storePageData(pdf, pageNum);
                     if (pageNum === 1) {
                         masterFontMap = pageFontMap;
@@ -69,7 +72,7 @@ function processPDF(file, fileName, zip) {  // Accept zip as a parameter
                 console.log('headerFontSizes:', headerFontSizes);
 
                 // Iterate over pages to preprocess footnote areas and remove header; tag headers and italic, bold, and capital fonts
-                for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                for (let pageNum = 1; pageNum <= Math.min(pdf.numPages, maxPages); pageNum++) {
                     headerFooterAndFonts(pageNum, masterFontMap, defaultFont, headerFontSizes);
                 }
                 // Find the most common footArea font
@@ -86,7 +89,7 @@ function processPDF(file, fileName, zip) {  // Accept zip as a parameter
                 console.log(`Default Font: ${defaultFont.fontName} @ ${defaultFont.fontSize}`);
                 console.log(`Footnote Font: ${footFont.fontName} @ ${footFont.fontSize}`);
 
-                const columns = findColumns(pdf.numPages, defaultFont, footFont);
+                const columns = findColumns(Math.min(pdf.numPages, maxPages), defaultFont, footFont);
                 console.log('Columns:', columns || '(none)');
 
                 let docHTML = ''; // Initialize the document HTML content
@@ -94,7 +97,7 @@ function processPDF(file, fileName, zip) {  // Accept zip as a parameter
                 let maxEndnote = 0;
                 if (columns) { // TODO: Fix tagRowsAndColumns to handle null columns
                     // Iterate over pages to identify rows and then process items
-                    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+                    for (let pageNum = 1; pageNum <= Math.min(pdf.numPages, maxPages); pageNum++) {
                         let pageHTML = '';
                         [maxEndnote, pageHTML] = await tagRowsAndColumns(pageNum, defaultFont, footFont, columns, maxEndnote, pdf);
                         docHTML += `${pageHTML}<hr class="remove" />`; // Add horizontal rule between pages
@@ -103,7 +106,7 @@ function processPDF(file, fileName, zip) {  // Accept zip as a parameter
 
                 // Loop through pages to add footnotes to endnotes
                 docHTML += `<hr class="remove" /><h3 class="remove">ENDNOTES</h3>`;
-                docHTML += Array.from({ length: pdf.numPages }, (_, i) => {
+                docHTML += Array.from({ length: Math.min(pdf.numPages, maxPages) }, (_, i) => {
                     let footnotes;
                     try {
                         footnotes = JSON.parse(LZString.decompressFromUTF16(localStorage.getItem(`page-${i + 1}-footnotes`)));
@@ -167,27 +170,18 @@ async function storePageData(pdf, pageNum) {
     const viewport = await page.getViewport({scale: 1});
     const operatorList = await page.getOperatorList();
 
-    // if (pageNum === 5) {
+    // if (pageNum === 4) {
     //     console.log(structuredClone(content.items));
+    //     listOperators(operatorList)
     // }
-
 
     localStorage.setItem(`page-${pageNum}-viewport`, JSON.stringify(viewport));
     appendLogMessage(`Page size: ${viewport.width.toFixed(2)} x ${viewport.height.toFixed(2)}`);
 
-    const cropRange = identifyCropMarks(operatorList);
-    if (!!cropRange.y) {
-        // Convert ranges to top-down reading order
-        cropRange.y = [viewport.height - cropRange.y[0], viewport.height - cropRange.y[1]];
-    }
-    else {
-        console.warn('Crop Range not found: using defaults.');
-        // Use default crop range based on printed page size 595.276 x 864.567
-        const gutterX = (viewport.width - 595.276) / 2;
-        const gutterY = (viewport.height - 864.567) / 2;
-        cropRange.x = [gutterX, viewport.width - gutterX];
-        cropRange.y = [gutterY, viewport.height - gutterY];
-    }
+    const segments = await segmentPage(page, viewport, operatorList);
+    console.log(`Segments:`, segments);
+
+    const cropRange = segments.cropRange;
     localStorage.setItem(`page-${pageNum}-cropRange`, JSON.stringify(cropRange));
     appendLogMessage(`Crop Range: x: ${cropRange.x[0].toFixed(2)} to ${cropRange.x[1].toFixed(2)}; y: ${cropRange.y[0].toFixed(2)} to ${cropRange.y[1].toFixed(2)}`);
     appendLogMessage(`Cropped size: ${cropRange.x[1].toFixed(2) - cropRange.x[0].toFixed(2)} x ${cropRange.y[1].toFixed(2) - cropRange.y[0].toFixed(2)}`);

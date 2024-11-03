@@ -247,7 +247,7 @@ async function tagRowsAndColumns(pageNum, defaultFont, footFont, columns, maxEnd
         }
     });
 
-    console.log(structuredClone(items));
+    // console.log(structuredClone(items));
 
     // Wrap footnote indices in superscript tags
     items.filter(item => item.footIndex).forEach(item => {
