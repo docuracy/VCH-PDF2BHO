@@ -41,12 +41,17 @@ function processPage(imageData) {
         const columns = colBoundaries.map(([colStart, colEnd]) => {
             // Extract column submatrix and detect rows within it
             const colMat = rowMat.roi(new cv.Rect(colStart, 0, colEnd - colStart, rowMat.rows));
+
+            const lineBoundaries = detectRows(colMat, 1).map(([lineStart, lineEnd]) => {
+                return [lineStart + start, lineEnd + start];
+            });
+
             const innerRowBoundaries = detectRows(colMat).map(([innerStart, innerEnd, innerLineBefore], idx, arr) => {
                 const yStart = innerStart + start; // Adjust for parent row offset
                 const yEnd = innerEnd + start;
 
                 const innerRowData = {
-                    innerRow: [yStart, yEnd],
+                    range: [yStart, yEnd],
                     separation: (idx > 0) ? yStart - (arr[idx - 1][1] + start) : yStart - start,
                     height: yEnd - yStart,
                     lineBefore: innerLineBefore
@@ -63,14 +68,15 @@ function processPage(imageData) {
             });
 
             return {
-                column: [colStart, colEnd],
+                range: [colStart, colEnd],
+                lines: lineBoundaries,
                 innerRows: innerRowBoundaries
             };
         });
 
         // Store detected blocks
         blocks.push({
-            row: [start, end],
+            range: [start, end],
             columns: columns,
             lineBefore: lineBefore
         });
@@ -84,8 +90,8 @@ function processPage(imageData) {
     // Add separation and height properties to each block
     blocks.forEach((block, i) => {
         // Calculate separation before this block
-        block.separation = (i > 0) ? block.row[0] - blocks[i - 1].row[1] : block.row[0];
-        block.height = block.row[1] - block.row[0];
+        block.separation = (i > 0) ? block.range[0] - blocks[i - 1].range[1] : block.range[0];
+        block.height = block.range[1] - block.range[0];
     });
 
     return blocks;

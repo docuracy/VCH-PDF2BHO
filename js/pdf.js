@@ -13,7 +13,7 @@ function processPDF(file, fileName, zip) {  // Accept zip as a parameter
                 localStorage.clear();
 
                 // Discard all except the first `n` pages (set to `Infinity` to process all pages)
-                const maxPages = Infinity
+                const maxPages = `Infinity`;
 
                 // Iterate over pages to find crop, map, and table bounds; create font dictionary; store augmented items in localStorage
                 let masterFontMap = {};
@@ -89,19 +89,14 @@ function processPDF(file, fileName, zip) {  // Accept zip as a parameter
                 console.log(`Default Font: ${defaultFont.fontName} @ ${defaultFont.fontSize}`);
                 console.log(`Footnote Font: ${footFont.fontName} @ ${footFont.fontSize}`);
 
-                const columns = findColumns(Math.min(pdf.numPages, maxPages), defaultFont, footFont);
-                console.log('Columns:', columns || '(none)');
-
                 let docHTML = ''; // Initialize the document HTML content
 
                 let maxEndnote = 0;
-                if (columns) { // TODO: Fix tagRowsAndColumns to handle null columns
-                    // Iterate over pages to identify rows and then process items
-                    for (let pageNum = 1; pageNum <= Math.min(pdf.numPages, maxPages); pageNum++) {
-                        let pageHTML = '';
-                        [maxEndnote, pageHTML] = await tagRowsAndColumns(pageNum, defaultFont, footFont, columns, maxEndnote, pdf);
-                        docHTML += `${pageHTML}<hr class="remove" />`; // Add horizontal rule between pages
-                    }
+                // Iterate over pages to identify rows and then process items
+                for (let pageNum = 1; pageNum <= Math.min(pdf.numPages, maxPages); pageNum++) {
+                    let pageHTML = '';
+                    [maxEndnote, pageHTML] = await processItems(pageNum, defaultFont, footFont, maxEndnote, pdf);
+                    docHTML += `${pageHTML}<hr class="remove" />`; // Add horizontal rule between pages
                 }
 
                 // Loop through pages to add footnotes to endnotes
@@ -179,6 +174,7 @@ async function storePageData(pdf, pageNum) {
     appendLogMessage(`Page size: ${viewport.width.toFixed(2)} x ${viewport.height.toFixed(2)}`);
 
     const segments = await segmentPage(page, viewport, operatorList);
+    localStorage.setItem(`page-${pageNum}-segments`, JSON.stringify(segments));
     console.log(`Segments:`, segments);
 
     const cropRange = segments.cropRange;
@@ -186,9 +182,12 @@ async function storePageData(pdf, pageNum) {
     appendLogMessage(`Crop Range: x: ${cropRange.x[0].toFixed(2)} to ${cropRange.x[1].toFixed(2)}; y: ${cropRange.y[0].toFixed(2)} to ${cropRange.y[1].toFixed(2)}`);
     appendLogMessage(`Cropped size: ${cropRange.x[1].toFixed(2) - cropRange.x[0].toFixed(2)} x ${cropRange.y[1].toFixed(2) - cropRange.y[0].toFixed(2)}`);
 
-    const drawingBorders = findDrawings(operatorList, cropRange, viewport);
-
+    // Add item coordinates and dimensions
     augmentItems(content.items, viewport);
+
+    // Combine segments.embeddedImages and segments.rectangles
+    const drawingBorders = segments.embeddedImages.concat(segments.rectangles);
+
     // Discard content items falling outside crop range or within drawing outlines
     content.items = content.items.filter(item =>
         item.left >= cropRange.x[0] && item.right <= cropRange.x[1] &&
@@ -201,7 +200,7 @@ async function storePageData(pdf, pageNum) {
 
     if (drawingBorders.length > 0) {
         localStorage.setItem(`page-${pageNum}-drawingBorders`, JSON.stringify(drawingBorders));
-        appendLogMessage(`${drawingBorders.length} drawing(s) found`);
+        appendLogMessage(`${drawingBorders.length} drawing/image(s) found`);
         // Add new items to represent drawings
         content.items.push(...drawingBorders.map(drawingBorder => ({
             ...drawingBorder,
@@ -215,6 +214,7 @@ async function storePageData(pdf, pageNum) {
     localStorage.setItem(`page-${pageNum}-items`, LZString.compressToUTF16(JSON.stringify(content.items)));
     localStorage.setItem(`page-${pageNum}-nullTexts`, JSON.stringify(findNullTexts(operatorList)));
 
+    // Create a font map for the page (accumulated across the entire document)
     const fonts = page.commonObjs._objs;
     const fontMap = {};
     for (const fontKey in fonts) {
@@ -224,7 +224,7 @@ async function storePageData(pdf, pageNum) {
         }
     }
 
-    // Calculate font areas
+    // Calculate font areas (accumulated across the entire document)
     content.items.forEach(item => {
         if (item.fontName in fontMap) {
             const size = item.height; // Use item.height as the font size identifier
@@ -262,20 +262,6 @@ function headerFooterAndFonts(pageNum, masterFontMap, defaultFont, headerFontSiz
                 fontEntry.sizes[fontSize].footarea += item.area;
             }
         });
-
-    // Identify the top line and extract the page number (items do not typically share the exact same bottom position)
-    const topItemBottom = Math.min(...items.map(item => item.bottom));
-    const topLineItems = items.filter(item => item.top <= topItemBottom);
-    const pageNumberItem = topLineItems.find(item => /^\d+$/.test(item.str));
-
-    if (pageNumberItem) {
-        localStorage.setItem(`page-${pageNum}-pageNumber`, pageNumberItem?.str || '');
-        // Remove header items
-        items = items.filter(item => item.top > topItemBottom);
-    }
-    else {
-        console.error(`Page ${pageNum} - Page Number Not Found`);
-    }
 
     // Identify font styles
     const fontStyles = {

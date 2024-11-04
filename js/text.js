@@ -2,180 +2,93 @@
 // Description: Contains functions for extracting text from PDFs.
 
 
-function findColumns(numPages, defaultFont, footFont, columnSpacing = 11.75, significanceThreshold = 0.5) {
-    let columnItems = [];
-
-    for (let pageNum = 1; pageNum <= numPages; pageNum++) {
-        const items = JSON.parse(LZString.decompressFromUTF16(localStorage.getItem(`page-${pageNum}-items`)));
-        columnItems.push(...items.filter(item => {
-            return (item.fontName === defaultFont.fontName && item.height === defaultFont.fontSize) ||
-                (item.fontName === footFont.fontName && item.height === footFont.fontSize);
-        }));
-    }
-
-    // Extract leftmost values and crop range
-    const leftMin = Math.min(...columnItems.map(item => item.left));
-    const rightMax = Math.max(...columnItems.map(item => item.right));
-    const marginWidth = rightMax - leftMin;
-    const columnWidth2 = (marginWidth - columnSpacing) / 2;
-    const columnWidth3 = (marginWidth - 2 * columnSpacing) / 3;
-    const columnCentres = [leftMin + columnWidth2, leftMin + columnWidth3, (rightMax - leftMin) / 2, rightMax - columnWidth3, rightMax - columnWidth2];
-
-    // Initialize groupedCentres with the calculated column centres
-    const groupedCentres = columnCentres.reduce((acc, centre) => {
-        acc[centre] = 0; // Initialize counts to zero
-        return acc;
-    }, {});
-
-    // Extract centre points from the columnItems
-    const centres = columnItems.map(item => item.left + item.width / 2);
-
-    // Group centres into closest seeded centre
-    centres.forEach(centre => {
-        const closestCentre = columnCentres.reduce((closest, current) =>
-            Math.abs(current - centre) < Math.abs(closest - centre) ? current : closest
-        );
-        groupedCentres[closestCentre] += 1; // Increment count for the closest group
-    });
-
-    // Log the counts table for each grouped centre
-    console.log('Potential Columns:');
-    console.table(groupedCentres);
-
-    // Convert grouped centers to an array of entries
-    const centreEntries = Object.entries(groupedCentres)
-        .map(([centre, count]) => ({centre: parseFloat(centre), count}))
-        .sort((a, b) => b.count - a.count); // Sort by count descending
-
-    // Determine if there are significantly more tallies
-    const maxCount = centreEntries[0].count;
-    const significantGroups = centreEntries.filter(entry => entry.count >= maxCount * significanceThreshold);
-
-    // Calculate column boundaries based on significant groups
-    const maxColumnWidth = marginWidth / significantGroups.length;
-
-    // Find maximum width for items whose .width is less than columnWidth
-    const maxItemWidth = Math.max(
-        ...columnItems
-            .filter(item => item.width < maxColumnWidth)
-            .map(item => item.width),
-        0
-    );
-
-    return significantGroups.length > 1 ? {
-        count: significantGroups.length,
-        width: maxItemWidth
-    } : null;
-}
-
-
-async function tagRowsAndColumns(pageNum, defaultFont, footFont, columns, maxEndnote, pdf) {
+async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf) {
     let items = JSON.parse(LZString.decompressFromUTF16(localStorage.getItem(`page-${pageNum}-items`)));
-    const pageNumeral = JSON.parse(localStorage.getItem(`page-${pageNum}-pageNumber`));
-    const cropRange = JSON.parse(localStorage.getItem(`page-${pageNum}-cropRange`));
+    const segments = JSON.parse(localStorage.getItem(`page-${pageNum}-segments`));
     const drawingBorders = JSON.parse(localStorage.getItem(`page-${pageNum}-drawingBorders`));
     const viewport = JSON.parse(localStorage.getItem(`page-${pageNum}-viewport`));
 
+    const segmentation = segments.segmentation;
     const page = await pdf.getPage(pageNum);
     const drawings = drawingBorders ? await extractDrawingsAsBase64(page, viewport, drawingBorders) : [];
 
     // Release localStorage memory
     localStorage.removeItem(`page-${pageNum}-items`);
-    localStorage.removeItem(`page-${pageNum}-pageNumber`);
-    localStorage.removeItem(`page-${pageNum}-cropRange`);
-    localStorage.removeItem(`page-${pageNum}-rows`);
     localStorage.removeItem(`page-${pageNum}-viewport`);
-
-    // Filter items by default and footer font specifications
-    const columnItems = items.filter(item =>
-        (item.fontName === defaultFont.fontName && item.height === defaultFont.fontSize) ||
-        (item.fontName === footFont.fontName && item.height === footFont.fontSize)
-    );
-
-    // Define column ranges
-    const leftMin = Math.min(...columnItems.map(item => item.left));
-    const rightMax = Math.max(...columnItems.map(item => item.right));
-    const textWidth = rightMax - leftMin;
-    const columnSpacing = (textWidth - columns.width * columns.count) / (columns.count - 1);
-    const columnRanges = Array.from({length: columns.count}, (_, index) => {
-        const left = leftMin + index * (columnSpacing + columns.width);
-        return [left - columnSpacing / 2, left + columns.width + columnSpacing / 2];
-    });
-
-    // Extract and sort bottom coordinates
-    const bottomCoords = columnItems.map(item => item.bottom).sort((a, b) => a - b);
-
-    // Helper function to cluster bottoms within a given threshold
-    function clusterBottoms(coords, threshold) {
-        const clusters = [];
-        let currentCluster = [];
-
-        coords.forEach(coord => {
-            if (!currentCluster.length || coord - currentCluster.at(-1) <= threshold) {
-                currentCluster.push(coord);
-            } else {
-                clusters.push([Math.min(...currentCluster), Math.max(...currentCluster)]);
-                currentCluster = [coord];
+    
+    // Identify rows for each item and tally font types in the bottom row
+    const bottomRow = segmentation.length - 1;
+    let defaultFontArea = 0;
+    let footFontArea = 0;
+    items.forEach(item => {
+        item.row = segmentation.findIndex(row => item.top <= row.range[1]);
+        if (item.row === bottomRow) {
+            if (item.fontName === footFont.fontName && item.height === footFont.fontSize) {
+                footFontArea += item.area;
+            } else if (item.fontName === defaultFont.fontName && item.height === defaultFont.fontSize) {
+                defaultFontArea += item.area;
             }
-        });
+        }
+    })
 
-        if (currentCluster.length) clusters.push([Math.min(...currentCluster), Math.max(...currentCluster)]);
-        return clusters;
+    // Split off bottom row if it contains footnotes
+    let footnotes = [];
+    if (footFontArea > defaultFontArea) {
+        footnotes = items.filter(item => item.row === bottomRow);
+        items = items.filter(item => item.row !== bottomRow);
+    }
+    console.log(`Page ${pageNum} row ${bottomRow} - footnotes: ${footnotes.length}:`, footnotes);
+
+    // Discard any invisible items above visible text in row 0 (e.g. hidden headers)
+    items = items.filter(item => item.row > 0 || item.bottom > segmentation[0].range[0]);
+
+    // Split off header
+    let pageNumeral = '(unidentified)';
+    if (segmentation[0].height < 12 && segmentation[0].columns.length > 1) { // Assume header if first row is less than 12 pixels high
+        const headerItems = items.filter(item => item.row === 0);
+        // Sort header items into columns
+        headerItems.forEach(item => {
+            item.column = segmentation[0].columns.findIndex(column => item.left <= column.range[1]);
+        });
+        console.log(`Page ${pageNum} - header items: ${headerItems.length}:`, headerItems);
+        // Check first and last columns for page number
+        const firstColumn = headerItems.filter(item => item.column === 0).map(item => item.str).join(' ').trim();
+        const lastColumn = headerItems.filter(item => item.column === segmentation[0].columns.length - 1).map(item => item.str).join(' ').trim();
+        if (/^\d+$/.test(firstColumn)) {
+            pageNumeral = firstColumn;
+        } else if (/^\d+$/.test(lastColumn)) {
+            pageNumeral = lastColumn;
+        }  else {
+            console.error(`Page ${pageNum} - Page Number Not Found`);
+        }
+        items = items.filter(item => item.row !== 0);
     }
 
-    // Define a threshold based on average item height
-    const avgHeight = columnItems.reduce((sum, item) => sum + item.height, 0) / columnItems.length || 0;
-    const bottomThreshold = 3 * avgHeight;
+    console.log(`Page ${pageNum} - items: ${items.length}:`, items);
 
-    // Cluster bottom coordinates
-    const filteredRows = clusterBottoms(bottomCoords, bottomThreshold);
+    // Assign columns and lines to each item, and sort into reading order
+    try {
+        items.forEach((item, index) => {
+            try {
+                item.column = segmentation[item.row].columns.findIndex(column => item.left <= column.range[1]);
+                item.line = segmentation[item.row].columns[item.column].lines.findIndex(line => item.top <= line[1]);
+                item.innerRow = segmentation[item.row].columns[item.column].innerRows.findIndex(innerRow => item.top <= innerRow.range[1]);
+            }
+            catch (error) {
+                console.error(`Error assigning columns and lines to item ${index} on page ${pageNum}:`, item, error);
+                throw error;
+            }
+        });
+    }
+    catch (error) {
+        console.error(`Error assigning columns and lines to items on page ${pageNum}:`, error);
+        throw error;
+    }
+    items.sort((a, b) => a.row - b.row || a.column - b.column || a.line - b.line || a.left - b.left);
 
-    // Map each row range to include the minimum top coordinate
-    const columnisedRowRanges = filteredRows.map(row => {
-        const topsInRow = columnItems
-            .filter(item => item.bottom >= row[0] && item.bottom <= row[1])
-            .map(item => item.top);
-
-        const topMin = topsInRow.length > 0 ? Math.min(...topsInRow) : Infinity;
-        return {columnised: true, range: [topMin, row[1]]};
-    });
-
-    // Fill gaps in cropRange.y and add rows
-    const rows = [{range: [cropRange.y[0], columnisedRowRanges[0]?.range[0] || cropRange.y[1]], columnised: false}];
-
-    columnisedRowRanges.forEach((row, index) => {
-        rows.push(row);
-        const nextRowStart = columnisedRowRanges[index + 1]?.range[0];
-        if (nextRowStart && nextRowStart - row.range[1] > 1) {
-            rows.push({range: [row.range[1], nextRowStart], columnised: false});
-        }
-    });
-
-    rows.push({range: [columnisedRowRanges.at(-1)?.range[1] || cropRange.y[0], cropRange.y[1]], columnised: false});
-
-    localStorage.setItem(`page-${pageNum}-rows`, JSON.stringify(rows));
-
-    // Tag items with row and column numbers; normalise bottoms of superscript items
     // Initialise set to store found footnote numbers
     let foundFootnoteIndices = new Set();
-
-    // Find the lowest bottom of default font items
-    const defaultBottom = Math.max(...items.filter(item => item.fontName === defaultFont.fontName && item.height === defaultFont.fontSize).map(item => item.bottom) || 0);
-    // Find the highest top of foot font items which are below defaultBottom
-    const footnoteTop = Math.min(...items.filter(item => item.fontName === footFont.fontName && item.height === footFont.fontSize && item.top > defaultBottom).map(item => item.top) || Infinity);
-
-    // Split off as footnotes any items below footnoteTop, and remove them from the main items array
-    let footnotes = items.filter(item => item.top >= footnoteTop);
-    items = items.filter(item => item.top < footnoteTop);
-
     items.forEach((item, index) => {
-        item.row = rows.findIndex(row => item.top >= row.range[0] && item.bottom <= row.range[1]);
-        // If row is columnised, find the column
-        if (rows[item.row]?.columnised) {
-            item.column = columnRanges.findIndex(column => item.left >= column[0] && item.right <= column[1]);
-        }
-        // Footnote Indices: Normalise attributes of integer superscript items (assumes that item and previous item are rendered in reading order)
-        // TODO: The above upsets reading order of drawing labels, also polluting the footnote indices
         // Check that previous item is not a drawing
         if (items[index - 1]?.fontName !== 'drawing' && item.bottom < items[index - 1]?.bottom && /^\d+$/.test(item.str)) {
             const footIndex = parseInt(item.str);
@@ -192,46 +105,29 @@ async function tagRowsAndColumns(pageNum, defaultFont, footFont, columns, maxEnd
         }
     });
 
-    processFootnotes(rows, columnRanges, footnotes, pageNum, pageNumeral, maxEndnote, foundFootnoteIndices);
-    footnotes = null;
-
-    // Sort items in reading order based on row and column (allow tolerance in bottom)
-    items.sort((a, b) => a.row - b.row || a.column - b.column || a.bottom - b.bottom + b.height / 2 || a.left - b.left);
+    processFootnotes(segmentation[bottomRow], footnotes, pageNum, pageNumeral, maxEndnote, foundFootnoteIndices);
+    // footnotes = null;
 
     // Identify paragraph ends
     const tolerance = 5;
 
     function isSameBlock(item, reference) {
-        return item.row === reference.row && item.column === reference.column;
-    }
-
-    function calculateBlockEdges(blockItems) {
-        return {
-            maxRight: Math.max(...blockItems.map(i => i.right)),
-            minLeft: Math.min(...blockItems.map(i => i.left))
-        };
+        return item?.row === reference?.row && item?.column === reference?.column;
     }
 
     items.forEach((item, index) => {
         const nextItem = items[index + 1];
         const prevItem = items[index - 1];
-        const thisBlockItems = items.filter(i => isSameBlock(i, item));
-        const nextBlockItems = thisBlockItems.includes(nextItem)
-            ? thisBlockItems
-            : items.filter(i => i.row === nextItem?.row + 1 && i.column === nextItem?.column);
 
-        const { maxRight: thisBlockMaxRight, minLeft: thisBlockMinLeft } = calculateBlockEdges(thisBlockItems);
-        const { minLeft: nextBlockMinLeft } = calculateBlockEdges(nextBlockItems);
-
-        item.isPreviousItemSameLine = prevItem?.isNextItemSameLine;
-        item.isItemAtLineEnd = item.right + tolerance > thisBlockMaxRight;
-        item.isItemIndented = item.left - tolerance > thisBlockMinLeft && !item.isPreviousItemSameLine;
+        item.isPreviousItemSameLine = prevItem?.line === item.line && isSameBlock(prevItem, item);
+        item.isItemAtLineEnd = item.right + tolerance > segmentation[item.row].columns[item.column][1];
+        item.isItemIndented = item.left - tolerance > segmentation[item.row].columns[item.column][0] && !item.isPreviousItemSameLine;
 
         item.isNextItemInRow = nextItem?.row === item.row;
-        item.isNextItemSameLine = nextItem?.bottom < item.bottom + item.height / 2 && nextItem?.column === item.column;
+        item.isNextItemSameLine = nextItem?.line === item.line && isSameBlock(nextItem, item);
         item.isNextItemTabbed = item.isNextItemSameLine && nextItem?.left - 2 * tolerance > item.right;
-        item.isNextItemIndented = nextItem?.left - tolerance > nextBlockMinLeft && !item.isNextItemSameLine;
-        item.isMidCaption = thisBlockItems[0]?.fontName === 'drawing' && item.italic && nextItem?.italic;
+        item.isNextItemIndented = nextItem?.left - tolerance > segmentation[item.row].columns[item.column][0] && !item.isNextItemSameLine;
+        item.isMidCaption = items.filter(i => isSameBlock(i, item))[0]?.fontName === 'drawing' && item.italic && nextItem?.italic;
 
         const isEndOfParagraph = (
             (item.isNextItemIndented && !item.isItemIndented) ||
@@ -318,9 +214,8 @@ async function tagRowsAndColumns(pageNum, defaultFont, footFont, columns, maxEnd
         console.error('Error saving to localStorage:', error);
     }
 
-    appendLogMessage(`=== Page ${pageNum} Rows & Columns ===`);
-    appendLogMessage(`Row Ranges: ${JSON.stringify(rows)}`);
-    appendLogMessage(`Column Ranges: ${JSON.stringify(columnRanges)}`);
+    appendLogMessage(`=== Page ${pageNum} Rows ===`);
+    appendLogMessage(`Row Ranges: ${JSON.stringify(segmentation.map(row => row.range))}`);
 
     maxEndnote += Math.max(...(foundFootnoteIndices.size ? foundFootnoteIndices : [0]));
 
@@ -361,19 +256,16 @@ function mergeItems(items, properties) {
 }
 
 
-function processFootnotes(rows, columnRanges, footnotes, pageNum, pageNumeral, maxEndnote, foundFootnoteIndices) {
+function processFootnotes(segmentation, footnotes, pageNum, pageNumeral, maxEndnote, foundFootnoteIndices) {
 
     footnotes.forEach((item, index) => {
-        item.row = rows.findIndex(row => item.top >= row.range[0] && item.bottom <= row.range[1]);
-        // If row is columnised, find the column
-        if (rows[item.row]?.columnised) {
-            item.column = columnRanges.findIndex(column => item.left >= column[0] && item.right <= column[1]);
-        }
+        item.column = segmentation.columns.findIndex(column => item.left <= column.range[1]);
+        item.line = segmentation.columns[item.column].lines.findIndex(line => item.top <= line[1]);
         item.footnote = true;
     });
 
     // Sort footnotes in reading order based on row and column (allow tolerance in bottom)
-    footnotes.sort((a, b) => a.row - b.row || a.column - b.column || a.bottom - b.bottom + b.height / 2 || a.left - b.left);
+    footnotes.sort((a, b) => a.column - b.column || a.line - b.line || a.left - b.left);
 
     // Split footnotes if they include an integer after three or more spaces
     for (let i = footnotes.length - 1; i >= 0; i--) { // Start from the end and move to the beginning
