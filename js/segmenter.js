@@ -7,12 +7,12 @@ cv.onRuntimeInitialized = () => {
     self.onmessage = async (e) => {
         const { action, imageData } = e.data;
 
-        if (action === 'segmentPage') {
+        if (action === 'processPage') {
             // Process the image data
             const blocks = processPage(imageData);
 
             // Send the results back to the main script
-            self.postMessage({ action: 'result', result: blocks });
+            self.postMessage({ action: 'result', segmentation: blocks });
         }
     };
 };
@@ -82,17 +82,20 @@ function processPage(imageData) {
         });
     }
 
-    // Clean up
-    src.delete();
-    gray.delete();
-    binary.delete();
-
     // Add separation and height properties to each block
     blocks.forEach((block, i) => {
         // Calculate separation before this block
         block.separation = (i > 0) ? block.range[0] - blocks[i - 1].range[1] : block.range[0];
         block.height = block.range[1] - block.range[0];
     });
+
+    // Annotate blocks with solid border detection
+    checkSolidBorders(src, binary, blocks);
+
+    // Clean up
+    src.delete();
+    gray.delete();
+    binary.delete();
 
     return blocks;
 }
@@ -182,4 +185,59 @@ function detectColumns(rowMat, minColumnSeparation = 9) {
     return colBoundaries;
 }
 
+
+function checkSolidBorders(src, binary, blocks, width = 3, tolerance = 0.95) {
+
+    blocks.forEach(block => {
+        const [yStart, yEnd] = block.range;
+        const blockHeight = block.height;
+        const verticalTolerance = Math.floor(blockHeight * tolerance);
+
+        block.columns.forEach(column => {
+            const [xStart, xEnd] = column.range;
+            const columnWidth = xEnd - xStart;
+            const horizontalTolerance = Math.floor(columnWidth * tolerance);
+
+            const edges = {
+                top: {
+                    positions: Array.from({ length: width }, (_, i) => yStart + i),
+                    rect: (y) => new cv.Rect(xStart, y, columnWidth, 1),
+                    tolerance: horizontalTolerance,
+                },
+                bottom: {
+                    positions: Array.from({ length: width }, (_, i) => yEnd - i),
+                    rect: (y) => new cv.Rect(xStart, y, columnWidth, 1),
+                    tolerance: horizontalTolerance,
+                },
+                left: {
+                    positions: Array.from({ length: width }, (_, i) => xStart + i),
+                    rect: (x) => new cv.Rect(x, yStart, 1, blockHeight),
+                    tolerance: verticalTolerance,
+                },
+                right: {
+                    positions: Array.from({ length: width }, (_, i) => xEnd - i),
+                    rect: (x) => new cv.Rect(x, yStart, 1, blockHeight),
+                    tolerance: verticalTolerance,
+                },
+            };
+
+            column.border = {};
+
+            // Check each border for the current column
+            for (const [side, { positions, rect, tolerance }] of Object.entries(edges)) {
+                const hasBorder = positions.some(pos => {
+                    const edge = side === 'top' || side === 'bottom'
+                        ? binary.roi(rect(pos)) // For top and bottom, y varies
+                        : binary.roi(rect(pos)); // For left and right, x varies
+                    const result = cv.countNonZero(edge) >= tolerance;
+                    edge.delete(); // Free memory
+                    return result;
+                });
+                column.border[side] = hasBorder;
+            }
+
+            column.rectangle = Object.keys(edges).every(side => column.border[side]);
+        });
+    });
+}
 

@@ -894,3 +894,288 @@ async function tagRowsAndColumns(pageNum, defaultFont, footFont, columns, maxEnd
 
     return [maxEndnote, pageHTML];
 }
+
+
+// Function to extract rectangles from operator list
+function findDrawings(operatorList, cropRange, viewport) {
+    let rectangles = [];
+    let origin = [0, 0];
+
+    operatorList.fnArray.forEach((fn, index) => {
+        const args = operatorList.argsArray[index];
+
+        const nextOperator = index < operatorList.fnArray.length - 1 ? operatorList.fnArray[index + 1] : null;
+        const nextOp = nextOperator ? operatorNames[nextOperator] || `Unknown (${nextOperator})` : null;
+
+        if (fn === pdfjsLib.OPS.transform) {
+            origin = [args[4], args[5]];
+        }
+
+        // Detect images
+        if (fn === pdfjsLib.OPS.paintImageXObject) {
+            const transformArgs = operatorList.argsArray[index - 2];
+            rectangles.push({
+                x0: transformArgs[4],
+                y0: transformArgs[5],
+                x1: transformArgs[4] + transformArgs[0],
+                y1: transformArgs[5] + transformArgs[3],
+                type: `paintImageXObject (#${index})`,
+                nextOp: nextOp
+            });
+        }
+
+        function addRectangle(args, move = [0, 0]) {
+            rectangles.push({
+                x0: origin[0] + move[0] + args[0],
+                y0: origin[1] + move[1] + args[1],
+                x1: origin[0] + move[0] + args[0] + args[2],
+                y1: origin[1] + move[1] + args[1] + args[3],
+                type: `transform (#${index})`,
+                nextOp: nextOp
+            });
+        }
+
+        if (fn === pdfjsLib.OPS.rectangle) {
+            addRectangle(args);
+        }
+
+        if (fn === pdfjsLib.OPS.constructPath) {
+
+            const operators = args[0]; // Contains the operator data
+            const pathArgs = args[1]; // Contains the path data
+
+            if (operators[0] === 13 && operators[1] === 19) {
+                const move = [pathArgs[0], pathArgs[1]];
+                addRectangle(pathArgs.slice(2), move);
+            } else if (operators[1] === 19) {
+                addRectangle(pathArgs.slice(0, 4));
+            }
+        }
+    });
+
+    rectangles = normaliseRectangles(rectangles, viewport);
+
+    // Keep rectangles within 10% - 90% of the crop area
+    const cropArea = (cropRange.x[1] - cropRange.x[0]) * (cropRange.y[1] - cropRange.y[0]);
+    rectangles = rectangles.filter(rect => rect.area > 0.1 * cropArea && rect.area < 0.9 * cropArea);
+
+    // Filter out rectangles outside the crop range
+    rectangles = rectangles.filter(rect => {
+        return rect.left >= cropRange.x[0] && rect.right <= cropRange.x[1] &&
+            rect.top >= cropRange.y[0] && rect.bottom <= cropRange.y[1];
+    });
+
+    // Sort rectangles by area in descending order
+    rectangles.sort((rect1, rect2) => rect2.area - rect1.area);
+
+    // Filter out rectangles wholly within other rectangles which are not images
+    rectangles = rectangles.filter((rect1, i) => {
+        // Check if rect1 is within any other rect
+        return !rectangles.some((rect2, j) => {
+            return (
+                i !== j && // Make sure we're not comparing the same rectangle
+                rect1.top >= rect2.top &&
+                rect1.left >= rect2.left &&
+                rect1.bottom <= rect2.bottom &&
+                rect1.right <= rect2.right &&
+                !rect1.type.startsWith('paintImageXObject') // Exclude images
+            );
+        });
+    });
+
+    // Process intersections and return the final list of rectangles
+    return processRectangles(rectangles);
+}
+
+// Function to check if two rectangles intersect
+function intersects(rect1, rect2) {
+    return (
+        rect1.left < rect2.right &&
+        rect1.right > rect2.left &&
+        rect1.top < rect2.bottom &&
+        rect1.bottom > rect2.top
+    );
+}
+
+
+function normaliseRectangles(rectangles, viewport) {
+    return rectangles.map(rect => {
+        // Swap y-coordinates if they’re in reverse order
+        if (rect.y0 > rect.y1) [rect.y0, rect.y1] = [rect.y1, rect.y0];
+        if (rect.x0 > rect.x1) [rect.x0, rect.x1] = [rect.x1, rect.x0];
+
+        // Transform to top-down coordinates
+        const top = viewport.height - rect.y1; // Convert y1 to top-down
+        const bottom = viewport.height - rect.y0; // Convert y0 to top-down
+
+        return {
+            top,
+            left: rect.x0,
+            bottom,
+            right: rect.x1,
+            width: rect.x1 - rect.x0,
+            height: bottom - top,
+            area: (rect.x1 - rect.x0) * (bottom - top),
+            type: rect.type,
+        };
+    });
+}
+
+// Main function to process rectangles
+function processRectangles(rectangles) {
+    const intersectingRectangles = [];
+    const nonIntersectingRectangles = [];
+
+    // Sort rectangles into intersecting and non-intersecting arrays
+    for (let i = 0; i < rectangles.length; i++) {
+        const rect1 = rectangles[i];
+        let hasIntersection = false;
+
+        for (let j = 0; j < rectangles.length; j++) {
+            if (i !== j) {
+                const rect2 = rectangles[j];
+
+                // Check if rect1 intersects with rect2
+                if (intersects(rect1, rect2)) {
+                    hasIntersection = true;
+                    break; // No need to check further if an intersection is found
+                }
+            }
+        }
+
+        // Add to appropriate array
+        if (hasIntersection) {
+            intersectingRectangles.push(rect1);
+        } else {
+            nonIntersectingRectangles.push(rect1);
+        }
+    }
+
+    // Calculate intersections for the intersecting rectangles
+    const intersectionResults = [];
+
+    for (let i = 0; i < intersectingRectangles.length; i++) {
+        const rect1 = intersectingRectangles[i];
+
+        for (let j = i + 1; j < intersectingRectangles.length; j++) {
+            const rect2 = intersectingRectangles[j];
+            const intersection = calculateIntersection(rect1, rect2);
+
+            if (intersection) {
+                intersectionResults.push(intersection);
+            }
+        }
+    }
+
+    // Combine non-intersecting rectangles with the intersections
+    return [...nonIntersectingRectangles, ...intersectionResults];
+}
+
+// Function to calculate intersection of two rectangles
+function calculateIntersection(rect1, rect2) {
+    const intersectTop = Math.max(rect1.top, rect2.top);
+    const intersectLeft = Math.max(rect1.left, rect2.left);
+    const intersectBottom = Math.min(rect1.bottom, rect2.bottom);
+    const intersectRight = Math.min(rect1.right, rect2.right);
+
+    // Only return a valid intersection if it exists
+    if (intersectTop < intersectBottom && intersectLeft < intersectRight) {
+        return {
+            top: intersectTop,
+            left: intersectLeft,
+            bottom: intersectBottom,
+            right: intersectRight,
+            width: intersectRight - intersectLeft,
+            height: intersectBottom - intersectTop,
+            area: (intersectRight - intersectLeft) * (intersectBottom - intersectTop),
+            x0: Math.max(rect1.x0, rect2.x0),
+            y0: Math.max(rect1.y0, rect2.y0),
+            x1: Math.min(rect1.x1, rect2.x1),
+            y1: Math.min(rect1.y1, rect2.y1),
+            type: `${rect1.type} + ${rect2.type}`,
+            nextOp: `${rect1.nextOp} + ${rect2.nextOp}`
+        };
+    }
+    return null; // No valid intersection
+}
+
+
+// Function to extract rectangles from operator list
+function findRectangles(operatorList, viewport, printExtent, embeddedImages) {
+    let rectangles = [];
+    let origin = [0, 0];
+
+    // listOperators(operatorList);
+
+    operatorList.fnArray.forEach((fn, index) => {
+        const args = operatorList.argsArray[index];
+
+        const nextOperator = index < operatorList.fnArray.length - 1 ? operatorList.fnArray[index + 1] : null;
+        const nextOp = nextOperator ? operatorNames[nextOperator] || `Unknown (${nextOperator})` : null;
+
+        if (fn === pdfjsLib.OPS.transform) {
+            origin = [args[4], args[5]];
+        }
+
+        function addRectangle(args, move = [0, 0]) {
+            console.warn('Adding rectangle:', args);
+            rectangles.push({
+                x0: origin[0] + move[0] + args[0],
+                y0: origin[1] + move[1] + args[1],
+                x1: origin[0] + move[0] + args[0] + args[2],
+                y1: origin[1] + move[1] + args[1] + args[3],
+                type: `transform (#${index})`,
+                nextOp: nextOp
+            });
+        }
+
+        if (fn === pdfjsLib.OPS.rectangle) {
+            addRectangle(args);
+        }
+
+        if (fn === pdfjsLib.OPS.constructPath) {
+
+            const operators = args[0]; // Contains the operator data
+            const pathArgs = args[1]; // Contains the path data
+
+            if (operators[0] === 13 && operators[1] === 19) {
+                const move = [pathArgs[0], pathArgs[1]];
+                addRectangle(pathArgs.slice(2), move);
+            } else if (operators[1] === 19) {
+                addRectangle(pathArgs.slice(0, 4));
+            } else if (operators.includes(19)) {
+                if (operators.length === 1 && pathArgs[2] > 450 && pathArgs[2] < 460) {
+                    // console.error(`Missed Rectangle ${index}:`, operators, args);
+                }
+            }
+        }
+    });
+
+    rectangles = normaliseRectangles(rectangles, viewport);
+
+    console.log('rectangles:',structuredClone(rectangles));
+
+    // Remove invisible rectangles
+    rectangles = rectangles.filter(rect => rect.left >= printExtent[0] && rect.right <= printExtent[2] &&
+        rect.top >= printExtent[1] && rect.bottom <= printExtent[3]);
+
+    console.log('rectangles:',structuredClone(rectangles));
+
+    // Sort rectangles by area in descending order
+    rectangles.sort((rect1, rect2) => rect2.area - rect1.area);
+
+    // Filter out rectangles which contain embedded images and are within +10% of the image area
+    rectangles = rectangles.filter(rect => {
+        return !embeddedImages.some(image => {
+            return (
+                rect.left >= image.left &&
+                rect.right <= image.right &&
+                rect.top >= image.top &&
+                rect.bottom <= image.bottom &&
+                rect.area < 1.1 * image.area
+            );
+        });
+    });
+
+    return rectangles;
+}

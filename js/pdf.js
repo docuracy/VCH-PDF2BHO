@@ -14,6 +14,7 @@ function processPDF(file, fileName, zip) {  // Accept zip as a parameter
 
                 // Discard all except the first `n` pages (set to `Infinity` to process all pages)
                 const maxPages = `Infinity`;
+                // const maxPages = 2; // DEBUG: Limit to first 2 pages for testing
 
                 // Iterate over pages to find crop, map, and table bounds; create font dictionary; store augmented items in localStorage
                 let masterFontMap = {};
