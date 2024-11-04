@@ -294,16 +294,12 @@ function paintEmbeddedImages(data, embeddedImages, canvasWidth, canvasHeight) {
     // Paint over embedded images to ensure that they are properly segmented
     const blackPixel = new Uint8ClampedArray([0, 0, 0, 255]);
 
-    console.log(`Painting over ${embeddedImages.length} embedded images on ${canvasWidth}x${canvasHeight}`, embeddedImages);
-
     embeddedImages.forEach(image => {
         // Convert coordinates to integers
         const left = Math.round(image.left);
         const top = Math.round(image.top);
         const right = Math.round(image.right);
         const bottom = Math.round(image.bottom);
-
-        console.log(`Painting over embedded image: ${left}, ${top}, ${right}, ${bottom}`);
 
         for (let y = top; y < bottom; y++) {
             if (y < 0 || y >= canvasHeight) continue; // Skip out of bounds
@@ -370,7 +366,7 @@ function segmentPage(page, viewport, operatorList) {
         const embeddedImages = getEmbeddedImages(operatorList, viewport);
 
         eraseOutsideCropRange(imageData.data, cropRange, canvas.width, canvas.height);
-        paintEmbeddedImages(imageData.data, embeddedImages, canvas.width, canvas.height);
+        if (embeddedImages.length > 0) paintEmbeddedImages(imageData.data, embeddedImages, canvas.width, canvas.height);
         context.putImageData(imageData, 0, 0);
 
         // Event listener for the worker message that resolves this promise

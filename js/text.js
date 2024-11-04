@@ -15,6 +15,13 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf) {
     // Release localStorage memory
     localStorage.removeItem(`page-${pageNum}-items`);
     localStorage.removeItem(`page-${pageNum}-viewport`);
+
+    // Loop backwards to remove empty items
+    for (let i = items.length - 1; i >= 0; i--) {
+        if (!items[i].str) {
+            items.splice(i, 1);
+        }
+    }
     
     // Identify rows for each item and tally font types in the bottom row
     const bottomRow = segmentation.length - 1;
