@@ -18,7 +18,15 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf) {
 
     // Loop backwards to remove empty items
     for (let i = items.length - 1; i >= 0; i--) {
-        if (!items[i].str) {
+        if (!items[i].str && items[i].fontName !== 'drawing') {
+            items.splice(i, 1);
+        }
+    }
+
+    // Loop backwards to merge trailing hyphens
+    for (let i = items.length - 1; i > 0; i--) {
+        if (items[i].str === '-') {
+            items[i - 1].str = items[i - 1].str + '-';
             items.splice(i, 1);
         }
     }
@@ -112,7 +120,7 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf) {
         }
     });
 
-    processFootnotes(segmentation[bottomRow], footnotes, pageNum, pageNumeral, maxEndnote, foundFootnoteIndices);
+    await processFootnotes(segmentation[bottomRow], footnotes, pageNum, pageNumeral, maxEndnote, foundFootnoteIndices);
     // footnotes = null;
 
     // Identify paragraph ends
@@ -158,11 +166,11 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf) {
         item.str = `<sup><a id="endnoteIndex${endnoteNumber}" href="#endnote${endnoteNumber}" data-footnote="${item.footIndex}" data-endnote="${endnoteNumber}">${endnoteNumber}</a></sup>`;
     });
 
-    mergeItems(items, ['row', 'fontName', 'height', 'header', 'italic', 'bold']);
+    await mergeItems(items, ['row', 'fontName', 'height', 'header', 'italic', 'bold']);
 
     wrapStrings(items);
 
-    mergeItems(items, ['row']);
+    await mergeItems(items, ['row']);
 
     trimStrings(items);
 
@@ -232,9 +240,20 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf) {
 }
 
 
-function dehyphenate(item, nextItem) {
+async function dehyphenate(item, nextItem) {
     if (item.str.endsWith('-') && ((item.right + 1 > nextItem.left) || (item.column < nextItem.column))) {
-        item.str = item.str.slice(0, -1) + '<span class="line-end-hyphen" data-bs-title="Hyphen found at the end of a line - will be removed from XML." data-bs-toggle="tooltip">-</span>';
+        // let keepHyphen = true;
+        const truncated = item.str.slice(0, -1);
+        const lastWord = truncated.trim().split(' ').pop();
+        const nextItemFirstWord = nextItem.str.trim().split(' ').shift();
+        const keepHyphen = await checkHyphenation(lastWord, nextItemFirstWord);
+        if (keepHyphen === null) {
+            console.error(`Error checking hyphenation between "${lastWord}" and "${nextItemFirstWord}"`);
+        }
+        else {
+            console.log(`Hyphenation: "${lastWord}-${nextItemFirstWord}"${keepHyphen ? '*' : ''}`);
+        }
+        item.str = `${truncated}<span class="line-end-hyphen${keepHyphen ? '' : ' remove' }" data-bs-title="Hyphen found at the end of a line." data-bs-toggle="tooltip">-</span>`;
     } else if ((!nextItem.footIndex) && (!nextItem.str.startsWith(')'))) {
         item.str += ' ';
     }
@@ -242,14 +261,60 @@ function dehyphenate(item, nextItem) {
 }
 
 
-function mergeItems(items, properties) {
+async function checkHyphenation(a, b) {
+
+    b = b.replace(/<.*$/, '') // Remove any HTML tags at the end
+        .replace(/\'s$/, '') // Remove possessive apostrophe-s
+        .replace(/[\])}\.,;:!?\'\s]+$/, ''); // Remove any punctuation or whitespace at the end
+
+    const timeout = 5000; // 5 seconds timeout
+
+    // Create a promise that rejects after the timeout
+    const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Request timed out')), timeout)
+    );
+
+    try {
+        const response = await Promise.race([
+            fetch(`https://api.datamuse.com/words?sp=${a}${b}`),
+            timeoutPromise
+        ]);
+
+        // Check if the response is OK (status in the range 200-299)
+        if (!response.ok) {
+            console.error(`API error: ${response.status} ${response.statusText}`);
+            return null; // Return null if the response is not OK
+        }
+
+        const data = await response.json();
+
+        // Find if the hyphenated form exists in the response and get its score
+        const hyphenEntry = data.find(entry => entry.word === `${a}-${b}`);
+        const hyphen = hyphenEntry ? hyphenEntry.score : 0;
+
+        const noHyphenEntry = data.find(entry => entry.word === `${a}${b}`);
+        const noHyphen = noHyphenEntry ? noHyphenEntry.score : 0;
+
+        const keepHyphen = hyphen >= noHyphen / 2; // Weight any hyphenated form
+
+        console.log(`Hyphenation: ${a}-${b}${keepHyphen ? '*' : ''}: ${hyphen}, ${a}${b}${keepHyphen ? '' : '*'}: ${noHyphen}`);
+
+        return keepHyphen;
+    } catch (error) {
+        console.error(`Error: ${error.message}`);
+        return null; // Return null if there is an error (timeout or fetch error)
+    }
+}
+
+
+async function mergeItems(items, properties) {
     for (let i = items.length - 1; i > 0; i--) { // Start from the end and move to the beginning
         const currentItem = items[i];
         const previousItem = items[i - 1];
         if (!previousItem.paragraph) {
             // Merge if all properties match and the previous item is not a paragraph end
             if (properties.every(prop => currentItem[prop] === previousItem[prop])) {
-                dehyphenate(previousItem, currentItem);
+                await dehyphenate(previousItem, currentItem);
                 if (currentItem.paragraph) {
                     previousItem.paragraph = true;
                 }
@@ -263,7 +328,7 @@ function mergeItems(items, properties) {
 }
 
 
-function processFootnotes(segmentation, footnotes, pageNum, pageNumeral, maxEndnote, foundFootnoteIndices) {
+async function processFootnotes(segmentation, footnotes, pageNum, pageNumeral, maxEndnote, foundFootnoteIndices) {
 
     footnotes.forEach((item, index) => {
         item.column = segmentation.columns.findIndex(column => item.left <= column.range[1]);
@@ -331,7 +396,7 @@ function processFootnotes(segmentation, footnotes, pageNum, pageNumeral, maxEndn
         const currentItem = footnotes[i];
         const previousItem = footnotes[i - 1];
         if (!currentItem.footNumber) {
-            dehyphenate(previousItem, currentItem);
+            await dehyphenate(previousItem, currentItem);
             footnotes.splice(i, 1); // Remove the current item after merging
         }
     }
