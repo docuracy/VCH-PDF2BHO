@@ -9,10 +9,10 @@ cv.onRuntimeInitialized = () => {
 
         if (action === 'processPage') {
             // Process the image data
-            const blocks = processPage(imageData);
+            const [blocks, lineItems, rectangles] = processPage(imageData);
 
             // Send the results back to the main script
-            self.postMessage({ action: 'result', segmentation: blocks });
+            self.postMessage({ action: 'result', segmentation: blocks, lineItems: lineItems, rectangles: rectangles });
         }
     };
 };
@@ -31,38 +31,54 @@ function processPage(imageData) {
     cv.threshold(gray, binary, 200, 255, cv.THRESH_BINARY_INV); // Invert to highlight non-white pixels
 
     // Detect row boundaries
-    const rowBoundaries = detectRows(binary);
+    let [rowBoundaries, lineItems] = detectRows(binary);
 
     // Process each detected row to find column boundaries and inner rows
-    for (const [start, end, lineBefore] of rowBoundaries) {
-        const rowMat = binary.roi(new cv.Rect(0, start, binary.cols, end - start));
+    for (const [start, end] of rowBoundaries) {
+        let rowMat;
+        try {
+            rowMat = binary.roi(new cv.Rect(0, start, binary.cols, end - start));
+        }
+        catch (err) {
+            console.error(err);
+            throw err;
+        }
         const colBoundaries = detectColumns(rowMat);
 
         const columns = colBoundaries.map(([colStart, colEnd]) => {
             // Extract column submatrix and detect rows within it
-            const colMat = rowMat.roi(new cv.Rect(colStart, 0, colEnd - colStart, rowMat.rows));
+            let colMat;
+            try {
+                colMat = rowMat.roi(new cv.Rect(colStart, 0, colEnd - colStart, rowMat.rows));
+            }
+            catch (err) {
+                console.error(err);
+                throw err;
+            }
 
-            const lineBoundaries = detectRows(colMat, 1).map(([lineStart, lineEnd]) => {
-                return [lineStart + start, lineEnd + start];
-            });
+            let [lineBoundaries, lineBoundaryLineItems] = detectRows(colMat, start, colStart, 0);
 
-            const innerRowBoundaries = detectRows(colMat).map(([innerStart, innerEnd, innerLineBefore], idx, arr) => {
-                const yStart = innerStart + start; // Adjust for parent row offset
-                const yEnd = innerEnd + start;
+            if (colBoundaries.length > 1) lineItems.push(...lineBoundaryLineItems);
+
+            let [innerRowBoundaries, duplicateLineItems] = detectRows(colMat, start, colStart);
+            innerRowBoundaries = innerRowBoundaries.map(([innerStart, innerEnd], idx, arr) => {
 
                 const innerRowData = {
-                    range: [yStart, yEnd],
-                    separation: (idx > 0) ? yStart - (arr[idx - 1][1] + start) : yStart - start,
-                    height: yEnd - yStart,
-                    lineBefore: innerLineBefore
+                    range: [innerStart, innerEnd],
+                    separation: (idx > 0) ? innerStart - (arr[idx - 1][1] + start) : innerStart - start,
+                    height: innerEnd - innerStart
                 };
 
-                // If `innerLineBefore` is true, augment this inner row by detecting columns (possibly a table)
-                if (innerLineBefore) {
-                    const innerRowMat = colMat.roi(new cv.Rect(0, innerStart, colMat.cols, innerEnd - innerStart));
-                    innerRowData.subColumns = detectColumns(innerRowMat);
-                    innerRowMat.delete();
+                let innerRowMat;
+                try {
+                    innerRowMat = colMat.roi(new cv.Rect(0, innerStart - start, colMat.cols, innerEnd - innerStart));
                 }
+                catch (err) {
+                    console.error(err);
+                    throw err;
+                }
+                innerRowData.subColumns = detectColumns(innerRowMat, leftOffset = colStart);
+                innerRowMat.delete();
 
                 return innerRowData;
             });
@@ -77,8 +93,7 @@ function processPage(imageData) {
         // Store detected blocks
         blocks.push({
             range: [start, end],
-            columns: columns,
-            lineBefore: lineBefore
+            columns: columns
         });
     }
 
@@ -90,64 +105,113 @@ function processPage(imageData) {
     });
 
     // Annotate blocks with solid border detection
-    checkSolidBorders(src, binary, blocks);
+    const rectangles = checkSolidBorders(src, binary, blocks);
 
     // Clean up
     src.delete();
     gray.delete();
     binary.delete();
 
-    return blocks;
+    return [blocks, lineItems, rectangles];
 }
 
 // Helper function to detect row boundaries
-function detectRows(mat, maxTextLineSeparation = 6, minLineWidthRatio = 0.95) {
-    let rowBoundaries = [];
-    let inRow = false;
-    let start = 0;
-    let blankRows = 0;
+function detectRows(mat, topOffset = 0, leftOffset = 0, maxTextLineSeparation = 6, minLineWidthRatio = 0.99) {
 
-    let minLineWidth = Math.floor(mat.cols * minLineWidthRatio);
-    let lines = [];
+    let rowTags = [];
+    let lineTags = [];
 
+    // Step 0: For whole-page detection, perform initial scan to find left and right margins
+    let leftMargin = mat.cols;
+    let rightMargin = 0;
+    if (leftOffset === 0) {
+        for (let x = 0; x < mat.cols; x++) {
+            const colNonZero = cv.countNonZero(mat.col(x));
+            if (colNonZero > 0) {
+                leftMargin = Math.min(leftMargin, x);
+                rightMargin = Math.max(rightMargin, x);
+            }
+        }
+    } else {
+        leftMargin = 0;
+        rightMargin = mat.cols;
+    }
+
+    // Step 1: Classify each row as line, text, or blank
+    let minLineWidth = Math.floor((rightMargin - leftMargin) * minLineWidthRatio);
     for (let y = 0; y < mat.rows; y++) {
         const rowNonZero = cv.countNonZero(mat.row(y));
+        rowTags.push(rowNonZero > 0 && rowNonZero < minLineWidth);
+        lineTags.push(rowNonZero >= minLineWidth);
+    }
 
-        if (rowNonZero >= minLineWidth) { // Line detected
-            lines.push(y);
-            blankRows++;
-        } else if (rowNonZero > 0) { // Text row
-            if (!inRow) {
-                start = y; // Start of a new row
-                inRow = true;
+    // Step 2: Mark up to maxTextLineSeparation contiguous blanks between text rows as text rows
+    for (let i = 1; i < rowTags.length - 1; i++) {
+        if (rowTags[i] === false) {
+            let blanks = 1;
+            // Count contiguous blanks
+            while (i + blanks < rowTags.length && !rowTags[i + blanks]) blanks++;
+
+            // Check if blanks are surrounded by text rows
+            if (blanks <= maxTextLineSeparation && rowTags[i - 1] && rowTags[i + blanks]) {
+                for (let j = 0; j < blanks; j++) rowTags[i + j] = true; // Mark blanks as text
             }
-            blankRows = 0;
-        } else { // Blank row
-            if (inRow) {
-                blankRows++;
-                if (blankRows >= maxTextLineSeparation) {
-                    rowBoundaries.push([start, y - blankRows, false]);
-                    inRow = false;
-                }
-            }
+
+            // Skip ahead by the number of blanks processed
+            i += blanks - 1;
         }
     }
 
-    // Capture last row boundary if still in a paragraph
-    if (inRow) rowBoundaries.push([start, mat.rows, false]);
+    // Step 3: Group text rows into blocks
+    let rowBoundaries = [];
+    let start = 0; // Start index for the text block
 
-    // Check for lines between rows and mark the line before the boundary
-    let previousEnd = 0;
-    rowBoundaries.forEach(([start, end], idx, arr) => {
-        arr[idx][2] = lines.filter(line => line > previousEnd && line < start).length > 0;
-        previousEnd = end;
-    });
+    for (let y = 1; y <= rowTags.length; y++) {
+        if (y === rowTags.length || rowTags[y] !== rowTags[start]) {
+            // If current row is different or it's the last row
+            if (rowTags[start]) {
+                rowBoundaries.push([topOffset + start, topOffset + y - 1]); // Store boundary of the text block
+            }
+            // Start a new block
+            start = y;
+        }
+    }
 
-    return rowBoundaries;
+    // Step 4: Group lines into blocks
+    let lineItems = [];
+    start = 0; // Start index for the line block
+    const nudgeDown = 0; // Nudge down to include the line within sorting areas
+
+    for (let y = 1; y <= lineTags.length; y++) {
+        if (y === lineTags.length || lineTags[y] !== lineTags[start]) {
+            // If current row is different or it's the last row
+            if (lineTags[start]) {
+                rowBoundaries.push([topOffset + start, topOffset + y - 1]);
+                // If it's a line block
+                lineItems.push({
+                    top: topOffset + start + nudgeDown,
+                    bottom: topOffset + y - 1 + nudgeDown,
+                    left: leftOffset + leftMargin,
+                    right: leftOffset + rightMargin,
+                    height: y - start,
+                    width: rightMargin - leftMargin + 1,
+                    tableLine: true,
+                    fontName: 'line',
+                    str: ''
+                });
+            }
+            // Start a new block
+            start = y;
+        }
+    }
+
+    rowBoundaries.sort((a, b) => a[0] - b[0]);
+
+    return [rowBoundaries, lineItems];
 }
 
 // Helper function to detect column boundaries within a row
-function detectColumns(rowMat, minColumnSeparation = 9) {
+function detectColumns(rowMat, leftOffset = 0, minColumnSeparation = 9) {
     let colBoundaries = [];
     let inCol = false;
     let start = 0;
@@ -172,7 +236,7 @@ function detectColumns(rowMat, minColumnSeparation = 9) {
             if (inCol) {
                 blankCols++;
                 if (blankCols >= minColumnSeparation) {
-                    colBoundaries.push([start, x - blankCols + 1]); // End of a column block
+                    colBoundaries.push([leftOffset + start, leftOffset + x - blankCols + 1]); // End of a column block
                     inCol = false;
                 }
             }
@@ -180,23 +244,50 @@ function detectColumns(rowMat, minColumnSeparation = 9) {
     }
 
     // Capture last column boundary if still in a text block
-    if (inCol) colBoundaries.push([start, rowMat.cols]);
+    if (inCol) colBoundaries.push([leftOffset + start, leftOffset + rowMat.cols]);
 
     return colBoundaries;
 }
 
 
-function checkSolidBorders(src, binary, blocks, width = 3, tolerance = 0.95) {
+function checkSolidBorders(src, binary, originalBlocks, width = 3, tolerance = 0.95) {
 
-    blocks.forEach(block => {
+    const blocks = structuredClone(originalBlocks);
+    const rectangles = [];
+
+    // Reverse loop to merge any contiguous blocks
+    for (let i = blocks.length - 1; i > 0; i--) {
+        const currentBlock = blocks[i];
+        const previousBlock = blocks[i - 1];
+
+        // Check if current and previous blocks are contiguous
+        if (previousBlock.range[1] + 1 === currentBlock.range[0]) {
+            // Merge ranges
+            previousBlock.range[1] = currentBlock.range[1];
+            previousBlock.height = previousBlock.range[1] - previousBlock.range[0];
+            previousBlock.columns.push(...currentBlock.columns);
+
+            // Remove the current block after merging
+            blocks.splice(i, 1);
+        }
+    }
+
+    blocks.forEach((block, i) => {
         const [yStart, yEnd] = block.range;
         const blockHeight = block.height;
         const verticalTolerance = Math.floor(blockHeight * tolerance);
 
-        block.columns.forEach(column => {
+        block.columns.forEach((column, j) => {
+
             const [xStart, xEnd] = column.range;
             const columnWidth = xEnd - xStart;
             const horizontalTolerance = Math.floor(columnWidth * tolerance);
+
+            // Skip columns with less than 10 pixels in height, which might simply be a line
+            if (blockHeight < 10) {
+                column.rectangle = false;
+                return;
+            }
 
             const edges = {
                 top: {
@@ -236,8 +327,26 @@ function checkSolidBorders(src, binary, blocks, width = 3, tolerance = 0.95) {
                 column.border[side] = hasBorder;
             }
 
-            column.rectangle = Object.keys(edges).every(side => column.border[side]);
+            if (Object.keys(edges).every(side => column.border[side])) {
+                rectangles.push({top: yStart, bottom: yEnd, left: xStart, right: xEnd, height: blockHeight, width: columnWidth, type: 'segmentation'});
+            }
         });
     });
+
+    // Remove any duplicate rectangles (iterate in reverse to avoid index issues)
+    for (let i = rectangles.length - 1; i > 0; i--) {
+        const currentRect = rectangles[i];
+        for (let j = i - 1; j >= 0; j--) {
+            const previousRect = rectangles[j];
+            if (currentRect.top === previousRect.top && currentRect.bottom === previousRect.bottom &&
+                currentRect.left === previousRect.left && currentRect.right === previousRect.right) {
+                rectangles.splice(i, 1);
+                break;
+            }
+        }
+    }
+
+    console.warn('Detected Rectangles:', rectangles);
+    return rectangles;
 }
 

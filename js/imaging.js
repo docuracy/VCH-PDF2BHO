@@ -293,13 +293,14 @@ function eraseOutsideCropRange(data, cropRange, canvasWidth, canvasHeight) {
 function paintEmbeddedImages(data, embeddedImages, canvasWidth, canvasHeight) {
     // Paint over embedded images to ensure that they are properly segmented
     const blackPixel = new Uint8ClampedArray([0, 0, 0, 255]);
+    const dilation = 2; // Dilation by 2 pixels
 
     embeddedImages.forEach(image => {
-        // Convert coordinates to integers
-        const left = Math.round(image.left);
-        const top = Math.round(image.top);
-        const right = Math.round(image.right);
-        const bottom = Math.round(image.bottom);
+        // Dilate the coordinates by 2 pixels
+        const left = Math.max(0, Math.round(image.left) - dilation);
+        const top = Math.max(0, Math.round(image.top) - dilation);
+        const right = Math.min(canvasWidth, Math.round(image.right) + dilation);
+        const bottom = Math.min(canvasHeight, Math.round(image.bottom) + dilation);
 
         for (let y = top; y < bottom; y++) {
             if (y < 0 || y >= canvasHeight) continue; // Skip out of bounds
@@ -384,30 +385,47 @@ function segmentPage(page, viewport, operatorList) {
                     ];
                 }, [Infinity, Infinity, -Infinity, -Infinity]);
 
-                // Extract rectangles from segmentation
-                let rectangles = segmentation.flatMap(row =>
-                    row.columns
-                        .filter(column => column.rectangle)
-                        .map(column => ({
-                            left: column.range[0],
-                            top: row.range[0],
-                            right: column.range[1],
-                            bottom: row.range[1],
-                            width: column.range[1] - column.range[0],
-                            height: row.range[1] - row.range[0],
-                            type: 'segmentation'
-                        }))
+                // Remove lineItems which intersect or are contained by rectangles or embedded images
+                const lineItems = e.data.lineItems.filter(item =>
+                    ![...e.data.rectangles, ...embeddedImages].some(rect => {
+                        const intersecting = (
+                            item.left <= rect.right &&
+                            item.right >= rect.left &&
+                            item.top <= rect.bottom &&
+                            item.bottom >= rect.top
+                        );
+
+                        const containing = (
+                            item.left <= rect.left &&
+                            item.right >= rect.right &&
+                            item.top <= rect.top &&
+                            item.bottom >= rect.bottom
+                        );
+
+                        return intersecting || containing;
+                    })
                 );
 
-                // Remove rectangles which contain embedded images
+                // Remove rectangles which intersect or contain embedded images
                 const tolerance = 3;
-                rectangles = rectangles.filter(rect =>
-                    !embeddedImages.some(image => (
-                        rect.left <= image.right + tolerance &&
-                        rect.right >= image.left - tolerance &&
-                        rect.top <= image.bottom + tolerance &&
-                        rect.bottom >= image.top - tolerance
-                    ))
+                const rectangles = e.data.rectangles.filter(rect =>
+                    !embeddedImages.some(image => {
+                        const intersecting = (
+                            rect.left <= image.right + tolerance &&
+                            rect.right >= image.left - tolerance &&
+                            rect.top <= image.bottom + tolerance &&
+                            rect.bottom >= image.top - tolerance
+                        );
+
+                        const containing = (
+                            rect.left <= image.left - tolerance &&
+                            rect.right >= image.right + tolerance &&
+                            rect.top <= image.top - tolerance &&
+                            rect.bottom >= image.bottom + tolerance
+                        );
+
+                        return intersecting || containing;
+                    })
                 );
 
                 resolve({
@@ -415,7 +433,8 @@ function segmentPage(page, viewport, operatorList) {
                     embeddedImages: embeddedImages,
                     rectangles: rectangles,
                     printExtent: printExtent,
-                    segmentation: segmentation
+                    segmentation: segmentation,
+                    lineItems: lineItems
                 }); // Resolve the promise with the worker's result
             }
         };

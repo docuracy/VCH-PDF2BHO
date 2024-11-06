@@ -11,6 +11,23 @@ jQuery(document).ready(function ($) {
         });
     }
 
+    // Initialise Bootstrap tooltips using JQuery
+    $(document).ready(function() {
+        $('body').tooltip({
+            selector: '[data-bs-toggle="tooltip"]',
+            html: true,
+            trigger: 'manual',  // Manual control over show/hide
+            boundary: 'window',  // Prevent tooltip from overflowing
+        });
+
+        // Show tooltip on mouse enter and hide on mouse leave (default is unreliable)
+        $('[data-bs-toggle="tooltip"]').on('mouseenter', function() {
+            $(this).tooltip('show');
+        }).on('mouseleave', function() {
+            $(this).tooltip('hide');
+        });
+    });
+
     // Handle Convert Button Click
     $('#convertBtn').on('click', function () {
         const fileInput = $('#pdfInput')[0];

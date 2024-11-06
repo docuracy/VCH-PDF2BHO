@@ -18,7 +18,7 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf) {
 
     // Loop backwards to remove empty items
     for (let i = items.length - 1; i >= 0; i--) {
-        if (!items[i].str && items[i].fontName !== 'drawing') {
+        if (!items[i].str && items[i].fontName !== 'drawing' && items[i].fontName !== 'line') {
             items.splice(i, 1);
         }
     }
@@ -79,15 +79,27 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf) {
         items = items.filter(item => item.row !== 0);
     }
 
-    console.log(`Page ${pageNum} - items: ${items.length}:`, items);
-
     // Assign columns and lines to each item, and sort into reading order
     try {
         items.forEach((item, index) => {
             try {
+                // Find the column index where the item's left boundary falls within the column range
                 item.column = segmentation[item.row].columns.findIndex(column => item.left <= column.range[1]);
-                item.line = segmentation[item.row].columns[item.column].lines.findIndex(line => item.top <= line[1]);
-                item.innerRow = segmentation[item.row].columns[item.column].innerRows.findIndex(innerRow => item.top <= innerRow.range[1]);
+
+                // Check if item.column was found
+                if (item.column !== -1) {
+                    // Find the line index where the item's top boundary falls within the line range
+                    item.line = segmentation[item.row].columns[item.column].lines.findIndex(line => item.top <= line[1]);
+
+                    // Find the innerRow index where the item's top boundary falls within the innerRow range
+                    item.innerRow = segmentation[item.row].columns[item.column].innerRows?.findIndex(innerRow => item.top <= innerRow.range[1]) ?? -1;
+
+                    // Find a subColumn index where the item's left boundary falls within the subColumn range
+                    const tabular = segmentation[item.row].columns[item.column].innerRows[item.innerRow]?.subColumns.length >= 3;
+                    if (tabular) {
+                        item.subColumn = segmentation[item.row].columns[item.column].innerRows[item.innerRow].subColumns.findIndex(subColumn => item.left <= subColumn[1]);
+                    }
+                }
             }
             catch (error) {
                 console.error(`Error assigning columns and lines to item ${index} on page ${pageNum}:`, item, error);
@@ -99,7 +111,12 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf) {
         console.error(`Error assigning columns and lines to items on page ${pageNum}:`, error);
         throw error;
     }
-    items.sort((a, b) => a.row - b.row || a.column - b.column || a.line - b.line || a.left - b.left);
+    items.sort((a, b) =>
+        a.row - b.row ||
+        a.column - b.column ||
+        a.line - b.line ||
+        a.left - b.left
+    );
 
     // Initialise set to store found footnote numbers
     let foundFootnoteIndices = new Set();
@@ -135,13 +152,13 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf) {
         const prevItem = items[index - 1];
 
         item.isPreviousItemSameLine = prevItem?.line === item.line && isSameBlock(prevItem, item);
-        item.isItemAtLineEnd = item.right + tolerance > segmentation[item.row].columns[item.column][1];
-        item.isItemIndented = item.left - tolerance > segmentation[item.row].columns[item.column][0] && !item.isPreviousItemSameLine;
+        item.isItemAtLineEnd = item.right + tolerance > (segmentation[item.row].columns[item.column]?.[1] ?? 'Infinity');
+        item.isItemIndented = item.left - tolerance > (segmentation[item.row].columns[item.column]?.[0] ?? 'Infinity') && !item.isPreviousItemSameLine;
 
         item.isNextItemInRow = nextItem?.row === item.row;
         item.isNextItemSameLine = nextItem?.line === item.line && isSameBlock(nextItem, item);
         item.isNextItemTabbed = item.isNextItemSameLine && nextItem?.left - 2 * tolerance > item.right;
-        item.isNextItemIndented = nextItem?.left - tolerance > segmentation[item.row].columns[item.column][0] && !item.isNextItemSameLine;
+        item.isNextItemIndented = nextItem?.left - tolerance > (segmentation[item.row].columns[item.column]?.[0] ?? 'Infinity') && !item.isNextItemSameLine;
         item.isMidCaption = items.filter(i => isSameBlock(i, item))[0]?.fontName === 'drawing' && item.italic && nextItem?.italic;
 
         const isEndOfParagraph = (
@@ -158,17 +175,40 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf) {
         }
     });
 
-    // console.log(structuredClone(items));
-
     // Wrap footnote indices in superscript tags
     items.filter(item => item.footIndex).forEach(item => {
         const endnoteNumber = item.footIndex + maxEndnote;
         item.str = `<sup><a id="endnoteIndex${endnoteNumber}" href="#endnote${endnoteNumber}" data-footnote="${item.footIndex}" data-endnote="${endnoteNumber}">${endnoteNumber}</a></sup>`;
     });
 
-    await mergeItems(items, ['row', 'fontName', 'height', 'header', 'italic', 'bold']);
+    await mergeItems(items, ['row', 'subColumns', 'fontName', 'height', 'header', 'italic', 'bold']);
+
+    // Identify tables
+    let tabular = false;
+    items.forEach((item, index) => {
+        if (item?.tableLine) {
+            tabular = true;
+        }
+        if (tabular) {
+            // Check for end of table: `.str` begins with "Table \d+." or "\d+."
+            if (/^(Table \d+\.|\d+\.)$/.test(item.str)) {
+                tabular = false;
+                item.tableHead = true;
+            } else {
+                item.tabular = true;
+                item.tableColumn = item?.subColumn ?? item.column;
+                item.columnMax = item?.subColumn ?
+                    segmentation[item.row].columns[item.column].innerRows[item.innerRow].subColumns.length - 1 :
+                    segmentation[item.row].columns.length - 1;
+            }
+        }
+    });
+
+    console.log(`Page ${pageNum} - items: ${items.length}:`, structuredClone(items));
 
     wrapStrings(items);
+
+    await buildTables(items);
 
     await mergeItems(items, ['row']);
 
@@ -195,24 +235,6 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf) {
             pageHTML += `<div class="${classes.join(' ')}" data-bs-title="${tooltipContent}" data-bs-toggle="tooltip">${item.str}</div>`;
         }
     });
-
-    // Initialise Bootstrap tooltips using JQuery
-    $(document).ready(function() {
-        $('[data-bs-toggle="tooltip"]').tooltip({
-            container: 'body',
-            html: true,
-            trigger: 'manual',  // Manual control over show/hide
-            boundary: 'window',  // Prevent tooltip from overflowing
-        });
-
-        // Show tooltip on mouse enter and hide on mouse leave (default is unreliable)
-        $('.tooltip-item').on('mouseenter', function() {
-            $(this).tooltip('show');
-        }).on('mouseleave', function() {
-            $(this).tooltip('hide');
-        });
-    });
-
 
     /////////////////////////////
     // FINALISE
@@ -246,14 +268,16 @@ async function dehyphenate(item, nextItem) {
         const truncated = item.str.slice(0, -1);
         const lastWord = truncated.trim().split(' ').pop();
         const nextItemFirstWord = nextItem.str.trim().split(' ').shift();
-        const keepHyphen = await checkHyphenation(lastWord, nextItemFirstWord);
+        const doCheck = $('#checkHyphenation').is(':checked');
+        let keepHyphen = doCheck ? await checkHyphenation(lastWord, nextItemFirstWord) : 'unchecked';
         if (keepHyphen === null) {
             console.error(`Error checking hyphenation between "${lastWord}" and "${nextItemFirstWord}"`);
+            keepHyphen = 'unchecked check-failed';
         }
         else {
             console.log(`Hyphenation: "${lastWord}-${nextItemFirstWord}"${keepHyphen ? '*' : ''}`);
         }
-        item.str = `${truncated}<span class="line-end-hyphen${keepHyphen ? '' : ' remove' }" data-bs-title="Hyphen found at the end of a line." data-bs-toggle="tooltip">-</span>`;
+        item.str = `${truncated}<span class="line-end-hyphen${keepHyphen === false ? ' remove' : typeof keepHyphen === 'string' ? ` ${keepHyphen}` : ''}" data-bs-title="Hyphen found at the end of a line." data-bs-toggle="tooltip">-</span>`;
     } else if ((!nextItem.footIndex) && (!nextItem.str.startsWith(')'))) {
         item.str += ' ';
     }
@@ -311,9 +335,13 @@ async function mergeItems(items, properties) {
     for (let i = items.length - 1; i > 0; i--) { // Start from the end and move to the beginning
         const currentItem = items[i];
         const previousItem = items[i - 1];
-        if (!previousItem.paragraph) {
+        if (!previousItem.paragraph && !previousItem.tableLine) {
             // Merge if all properties match and the previous item is not a paragraph end
-            if (properties.every(prop => currentItem[prop] === previousItem[prop])) {
+            if (properties.every(prop => (
+                ((prop in currentItem && prop in previousItem) &&
+                currentItem[prop] === previousItem[prop]) || // Check that property values match if present in both items
+                (!prop in currentItem && !prop in previousItem) // or that the property is missing in both items
+            ))) {
                 await dehyphenate(previousItem, currentItem);
                 if (currentItem.paragraph) {
                     previousItem.paragraph = true;
@@ -415,3 +443,114 @@ async function processFootnotes(segmentation, footnotes, pageNum, pageNumeral, m
     localStorage.setItem(`page-${pageNum}-footnotes`, LZString.compressToUTF16(JSON.stringify(footnotes)));
 
 }
+
+
+async function buildTables(items) {
+    let currentGroup = [];
+
+    // Reverse pass: Group consecutive items with `tabular` property
+    let spliceLength = 0;
+    for (let i = items.length - 1; i >= 0; i--) {
+        const item = items[i];
+        if (item?.tableLine) {
+            spliceLength++;
+            continue;
+        }
+        if (item?.tabular) {
+            currentGroup.unshift(item);
+        } else {
+            if (currentGroup.length > 0) {
+                // Build and insert the table HTML for the current group
+                spliceLength += currentGroup.length;
+                const tableHTML = await buildTableHTML(currentGroup);
+                console.log(`Table HTML for group ${i}:`, tableHTML);
+                items.splice(i + 1, spliceLength, { str: tableHTML });
+                currentGroup = [];
+            }
+        }
+    }
+    // Process any remaining group if we ended with table items
+    if (currentGroup.length > 0) {
+        spliceLength += currentGroup.length;
+        const tableHTML = await buildTableHTML(currentGroup);
+        console.log(`Table HTML for final group:`, tableHTML);
+        items.splice(0, spliceLength, { str: tableHTML });
+    }
+
+    console.log('Remaining items:', structuredClone(items));
+}
+
+
+// Helper function to build HTML for a table based on grouped items
+async function buildTableHTML(tableItems) {
+    const rows = {};
+    const rowColMax = {};
+
+    tableItems.sort((a, b) =>
+        a.row - b.row ||
+        a.top - b.top ||
+        a.tableColumn - b.tableColumn ||
+        a.left - b.left
+    );
+
+    console.log('Table items:', structuredClone(tableItems));
+
+    await mergeItems(tableItems, ['row', 'tableColumn']);
+
+    console.log('Merged table items:', structuredClone(tableItems));
+
+    // Group items by row and column
+    tableItems.forEach(item => {
+        const { row, line, tableColumn, columnMax, str } = item;
+        const trKey = `${row}-${line}`;
+        if (!rows[trKey]) {
+            rows[trKey] = {};
+            rowColMax[trKey] = columnMax;
+        }
+        rows[trKey][tableColumn] = str;
+    });
+
+    console.log('Table item rows:', structuredClone(rows));
+
+    // Split tabbed items followed by a missing column key
+    Object.keys(rows).forEach(rowKey => {
+        const row = rows[rowKey];
+        const keys = Object.keys(row).map(Number); // Convert keys to numbers to handle missing ones easily
+        keys.sort((a, b) => a - b); // Sort the keys in ascending order
+
+        for (let i = 0; i < keys.length - 1; i++) {
+            const key = keys[i];
+            const nextKey = keys[i + 1];
+
+            // Check if there is a gap in keys and multiple spaces in the value of the current key
+            if (nextKey !== key + 1 && /\s{2,}/.test(row[key])) {
+                // Split at the first occurrence of two or more spaces
+                const [firstPart, secondPart] = row[key].split(/\s{2,}/);
+
+                // Assign parts to the current key and the missing next key
+                row[key] = firstPart || ''; // First part remains in the current key
+                row[key + 1] = secondPart || ''; // Second part is assigned to the missing key
+            }
+        }
+    });
+
+    // Generate HTML table
+    let tableHTML = '<table class="generated-table"><tbody>';
+    // Find maximum number of columns
+    const maxColumns = Math.max(...Object.values(rows).map(row => Object.keys(row).length));
+    for (const rowKey of Object.keys(rows)) {
+        const row = rows[rowKey];
+        // Include colspan if the row has fewer columns than the maximum
+        const colspan = maxColumns - rowColMax[rowKey];
+        tableHTML += '<tr>';
+        // Loop through maxColumns to ensure all rows have the same number of columns
+        for (let i = 0; i < maxColumns - colspan + 1; i++) {
+            tableHTML += `<td${i === 0 && colspan > 1 ? ` colspan="${colspan}"` : ''}>${row[i] || ''}</td>`;
+        }
+        tableHTML += '</tr>';
+    }
+    tableHTML += '</tbody></table>';
+
+    return tableHTML;
+}
+

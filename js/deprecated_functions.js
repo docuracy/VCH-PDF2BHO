@@ -1179,3 +1179,63 @@ function findRectangles(operatorList, viewport, printExtent, embeddedImages) {
 
     return rectangles;
 }
+
+
+
+
+// Step 1: Tag each row as line, text, or blank based on non-zero pixel count
+let minLineWidth = Math.floor((rightMargin - leftMargin) * minLineWidthRatio);
+for (let y = 0; y < mat.rows; y++) {
+    const rowNonZero = cv.countNonZero(mat.row(y));
+    rowTags.push(rowNonZero >= minLineWidth ? 'line' : rowNonZero > 0 ? 'text' : 'blank');
+}
+
+// Step 2: Mark up to maxTextLineSeparation contiguous blanks between text rows as text rows
+for (let i = 1; i < rowTags.length - 1; i++) {
+    if (rowTags[i] === 'blank') {
+        let blanks = 1;
+        // Count contiguous blanks
+        while (i + blanks < rowTags.length && rowTags[i + blanks] === 'blank') blanks++;
+
+        // Check if blanks are surrounded by text rows
+        if (blanks <= maxTextLineSeparation && rowTags[i - 1] === 'text' && rowTags[i + blanks] === 'text') {
+            for (let j = 0; j < blanks; j++) rowTags[i + j] = 'text'; // Mark blanks as text
+        }
+
+        // Skip ahead by the number of blanks processed
+        i += blanks - 1;
+    }
+}
+
+// Step 3: Detect row boundaries based on transitions between blank and non-blank rows
+let start = 0;
+let inNonBlankSegment = rowTags[0] !== 'blank';
+for (let y = 1; y < rowTags.length; y++) {
+    const isBlank = rowTags[y] === 'blank';
+
+
+    if (isBlank !== inNonBlankSegment) {
+        // Log boundary when switching between blank and non-blank rows
+        if (!isBlank) {
+            start = y; // Start of a new non-blank segment
+        } else {
+            rowBoundaries.push([start, y - 1]); // End of a non-blank segment
+        }
+        inNonBlankSegment = !isBlank;
+    }
+}
+
+// Step 4: Detect lines based on tagged rows
+start = 0;
+currentTag = rowTags[0];
+for (let y = 1; y <= rowTags.length; y++) {
+    if (y === rowTags.length || rowTags[y] !== currentTag) {
+        // End of a contiguous segment
+        if (currentTag === 'line') { // Save lineItem
+            lineItems.push({ top: topOffset + start, left: leftOffset + leftMargin, height: y - start, width: rightMargin - leftMargin + 1, bottom: topOffset + y - 1, right: leftOffset + rightMargin + 1, tableLine: true, fontName: 'line', str: '' });
+        }
+        // Start a new segment
+        start = y;
+        currentTag = rowTags[y] ?? 'blank';
+    }
+}

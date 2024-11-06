@@ -90,6 +90,10 @@ body {
     color: green;
 }
 
+#htmlPreviewContent .unchecked {
+    color: orange;
+}
+
 #htmlPreviewContent .gutter {
     color: orange;
     display: none;
@@ -133,3 +137,44 @@ body {
 #logContainer p {
     margin: 0;
 }
+
+.generated-table {
+    margin-bottom: 1.5rem; /* Space after table */
+    border-collapse: collapse; /* Cleaner borders */
+    font-size: 0.8rem; /* Smaller text */
+}
+
+.generated-table th,
+.generated-table td {
+    padding: 0.1rem 0.3rem; /* Padding for cells */
+    border: 1px solid #dee2e6; /* Light Bootstrap-style borders */
+    vertical-align: top; /* Align text to the top */
+}
+
+.generated-table thead th {
+    background-color: #f8f9fa; /* Light gray header background */
+    font-weight: bold; /* Emphasize header text */
+    text-transform: uppercase; /* Uppercase for header text */
+}
+
+.generated-table tbody tr:nth-child(even) {
+    background-color: #f2f2f2; /* Alternate row shading */
+}
+
+.generated-table tbody tr:hover {
+    background-color: #e9ecef; /* Slightly darker on hover */
+}
+
+.generated-table .highlight {
+    background-color: #ffeb3b; /* Custom color for special cells, e.g., highlights */
+    font-weight: bold;
+}
+
+.generated-table th {
+    white-space: nowrap; /* Prevent headers from wrapping */
+}
+
+.generated-table td {
+    white-space: pre-wrap; /* Allow text to wrap within cells */
+}
+

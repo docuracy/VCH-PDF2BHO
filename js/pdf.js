@@ -12,13 +12,19 @@ function processPDF(file, fileName, zip) {  // Accept zip as a parameter
                 // Start by clearing localStorage of any previous data
                 localStorage.clear();
 
+                // Start at page `startPage` (set to 1 to start at the beginning)
+                // const startPage = 1;
+                const startPage = 1; // DEBUG: Start at page 3 for testing
+
                 // Discard all except the first `n` pages (set to `Infinity` to process all pages)
-                const maxPages = `Infinity`;
-                // const maxPages = 2; // DEBUG: Limit to first 2 pages for testing
+                const maxPages = Infinity;
+                // const maxPages = 17; // DEBUG: Limit to first 2 pages for testing
+
+                const maxPage = Math.min(pdf.numPages, startPage + maxPages - 1);
 
                 // Iterate over pages to find crop, map, and table bounds; create font dictionary; store augmented items in localStorage
                 let masterFontMap = {};
-                for (let pageNum = 1; pageNum <= Math.min(pdf.numPages, maxPages); pageNum++) {
+                for (let pageNum = startPage; pageNum <= maxPage; pageNum++) {
                     const pageFontMap = await storePageData(pdf, pageNum);
                     if (pageNum === 1) {
                         masterFontMap = pageFontMap;
@@ -73,7 +79,7 @@ function processPDF(file, fileName, zip) {  // Accept zip as a parameter
                 console.log('headerFontSizes:', headerFontSizes);
 
                 // Iterate over pages to preprocess footnote areas and remove header; tag headers and italic, bold, and capital fonts
-                for (let pageNum = 1; pageNum <= Math.min(pdf.numPages, maxPages); pageNum++) {
+                for (let pageNum = startPage; pageNum <= maxPage; pageNum++) {
                     headerFooterAndFonts(pageNum, masterFontMap, defaultFont, headerFontSizes);
                 }
                 // Find the most common footArea font
@@ -93,8 +99,8 @@ function processPDF(file, fileName, zip) {  // Accept zip as a parameter
                 let docHTML = ''; // Initialize the document HTML content
 
                 let maxEndnote = 0;
-                // Iterate over pages to identify rows and then process items
-                for (let pageNum = 1; pageNum <= Math.min(pdf.numPages, maxPages); pageNum++) {
+                // Iterate over pages to process items
+                for (let pageNum = startPage; pageNum <= maxPage; pageNum++) {
                     let pageHTML = '';
                     [maxEndnote, pageHTML] = await processItems(pageNum, defaultFont, footFont, maxEndnote, pdf);
                     docHTML += `${pageHTML}<hr class="remove" />`; // Add horizontal rule between pages
@@ -105,7 +111,7 @@ function processPDF(file, fileName, zip) {  // Accept zip as a parameter
                 docHTML += Array.from({ length: Math.min(pdf.numPages, maxPages) }, (_, i) => {
                     let footnotes;
                     try {
-                        footnotes = JSON.parse(LZString.decompressFromUTF16(localStorage.getItem(`page-${i + 1}-footnotes`)));
+                        footnotes = JSON.parse(LZString.decompressFromUTF16(localStorage.getItem(`page-${i + startPage}-footnotes`)));
                     } catch (err) {
                         footnotes = [];
                     }
@@ -189,6 +195,11 @@ async function storePageData(pdf, pageNum) {
     // Combine segments.embeddedImages and segments.rectangles
     const drawingBorders = segments.embeddedImages.concat(segments.rectangles);
 
+    if (segments.lineItems.length > 0) {
+        console.log(`Detected Line Items:`, segments.lineItems);
+        content.items.push(...segments.lineItems);
+    }
+
     // Discard content items falling outside crop range or within drawing outlines
     content.items = content.items.filter(item =>
         item.left >= cropRange.x[0] && item.right <= cropRange.x[1] &&
@@ -198,6 +209,11 @@ async function storePageData(pdf, pageNum) {
             item.bottom <= border.bottom && item.top >= border.top
         )
     );
+
+    // Log remaining lineItems
+    if (segments.lineItems.length > 0) {
+        console.log('Cropped line Items:', content.items.filter(item => item.tableLine === true));
+    }
 
     if (drawingBorders.length > 0) {
         localStorage.setItem(`page-${pageNum}-drawingBorders`, JSON.stringify(drawingBorders));
