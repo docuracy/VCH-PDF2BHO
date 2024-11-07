@@ -26,6 +26,26 @@ body {
     font-family: serif;
 }
 
+#htmlPreviewContent h1 {
+    font-size: 2rem;
+}
+
+#htmlPreviewContent h2 {
+    font-size: 1.8rem;
+}
+
+#htmlPreviewContent h3 {
+    font-size: 1.7rem;
+}
+
+#htmlPreviewContent h4 {
+    font-size: 1.6rem;
+}
+
+#htmlPreviewContent h5 {
+    font-size: 1.4rem;
+}
+
 #htmlPreviewContent h6 {
     font-size: 1.2rem;
 }

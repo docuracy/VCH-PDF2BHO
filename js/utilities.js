@@ -59,7 +59,7 @@ function titleCase(str) {
 // Wrap strings in HTML style tags
 function wrapStrings(items) {
     items.forEach(item => {
-        if (item.header) {
+        if (item?.header) {
             item.str = `<h${item.header}>${item.str}</h${item.header}>`;
             delete item.header;
             delete item.fontName

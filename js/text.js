@@ -135,13 +135,13 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
         const prevItem = items[index - 1];
 
         item.isPreviousItemSameLine = prevItem?.line === item.line && isSameBlock(prevItem, item);
-        item.isItemAtLineEnd = item.right + tolerance > (segmentation[item.row].columns[item.column]?.[1] ?? 'Infinity');
-        item.isItemIndented = item.left - tolerance > (segmentation[item.row].columns[item.column]?.[0] ?? 'Infinity') && !item.isPreviousItemSameLine;
+        item.isItemAtLineEnd = item.right + tolerance > (segmentation[item.row].columns[item.column]?.range[1] ?? 'Infinity');
+        item.isItemIndented = item.left - tolerance > (segmentation[item.row].columns[item.column]?.range[0] ?? 'Infinity') && !item.isPreviousItemSameLine;
 
         item.isNextItemInRow = nextItem?.row === item.row;
         item.isNextItemSameLine = nextItem?.line === item.line && isSameBlock(nextItem, item);
         item.isNextItemTabbed = item.isNextItemSameLine && nextItem?.left - 2 * tolerance > item.right;
-        item.isNextItemIndented = nextItem?.left - tolerance > (segmentation[item.row].columns[item.column]?.[0] ?? 'Infinity') && !item.isNextItemSameLine;
+        item.isNextItemIndented = nextItem?.left - tolerance > (segmentation[item.row].columns[item.column]?.range[0] ?? 'Infinity') && !item.isNextItemSameLine;
         item.isMidCaption = items.filter(i => isSameBlock(i, item))[0]?.fontName === 'drawing' && item.italic && nextItem?.italic;
 
         const isEndOfParagraph = (
@@ -150,6 +150,7 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
             (item.bold && !nextItem?.bold) ||
             (item.isItemIndented && item.italic && !item.isNextItemSameLine && !item.isMidCaption) ||
             (item.italic && item.isNextItemTabbed) ||
+            nextItem?.capital || item?.capital ||
             !item.isNextItemInRow
         );
 

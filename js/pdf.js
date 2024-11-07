@@ -326,16 +326,21 @@ function headerFooterAndFonts(pageNum, masterFontMap, defaultFont, headerFontSiz
         if (fontEntry) { // drawings have no font entry
             // Apply header tags
             if (headerFontSizes.includes(item.height)) {
-                // Get the index of the font size in the sorted array and normalise between 2 and 6-maximum
-                const index = headerFontSizes.indexOf(item.height);
+                // Get the index of the font size in the sorted array and normalise between 1 and 6-maximum
+                const index = headerFontSizes.indexOf(item.height) + 1;
                 item.header = index > 6 ? 6 : index;
             }
             // Apply font styles
             for (const style in fontStyles) {
                 if (fontStyles[style].test(masterFontMap[item.fontName].name)) {
-                    if (['capital', 'bold'].includes(style)) {
+                    if (['bold'].includes(style)) {
                         // Many such strings are entirely lowercase, but "Small Caps are to be rendered as Ordinary Text, and not marked up".
                         item.str = titleCase(item.str);
+                        continue; // Skip to next style
+                    }
+                    if (['capital'].includes(style)) {
+                        item.str = item.str.toLocaleUpperCase()
+                        item.capital = true;
                         continue; // Skip to next style
                     }
                     item[style] = true;
