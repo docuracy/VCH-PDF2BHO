@@ -172,15 +172,21 @@ async function storePageData(pdf, pageNum) {
     const viewport = await page.getViewport({scale: 1});
     const operatorList = await page.getOperatorList();
 
-    // if (pageNum === 4) {
-    //     console.log(structuredClone(content.items));
-    //     listOperators(operatorList)
-    // }
+    // Find item.str values starting with "Chart \d+." for use in density scan in segmentor
+    const chartItems = content.items
+        .map(item => item.str.match(/^Chart (\d+)\./) ? {
+            text: item.str,
+            chartNumber: parseInt(RegExp.$1, 10),
+            x: item.transform[4] + item.width / 2,
+            y: viewport.height - item.transform[5] - item.height / 2,
+            top: viewport.height - item.transform[5]
+        } : null)
+        .filter(item => item !== null);
 
     localStorage.setItem(`page-${pageNum}-viewport`, JSON.stringify(viewport));
     appendLogMessage(`Page size: ${viewport.width.toFixed(2)} x ${viewport.height.toFixed(2)}`);
 
-    const segments = await segmentPage(page, viewport, operatorList);
+    const segments = await segmentPage(page, viewport, operatorList, chartItems);
     localStorage.setItem(`page-${pageNum}-segments`, JSON.stringify(segments));
     console.log(`Segments:`, segments);
 

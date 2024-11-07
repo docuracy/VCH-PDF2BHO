@@ -5,11 +5,11 @@ self.importScripts('./opencv.js');
 cv.onRuntimeInitialized = () => {
     console.log('OpenCV loaded and ready');
     self.onmessage = async (e) => {
-        const { action, imageData } = e.data;
+        const { action, imageData, chartItems } = e.data;
 
         if (action === 'processPage') {
             // Process the image data
-            const [blocks, lineItems, rectangles] = processPage(imageData);
+            const [blocks, lineItems, rectangles] = processPage(imageData, chartItems);
 
             // Send the results back to the main script
             self.postMessage({ action: 'result', segmentation: blocks, lineItems: lineItems, rectangles: rectangles });
@@ -18,7 +18,7 @@ cv.onRuntimeInitialized = () => {
 };
 
 // Processing function
-function processPage(imageData) {
+function processPage(imageData, chartItems) {
     const src = cv.matFromImageData(imageData);
     const gray = new cv.Mat();
     const binary = new cv.Mat();
@@ -86,7 +86,7 @@ function processPage(imageData) {
             return {
                 range: [colStart, colEnd],
                 lines: lineBoundaries,
-                innerRows: innerRowBoundaries
+                innerRows: innerRowBoundaries,
             };
         });
 
@@ -106,6 +106,8 @@ function processPage(imageData) {
 
     // Annotate blocks with solid border detection
     const rectangles = checkSolidBorders(src, binary, blocks);
+
+    if (chartItems.length > 0) addCharts(chartItems, blocks, rectangles, binary);
 
     // Clean up
     src.delete();
@@ -350,3 +352,68 @@ function checkSolidBorders(src, binary, originalBlocks, width = 3, tolerance = 0
     return rectangles;
 }
 
+
+function addCharts(chartItems, blocks, rectangles, binary) {
+
+    // Locate chart items within the detected blocks and check pixel density above them
+    chartItems.forEach(item => {
+        const block = blocks.find(b =>
+            item.y >= b.range[0] && item.y <= b.range[1] &&
+            b.columns.some(c => item.x >= c.range[0] && item.x <= c.range[1])
+        );
+        if (block) {
+            const columnRange = block.columns.find(c => item.x >= c.range[0] && item.x <= c.range[1])?.range;
+            if (columnRange) {
+                const borderWidth = 5;
+
+                // Find index of the current block
+                const blockIndex = blocks.findIndex(b => b === block);
+                // Loop through blocks between header and blockAboveIndex, finding the column range containing the item's x-coordinate
+                let innerRowMax = blocks[1]?.range[0];
+                for (let i = 1; i <= blockIndex; i++) {
+                    const columnAbove = blocks[i].columns.find(c => item.x >= c.range[0] && item.x <= c.range[1]);
+                    if (columnAbove) {
+                        columnRange[0] = Math.min(columnRange[0], columnAbove.range[0]);
+                        columnRange[1] = Math.max(columnRange[1], columnAbove.range[1]);
+                        // Find index of innerRow which contains the item
+                        const innerRowAbove = columnAbove.innerRows.findIndex(r => item.y >= r.range[0] && item.y <= r.range[1]) - 1;
+                        innerRowMax = Math.max(innerRowMax, columnAbove.innerRows[innerRowAbove]?.range[1] || 0);
+                    }
+                }
+                if (innerRowMax === blocks[1]?.range[0]) {
+                    innerRowMax = Math.min(blocks[blockIndex - 1]?.range[1], item.top - borderWidth * 2);
+                }
+
+                const testArea = {
+                    left: columnRange[0] - borderWidth,
+                    top: blocks[1]?.range[0] - borderWidth,
+                    width: columnRange[1] - columnRange[0] + 2 * borderWidth,
+                    height: innerRowMax - blocks[1]?.range[0] + 2 * borderWidth
+                };
+
+                console.log('Test Area:', testArea);
+
+                // Find area between header and current block
+                const testRect = binary.roi(new cv.Rect(testArea.left, testArea.top, testArea.width, testArea.height));
+                item.density = cv.countNonZero(testRect) / (testArea.width * testArea.height);
+
+                if (item.density < 0.1) {
+                    Object.assign(item, { rowRange: block.range, columnRange });
+                    rectangles.push({
+                        ...testArea,
+                        bottom: testArea.top + testArea.height,
+                        right: testArea.left + testArea.width,
+                        type: 'chart',
+                        chartNumber: item.chartNumber
+                    });
+                }
+
+                testRect.delete();
+
+            }
+        }
+    });
+
+    console.info('Chart Items:', structuredClone(chartItems));
+
+}

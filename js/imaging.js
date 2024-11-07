@@ -317,48 +317,26 @@ function paintEmbeddedImages(data, embeddedImages, canvasWidth, canvasHeight) {
 
 
 function getEmbeddedImages(operatorList, viewport) {
-    const images = [];
-
-    operatorList.fnArray.forEach((fn, index) => {
-        const operatorName = operatorNames[fn] || `Unknown (${fn})`;
-
-        if (operatorName === "paintImageXObject") {
-            const transformArgs = operatorList.argsArray[index - 2];
-
-            // Extract and normalize rectangle coordinates
-            let x0 = transformArgs[4];
-            let y0 = viewport.height - transformArgs[5];  // Flip y-coordinate to top-down
-            let x1 = x0 + transformArgs[0];
-            let y1 = viewport.height - (transformArgs[5] + transformArgs[3]);  // Flip y-coordinate
-
-            // Ensure x0 < x1 and y0 < y1 for consistency
+    return operatorList.fnArray.reduce((images, fn, index) => {
+        if (operatorNames[fn] === "paintImageXObject") {
+            const [a, , , d, e, f] = operatorList.argsArray[index - 2];
+            let [x0, y0, x1, y1] = [e, viewport.height - f, e + a, viewport.height - (f + d)];
             if (x0 > x1) [x0, x1] = [x1, x0];
             if (y0 > y1) [y0, y1] = [y1, y0];
 
-            // Calculate dimensions
-            const width = x1 - x0;
-            const height = y1 - y0;
-            const area = width * height;
-
             images.push({
-                top: y0,
-                left: x0,
-                bottom: y1,
-                right: x1,
-                width,
-                height,
-                area,
+                top: y0, left: x0, bottom: y1, right: x1,
+                width: x1 - x0, height: y1 - y0, area: (x1 - x0) * (y1 - y0),
                 type: `paintImageXObject (#${index})`
             });
         }
-    });
-
-    return images;
+        return images;
+    }, []);
 }
 
 
 const worker = new Worker("js/segmenter.js");
-function segmentPage(page, viewport, operatorList) {
+function segmentPage(page, viewport, operatorList, chartItems) {
     return new Promise(async (resolve, reject) => {
         const cropRange = identifyCropMarks(page, viewport, operatorList);
         const canvas = await renderPageToCanvas(page, viewport);
@@ -449,37 +427,19 @@ function segmentPage(page, viewport, operatorList) {
         };
 
         // Send ImageData to worker for OpenCV processing
-        worker.postMessage({ action: "processPage", imageData });
+        worker.postMessage({ action: "processPage", imageData, chartItems });
     });
 }
 
 
 async function extractDrawingsAsBase64(page, viewport, drawingBorders) {
     const canvas = await renderPageToCanvas(page, viewport);
-    const context = canvas.getContext("2d");
 
-    const base64Images = await Promise.all(
-        drawingBorders.map(async (rect) => {
-            const tempCanvas = document.createElement("canvas");
-            const tempContext = tempCanvas.getContext("2d");
-            tempCanvas.width = rect.width;
-            tempCanvas.height = rect.height;
-
-            tempContext.drawImage(
-                canvas,
-                rect.left,           // Source x
-                rect.top,            // Source y (now in top-down order)
-                rect.width,          // Source width
-                rect.height,         // Source height
-                0,                   // Destination x
-                0,                   // Destination y
-                rect.width,          // Destination width
-                rect.height          // Destination height
-            );
-
+    return Promise.all(
+        drawingBorders.map(async ({ left, top, width, height }) => {
+            const tempCanvas = Object.assign(document.createElement("canvas"), { width, height });
+            tempCanvas.getContext("2d").drawImage(canvas, left, top, width, height, 0, 0, width, height);
             return tempCanvas.toDataURL("image/png");
         })
     );
-
-    return base64Images;
 }
