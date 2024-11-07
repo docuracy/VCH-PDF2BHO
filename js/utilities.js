@@ -133,3 +133,21 @@ function transformXml(xml, xslt) {
     const serializer = new XMLSerializer();
     return serializer.serializeToString(transformedDoc);
 }
+
+
+function fillMissingPageNumerals(pageNumerals) {
+    // Find the first non-null value and set the start value
+    let startValue = pageNumerals.find(value => value !== null);
+    if (startValue !== undefined) {
+        startValue = parseInt(startValue) - pageNumerals.indexOf(startValue);
+    } else {
+        return; // No non-null values, nothing to fill
+    }
+
+    // Fill all null values with a contiguous sequence
+    for (let i = 0; i < pageNumerals.length; i++) {
+        if (pageNumerals[i] === null) {
+            pageNumerals[i] = (startValue + i).toString();
+        }
+    }
+}

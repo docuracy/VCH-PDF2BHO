@@ -24,8 +24,10 @@ function processPDF(file, fileName, zip) {  // Accept zip as a parameter
 
                 // Iterate over pages to find crop, map, and table bounds; create font dictionary; store augmented items in localStorage
                 let masterFontMap = {};
+                const pageNumerals = [];
                 for (let pageNum = startPage; pageNum <= maxPage; pageNum++) {
-                    const pageFontMap = await storePageData(pdf, pageNum);
+                    const [pageFontMap, pageNumeral] = await storePageData(pdf, pageNum);
+                    pageNumerals.push(pageNumeral);
                     if (pageNum === 1) {
                         masterFontMap = pageFontMap;
                     }
@@ -48,6 +50,8 @@ function processPDF(file, fileName, zip) {  // Accept zip as a parameter
                         }
                     }
                 }
+                fillMissingPageNumerals(pageNumerals);
+                console.warn('Page Numerals:', pageNumerals);
 
                 // Find the most common font
                 const defaultFont = Object.entries(masterFontMap).reduce((mostCommon, [fontName, fontEntry]) => {
@@ -102,7 +106,7 @@ function processPDF(file, fileName, zip) {  // Accept zip as a parameter
                 // Iterate over pages to process items
                 for (let pageNum = startPage; pageNum <= maxPage; pageNum++) {
                     let pageHTML = '';
-                    [maxEndnote, pageHTML] = await processItems(pageNum, defaultFont, footFont, maxEndnote, pdf);
+                    [maxEndnote, pageHTML] = await processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pageNumerals[pageNum - 1]);
                     docHTML += `${pageHTML}<hr class="remove" />`; // Add horizontal rule between pages
                 }
 
@@ -262,7 +266,32 @@ async function storePageData(pdf, pageNum) {
         }
     });
 
-    return fontMap;
+    // Find page number in header
+    const segmentation = segments.segmentation;
+    let pageNumeral = null;
+    if (segmentation[0].height < 12 && segmentation[0].columns.length > 1) { // Assume header if first row is less than 12 pixels high
+        const headerItems = content.items.filter(item =>
+            (item.bottom - item.top) / 2 + item.top > segmentation[0].range[0] &&
+            (item.bottom - item.top) / 2 + item.top < segmentation[0].range[1]
+        );
+        // Sort header items into columns
+        headerItems.forEach(item => {
+            item.column = segmentation[0].columns.findIndex(column => item.left <= column.range[1]);
+        });
+        console.log(`Page ${pageNum} - header items: ${headerItems.length}:`, headerItems);
+        // Check first and last columns for page number
+        const firstColumn = headerItems.filter(item => item.column === 0).map(item => item.str).join(' ').trim();
+        const lastColumn = headerItems.filter(item => item.column === segmentation[0].columns.length - 1).map(item => item.str).join(' ').trim();
+        if (/^\d+$/.test(firstColumn)) {
+            pageNumeral = firstColumn;
+        } else if (/^\d+$/.test(lastColumn)) {
+            pageNumeral = lastColumn;
+        }  else {
+            console.error(`Page ${pageNum} - Page Number Not Found`);
+        }
+    }
+
+    return [fontMap, pageNumeral];
 }
 
 function headerFooterAndFonts(pageNum, masterFontMap, defaultFont, headerFontSizes) {

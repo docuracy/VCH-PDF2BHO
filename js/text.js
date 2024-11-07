@@ -2,7 +2,7 @@
 // Description: Contains functions for extracting text from PDFs.
 
 
-async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf) {
+async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pageNumeral) {
     let items = JSON.parse(LZString.decompressFromUTF16(localStorage.getItem(`page-${pageNum}-items`)));
     const segments = JSON.parse(localStorage.getItem(`page-${pageNum}-segments`));
     const drawingBorders = JSON.parse(localStorage.getItem(`page-${pageNum}-drawingBorders`));
@@ -57,25 +57,8 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf) {
     // Discard any invisible items above visible text in row 0 (e.g. hidden headers)
     items = items.filter(item => item.row > 0 || item.bottom > segmentation[0].range[0]);
 
-    // Split off header
-    let pageNumeral = '(unidentified)';
+    // Split off header (items already analysed and pageNumeral extracted in `storePageData`)
     if (segmentation[0].height < 12 && segmentation[0].columns.length > 1) { // Assume header if first row is less than 12 pixels high
-        const headerItems = items.filter(item => item.row === 0);
-        // Sort header items into columns
-        headerItems.forEach(item => {
-            item.column = segmentation[0].columns.findIndex(column => item.left <= column.range[1]);
-        });
-        console.log(`Page ${pageNum} - header items: ${headerItems.length}:`, headerItems);
-        // Check first and last columns for page number
-        const firstColumn = headerItems.filter(item => item.column === 0).map(item => item.str).join(' ').trim();
-        const lastColumn = headerItems.filter(item => item.column === segmentation[0].columns.length - 1).map(item => item.str).join(' ').trim();
-        if (/^\d+$/.test(firstColumn)) {
-            pageNumeral = firstColumn;
-        } else if (/^\d+$/.test(lastColumn)) {
-            pageNumeral = lastColumn;
-        }  else {
-            console.error(`Page ${pageNum} - Page Number Not Found`);
-        }
         items = items.filter(item => item.row !== 0);
     }
 
