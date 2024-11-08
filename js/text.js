@@ -161,8 +161,8 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
             { id: 'bold|!bold', check: item.bold && !nextItem?.bold },
             { id: 'indented&italic!midCaption|!sameLine', check: item.isItemIndented && item.isItalic && !item.isNextItemSameLine && !item.isMidCaption },
             { id: 'italic|tabbed!sameLine', check: item.isItalic && item.isNextItemTabbed && !item.isNextItemSameLine },
-            { id: '!capital|capital', check: !item?.capital && nextItem?.capital },
-            { id: 'capital|!capital', check: item?.capital && !nextItem?.capital },
+            { id: '!titleCase|titleCase', check: !item?.titleCase && nextItem?.titleCase },
+            { id: 'titleCase|!titleCase', check: item?.titleCase && !nextItem?.titleCase },
             { id: '-|sameColumn!sameRow', check: !item.isNextItemInRow && item.isNextItemInColumn }
         ];
 
@@ -178,6 +178,7 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
         const endnoteNumber = item.footIndex + maxEndnote;
         item.str = `<sup><a id="endnoteIndex${endnoteNumber}" href="#endnote${endnoteNumber}" data-footnote="${item.footIndex}" data-endnote="${endnoteNumber}">${endnoteNumber}</a></sup>`;
     });
+    console.log(`Page ${pageNum} - items pre-merge: ${items.length}:`, structuredClone(items));
 
     await mergeItems(items, ['row', 'subColumns', 'fontName', 'height', 'header', 'italic', 'bold']);
 
@@ -338,7 +339,7 @@ async function mergeItems(items, properties) {
             if (properties.every(prop => (
                 ((prop in currentItem && prop in previousItem) &&
                 currentItem[prop] === previousItem[prop]) || // Check that property values match if present in both items
-                (!prop in currentItem && !prop in previousItem) // or that the property is missing in both items
+                (!(prop in currentItem) && !(prop in previousItem)) // or that the property is missing in both items
             ))) {
                 await dehyphenate(previousItem, currentItem);
                 if (currentItem.paragraph) {

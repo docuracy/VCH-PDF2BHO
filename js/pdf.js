@@ -340,6 +340,8 @@ function headerFooterAndFonts(pageNum, masterFontMap, defaultFont, headerFontSiz
                     if (['bold', 'capital'].includes(style)) {
                         // Many such strings are entirely lowercase, but "Small Caps are to be rendered as Ordinary Text, and not marked up".
                         item.str = titleCase(item.str);
+                        item.titleCase = true;
+                        item.header = item.header || 6; // Capitalised or bold text is assumed to be a header
                         continue; // Skip to next style
                     }
                     item[style] = true;
