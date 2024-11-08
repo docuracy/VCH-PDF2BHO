@@ -33,6 +33,19 @@ function processPage(imageData, chartItems) {
     // Detect row boundaries
     let [rowBoundaries, lineItems] = detectRows(binary);
 
+    // Merge rows closer than 18 pixels if not the first or last row, and ignoring lines (height <= 5)
+    console.log('Row Boundaries:', structuredClone(rowBoundaries));
+    for (let i = rowBoundaries.length - 2; i > 1; i--) {
+        if (
+            rowBoundaries[i][0] - rowBoundaries[i - 1][1] < 18 &&
+            rowBoundaries[i][1] - rowBoundaries[i][0] > 5 &&
+            rowBoundaries[i - 1][1] - rowBoundaries[i - 1][0] > 5
+        ) {
+            rowBoundaries[i - 1][1] = rowBoundaries[i][1];
+            rowBoundaries.splice(i, 1);
+        }
+    }
+
     // Process each detected row to find column boundaries and inner rows
     for (const [start, end] of rowBoundaries) {
         let rowMat;
@@ -355,6 +368,8 @@ function checkSolidBorders(src, binary, originalBlocks, width = 3, tolerance = 0
 
 function addCharts(chartItems, blocks, rectangles, binary) {
 
+    console.log('Blocks:', structuredClone(blocks));
+
     // Locate chart items within the detected blocks and check pixel density above them
     chartItems.forEach(item => {
         const block = blocks.find(b =>
@@ -381,7 +396,7 @@ function addCharts(chartItems, blocks, rectangles, binary) {
                     }
                 }
                 if (innerRowMax === blocks[1]?.range[0]) {
-                    innerRowMax = Math.min(blocks[blockIndex - 1]?.range[1], item.top - borderWidth * 2);
+                    innerRowMax = blockIndex > 1 ? Math.min(blocks[blockIndex - 1]?.range[1], item.top - borderWidth * 2) : item.top - borderWidth * 2;
                 }
 
                 const testArea = {
