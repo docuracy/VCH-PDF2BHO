@@ -137,16 +137,18 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
         item.isPreviousItemSameLine = prevItem?.line === item.line && isSameBlock(prevItem, item);
         item.isItemAtLineEnd = item.right + tolerance > (segmentation[item.row].columns[item.column]?.range[1] ?? 'Infinity');
         item.isItemIndented = item.left - tolerance > (segmentation[item.row].columns[item.column]?.range[0] ?? 'Infinity') && !item.isPreviousItemSameLine;
+        item.isPreviousFullStop = prevItem?.str.endsWith('.');
 
         item.isNextItemInRow = nextItem?.row === item.row;
         item.isNextItemSameLine = nextItem?.line === item.line && isSameBlock(nextItem, item);
         item.isNextItemTabbed = item.isNextItemSameLine && nextItem?.left - 2 * tolerance > item.right;
-        item.isNextItemIndented = nextItem?.left - tolerance > (segmentation[item.row].columns[item.column]?.range[0] ?? 'Infinity') && !item.isNextItemSameLine;
+        item.isNextItemIndented = nextItem?.left - tolerance > (segmentation[nextItem?.row]?.columns[nextItem?.column]?.range[0] ?? 'Infinity') && !item.isNextItemSameLine;
         item.isMidCaption = items.filter(i => isSameBlock(i, item))[0]?.fontName === 'drawing' && item.italic && nextItem?.italic;
+        item.isItemFootindex = item?.footIndex;
 
         const isEndOfParagraph = (
             (item.isNextItemIndented && !item.isItemIndented) ||
-            (item.str?.endsWith('.') && !item.isItemAtLineEnd && !item.isNextItemSameLine && !item.isMidCaption) ||
+            ((item.str?.endsWith('.') || (item.isPreviousFullStop && item.isItemFootindex)) && !item.isItemAtLineEnd && !item.isNextItemSameLine && !item.isMidCaption) ||
             (item.bold && !nextItem?.bold) ||
             (item.isItemIndented && item.italic && !item.isNextItemSameLine && !item.isMidCaption) ||
             (item.italic && item.isNextItemTabbed) ||
