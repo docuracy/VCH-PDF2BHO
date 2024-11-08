@@ -231,7 +231,11 @@ async function storePageData(pdf, pageNum) {
         // Add new items to represent drawings
         content.items.push(...drawingBorders.map(drawingBorder => ({
             ...drawingBorder,
-            'bottom': drawingBorder.top, // Switch to top value to ensure that label follows drawing in reading layout
+            // Placing coordinates at the centre of the drawing mitigates accidental out-of-bounds erasure, and helps caption-placing
+            'top': drawingBorder.bottom - drawingBorder.height / 2,
+            'left': drawingBorder.left + drawingBorder.width / 2,
+            'bottom': drawingBorder.bottom - drawingBorder.height / 2,
+            'right': drawingBorder.left + drawingBorder.width / 2,
             'str': '',
             'fontName': 'drawing',
             'paragraph': true
@@ -333,14 +337,9 @@ function headerFooterAndFonts(pageNum, masterFontMap, defaultFont, headerFontSiz
             // Apply font styles
             for (const style in fontStyles) {
                 if (fontStyles[style].test(masterFontMap[item.fontName].name)) {
-                    if (['bold'].includes(style)) {
+                    if (['bold', 'capital'].includes(style)) {
                         // Many such strings are entirely lowercase, but "Small Caps are to be rendered as Ordinary Text, and not marked up".
                         item.str = titleCase(item.str);
-                        continue; // Skip to next style
-                    }
-                    if (['capital'].includes(style)) {
-                        item.str = item.str.toLocaleUpperCase()
-                        item.capital = true;
                         continue; // Skip to next style
                     }
                     item[style] = true;

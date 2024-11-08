@@ -293,7 +293,7 @@ function eraseOutsideCropRange(data, cropRange, canvasWidth, canvasHeight) {
 function paintEmbeddedImages(data, embeddedImages, canvasWidth, canvasHeight) {
     // Paint over embedded images to ensure that they are properly segmented
     const blackPixel = new Uint8ClampedArray([0, 0, 0, 255]);
-    const dilation = 2; // Dilation by 2 pixels
+    const dilation = 1; // Dilation by 2 pixels
 
     embeddedImages.forEach(image => {
         // Dilate the coordinates by 2 pixels

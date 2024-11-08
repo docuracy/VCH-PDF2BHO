@@ -135,29 +135,41 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
         const prevItem = items[index - 1];
 
         item.isPreviousItemSameLine = prevItem?.line === item.line && isSameBlock(prevItem, item);
+        item.isPreviousFullStop = prevItem?.str.endsWith('.');
+        item.isPreviousItemMidCaption = prevItem?.isMidCaption;
+
         item.isItemAtLineEnd = item.right + tolerance > (segmentation[item.row].columns[item.column]?.range[1] ?? 'Infinity');
         item.isItemIndented = item.left - tolerance > (segmentation[item.row].columns[item.column]?.range[0] ?? 'Infinity') && !item.isPreviousItemSameLine;
-        item.isPreviousFullStop = prevItem?.str.endsWith('.');
+        item.isItalic = item.italic || item.str.startsWith('<em>') || item.str.startsWith('<i>');
 
-        item.isNextItemInRow = nextItem?.row === item.row;
+        item.isNextItemInRow = nextItem?.row === item.row && nextItem?.innerRow === item.innerRow;
+        item.isNextItemInColumn = nextItem?.column === item.column;
         item.isNextItemSameLine = nextItem?.line === item.line && isSameBlock(nextItem, item);
         item.isNextItemTabbed = item.isNextItemSameLine && nextItem?.left - 2 * tolerance > item.right;
         item.isNextItemIndented = nextItem?.left - tolerance > (segmentation[nextItem?.row]?.columns[nextItem?.column]?.range[0] ?? 'Infinity') && !item.isNextItemSameLine;
-        item.isMidCaption = items.filter(i => isSameBlock(i, item))[0]?.fontName === 'drawing' && item.italic && nextItem?.italic;
+        item.isNextItemItalic = nextItem?.italic || nextItem?.str.startsWith('<em>') || nextItem?.str.startsWith('<i>');
+
+        item.isMidCaption =
+            (['drawing', 'line'].includes(items.filter(i => isSameBlock(i, item))[0]?.fontName) || (item.isPreviousItemSameLine && prevItem?.drawingNumber) || item.isPreviousItemMidCaption) &&
+            item.isItalic && item.isNextItemItalic;
         item.isItemFootindex = item?.footIndex;
 
-        const isEndOfParagraph = (
-            (item.isNextItemIndented && !item.isItemIndented) ||
-            ((item.str?.endsWith('.') || (item.isPreviousFullStop && item.isItemFootindex)) && !item.isItemAtLineEnd && !item.isNextItemSameLine && !item.isMidCaption) ||
-            (item.bold && !nextItem?.bold) ||
-            (item.isItemIndented && item.italic && !item.isNextItemSameLine && !item.isMidCaption) ||
-            (item.italic && item.isNextItemTabbed) ||
-            nextItem?.capital || item?.capital ||
-            !item.isNextItemInRow
-        );
+        // Define paragraph conditions with identifiers
+        const paragraphConditions = [
+            { id: '!indented!midCaption|indented', check: item.isNextItemIndented && !item.isMidCaption && !item.isItemIndented },
+            { id: 'endsPeriod!lineEnd!midCaption|!sameLine', check: (item.str?.endsWith('.') || (item.isPreviousFullStop && item.isItemFootindex)) && !item.isItemAtLineEnd && !item.isNextItemSameLine && !item.isMidCaption },
+            { id: 'bold|!bold', check: item.bold && !nextItem?.bold },
+            { id: 'indented&italic!midCaption|!sameLine', check: item.isItemIndented && item.isItalic && !item.isNextItemSameLine && !item.isMidCaption },
+            { id: 'italic|tabbed!sameLine', check: item.isItalic && item.isNextItemTabbed && !item.isNextItemSameLine },
+            { id: '!capital|capital', check: !item?.capital && nextItem?.capital },
+            { id: 'capital|!capital', check: item?.capital && !nextItem?.capital },
+            { id: '-|sameColumn!sameRow', check: !item.isNextItemInRow && item.isNextItemInColumn }
+        ];
 
-        if (isEndOfParagraph) {
-            item.paragraph = true;
+        // Check each condition and set the paragraph property if a match is found
+        const matchedCondition = paragraphConditions.find(condition => condition.check);
+        if (matchedCondition) {
+            item.paragraph = matchedCondition.id;
         }
     });
 
@@ -434,6 +446,10 @@ async function processFootnotes(segmentation, footnotes, pageNum, pageNumeral, m
 async function buildTables(items) {
     let currentGroup = [];
 
+    // Store properties of last item in the group
+    let firstItem = structuredClone(items[0]);
+
+
     // Reverse pass: Group consecutive items with `tabular` property
     let spliceLength = 0;
     for (let i = items.length - 1; i >= 0; i--) {
@@ -460,7 +476,7 @@ async function buildTables(items) {
         spliceLength += currentGroup.length;
         const tableHTML = await buildTableHTML(currentGroup);
         console.log(`Table HTML for final group:`, tableHTML);
-        items.splice(0, spliceLength, { str: tableHTML });
+        items.splice(0, spliceLength, { ...firstItem, str: tableHTML, fontName: 'table', paragraph: 'table' });
     }
 
     console.log('Remaining items:', structuredClone(items));
