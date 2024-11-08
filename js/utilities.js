@@ -30,6 +30,22 @@ const decodeHtmlEntities = (html) => {
     return txt.value;
 };
 
+function closeOverlaps(items) {
+    // Reverse loop to merge overlapping items
+    for (let i = items.length - 1; i > 0; i--) {
+        const item = items[i];
+        const prevItem = items[i - 1];
+        if (item.row === prevItem.row && item.column === prevItem.column && item.line === prevItem.line && item.height === prevItem.height && item.left < prevItem.right) {
+            // Merge the items if they overlap
+            prevItem.str += item.str;
+            prevItem.right = item.right;
+            prevItem.width = prevItem.right - prevItem.left;
+            prevItem.area += item.area;
+            items.splice(i, 1);
+        }
+    }
+}
+
 // Function to capitalise the first letter of each word in a string
 function titleCase(str) {
     const skipWords = ['and', 'the', 'of', 'in', 'on', 'at', 'with', 'to'];

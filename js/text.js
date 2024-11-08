@@ -101,6 +101,8 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
         a.left - b.left
     );
 
+    closeOverlaps(items);
+
     // Initialise set to store found footnote numbers
     let foundFootnoteIndices = new Set();
     items.forEach((item, index) => {
