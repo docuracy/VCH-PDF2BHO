@@ -1,6 +1,6 @@
 # Victoria County History PDF to British History Online XML Converter
 
-![img.png](images/screenshot.png)
+![img.png](images/screenshot_1.png)
 
 ## Overview
 
@@ -28,6 +28,9 @@ viewing the conversion results.
 - Large files can cause memory issues in the browser.
 - PDFs produced at different times and with differing software have inconsistent formatting. *NOTE: This means that the
   software needs to be "tuned" for each distinct set of PDFs. It is currently tuned for Staffordshire 2012.*
+
+
+  ![img.png](images/screenshot_2.png)
 
 ## Features
 
