@@ -8,7 +8,7 @@ HTML, ready for further conversion to the [British History Online](https://www.b
 format. It provides a user-friendly interface for selecting PDF files, configuring options, and
 viewing the conversion results.
 
-**It is running on GitHub Pages [HERE](https://vchconverter.github.io/vch-converter/).**
+**It is running on GitHub Pages [HERE](https://docuracy.github.io/VCH-PDF2BHO/).**
 
 *Note: The final conversion from HTML to BHO-XML format is currently disabled.*
 
