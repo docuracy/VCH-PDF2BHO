@@ -1,0 +1,200 @@
+/* css/styles.css */
+
+body {
+    background-color: #f8f9fa;
+}
+
+#htmlPreviewContent {
+    font-size: 16px;
+    font-family: "Ledger", serif;
+}
+
+#htmlPreviewContent .paragraph {
+    text-align: justify;
+    margin-bottom: 0.5rem;
+    background: #d3d3d338;
+    padding: 0 0.3rem;
+}
+
+#htmlPreviewContent .pageNum {
+    text-align: center;
+    font-family: monospace;
+    color: green;
+}
+
+#htmlPreviewContent .heading {
+    font-family: serif;
+}
+
+#htmlPreviewContent h1 {
+    font-size: 2rem;
+}
+
+#htmlPreviewContent h2 {
+    font-size: 1.8rem;
+}
+
+#htmlPreviewContent h3 {
+    font-size: 1.7rem;
+}
+
+#htmlPreviewContent h4 {
+    font-size: 1.6rem;
+}
+
+#htmlPreviewContent h5 {
+    font-size: 1.4rem;
+}
+
+#htmlPreviewContent h6 {
+    font-size: 1.2rem;
+}
+
+#htmlPreviewContent .smallCaps {
+    /* Text has been converted to upper case */
+    font-size: 1.1rem;
+    font-weight: bold;
+}
+
+#htmlPreviewContent sup {
+    font-size: 0.8rem;
+    font-weight: bold;
+    top: -.2rem;
+}
+
+#htmlPreviewContent .endnote {
+    text-align: left;
+    margin-bottom: 0.2rem;
+    background: #d3d3d338;
+}
+
+#htmlPreviewContent .endnote a {
+    cursor: pointer;
+    font-weight: bold;
+}
+
+#htmlPreviewContent .drawing {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+#htmlPreviewContent .drawing-label {
+    border: #beddbe 2px solid;
+}
+
+#htmlPreviewContent img {
+    border: #beddbe 2px solid;
+    margin: 10px;
+}
+
+#htmlPreviewContent span.review,
+#htmlPreviewContent .line-end-hyphen {
+    color: red;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+.tooltip-inner {
+    text-align: left;
+}
+
+#htmlPreviewContent hr.remove {
+    border: none; /* Remove default border */
+    border-top: 5px solid green; /* Create a thick, red line */
+    height: 0; /* Set the height to 0 to remove any vertical space */
+}
+
+#htmlPreviewContent .remove {
+    color: green;
+}
+
+#htmlPreviewContent .unchecked {
+    color: orange;
+}
+
+#htmlPreviewContent .gutter {
+    color: orange;
+    display: none;
+}
+
+.card {
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+.alert {
+    margin-bottom: 0;
+}
+
+.image-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 4px; /* space between images and arrow */
+}
+
+.image-container img {
+    max-width: 40px;
+    height: auto; /* maintain aspect ratio */
+}
+
+.arrow-icon {
+    font-size: 20px;
+}
+
+#logContainer {
+    font-family: monospace;
+    font-size: 0.6rem;
+    height: 200px;
+    overflow-y: auto;
+    border: 1px solid #ddd;
+    padding: 10px;
+    display: none;
+}
+
+#logContainer p {
+    margin: 0;
+}
+
+.generated-table {
+    margin-bottom: 1.5rem; /* Space after table */
+    border-collapse: collapse; /* Cleaner borders */
+    font-size: 0.8rem; /* Smaller text */
+}
+
+.generated-table th,
+.generated-table td {
+    padding: 0.1rem 0.3rem; /* Padding for cells */
+    border: 1px solid #dee2e6; /* Light Bootstrap-style borders */
+    vertical-align: top; /* Align text to the top */
+}
+
+.generated-table thead th {
+    background-color: #f8f9fa; /* Light gray header background */
+    font-weight: bold; /* Emphasize header text */
+    text-transform: uppercase; /* Uppercase for header text */
+}
+
+.generated-table tbody tr:nth-child(even) {
+    background-color: #f2f2f2; /* Alternate row shading */
+}
+
+.generated-table tbody tr:hover {
+    background-color: #e9ecef; /* Slightly darker on hover */
+}
+
+.generated-table .highlight {
+    background-color: #ffeb3b; /* Custom color for special cells, e.g., highlights */
+    font-weight: bold;
+}
+
+.generated-table th {
+    white-space: nowrap; /* Prevent headers from wrapping */
+}
+
+.generated-table td {
+    white-space: pre-wrap; /* Allow text to wrap within cells */
+}
+
