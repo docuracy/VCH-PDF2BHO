@@ -10,12 +10,8 @@ fs.readFile(htmlFilePath, 'utf8', (err, data) => {
 
     // Replace CSS and JS links with cache-busting timestamp query strings
     const updatedData = data
-        .replace(/(href="css\/styles\.css")/, `$1?v=${timestamp}`)
-        .replace(/(src="js\/app\.js")/, `$1?v=${timestamp}`)
-        .replace(/(src="js\/utilities\.js")/, `$1?v=${timestamp}`)
-        .replace(/(src="js\/imaging\.js")/, `$1?v=${timestamp}`)
-        .replace(/(src="js\/text\.js")/, `$1?v=${timestamp}`)
-        .replace(/(src="js\/pdf\.js")/, `$1?v=${timestamp}`);
+        .replace(/(href="css\/.*\.css)/, `$1?v=${timestamp}`)
+        .replace(/(src="js\/.*\.js)/, `$1?v=${timestamp}`)
 
     fs.writeFile(htmlFilePath, updatedData, 'utf8', (err) => {
         if (err) throw err;
