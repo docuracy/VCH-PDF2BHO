@@ -17,20 +17,26 @@ viewing the conversion results.
 
 ## Challenges
 
+Conversion of PDFs to HTML (and XML) is not nearly as straightforward as it might seem. The following are some of the
+main challenges:
+
+- The PDF viewport is not aligned with the crop box, which needs to be detected in the PDF commands.
 - Text blocks in the PDF commands are rarely in the correct reading order, and can include hidden (white-rendered) text.
+- Rows and columns need to be detected dynamically in rendered images of each page, and running headers and footnote
+  blocks identified.
 - Paragraphs may be split across multiple text blocks, requiring reassembly.
+- End-of-line hyphenation is not easily rectified.
 - Fonts and their rendered sizes are not explicitly declared as heading, body, or footnote text.
 - Page-based footnotes have to be converted to endnotes with sequential numbering across the entire document.
-- Certain types of chart are rendered as vectors, which need to be identified, masked from text extraction, and
+- Certain types of chart and map are rendered as vectors, which need to be identified, masked from text extraction, and
   converted to images.
-- End-of-line hyphenation is not easily rectified.
-- Tables are inconsistently formatted and so will usually require manual correction.
-- Large files can cause memory issues in the browser.
+- Tables are inconsistently formatted *and so will usually require manual correction*. Coding of an effective table
+  parser is feasible but not financially viable.
+- Large PDFs require careful management of available browser memory.
 - PDFs produced at different times and with differing software have inconsistent formatting. *NOTE: This means that the
   software needs to be "tuned" for each distinct set of PDFs. It is currently tuned for Staffordshire 2012.*
 
-
-  ![img.png](images/screenshot_2.png)
+![img.png](images/screenshot_2.png)
 
 ## Features
 
