@@ -17,6 +17,9 @@ jobs:
       - name: Run anti-cache script (timestamping)
         run: node scripts/anti-cache.js
 
+      - run: ls -alh
+
+
   deploy:
     runs-on: ubuntu-latest
     needs: build
