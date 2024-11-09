@@ -1,16 +1,33 @@
 # Victoria County History PDF to British History Online XML Converter
 
+![img.png](images/screenshot.png)
+
 ## Overview
 
 This browser-based application
 converts [Victoria County History](https://www.history.ac.uk/research/victoria-county-history) (VCH) PDF files to
-HTML, ready for further conversion to the [British History Online](https://www.british-history.ac.uk/catalogue/source_type/Secondary%20texts) (BHO) custom XML
+HTML, ready for further conversion to
+the [British History Online](https://www.british-history.ac.uk/catalogue/source_type/Secondary%20texts) (BHO) custom XML
 format. It provides a user-friendly interface for selecting PDF files, configuring options, and
 viewing the conversion results.
 
 **It is running on GitHub Pages [HERE](https://docuracy.github.io/VCH-PDF2BHO/).**
 
-*Note: The final conversion from HTML to BHO-XML format is currently disabled.*
+*NOTE: The final conversion from HTML to BHO-XML format is currently disabled.*
+
+## Challenges
+
+- Text blocks in the PDF commands are rarely in the correct reading order, and can include hidden (white-rendered) text.
+- Paragraphs may be split across multiple text blocks, requiring reassembly.
+- Fonts and their rendered sizes are not explicitly declared as heading, body, or footnote text.
+- Page-based footnotes have to be converted to endnotes with sequential numbering across the entire document.
+- Certain types of chart are rendered as vectors, which need to be identified, masked from text extraction, and
+  converted to images.
+- End-of-line hyphenation is not easily rectified.
+- Tables are inconsistently formatted and so will usually require manual correction.
+- Large files can cause memory issues in the browser.
+- PDFs produced at different times and with differing software have inconsistent formatting. *NOTE: This means that the
+  software needs to be "tuned" for each distinct set of PDFs. It is currently tuned for Staffordshire 2012.*
 
 ## Features
 
@@ -25,7 +42,8 @@ viewing the conversion results.
 - **JavaScript**: Core language for the application logic.
 - **HTML/CSS**: Markup and styling for the user interface.
 - **OpenCV.js**: Library for image processing.
-- **Web Workers**: Background threads for OpenCV operations and fetching hyphenation data from the [Datamuse API](https://www.datamuse.com/api/).
+- **Web Workers**: Background threads for OpenCV operations and fetching hyphenation data from
+  the [Datamuse API](https://www.datamuse.com/api/).
 - **XSLT**: Transformation language for converting HTML to BHO-XML format.
 - **GitHub Pages**: Hosting platform for the application.
 - **GitHub Actions**: Continuous deployment workflow for the application.
