@@ -1,8 +1,16 @@
-# VCH PDF to BHO-XML Converter
+# Victoria County History PDF to British History Online XML Converter
 
 ## Overview
 
-This project is a web-based application that converts Victoria County History (VCH) PDF files to the British History Online (BHO) custom XML format. It provides a user-friendly interface for selecting PDF files, configuring options, and viewing the conversion results.
+This browser-based application
+converts [Victoria County History](https://www.history.ac.uk/research/victoria-county-history) (VCH) PDF files to
+HTML, ready for further conversion to the [British History Online](https://www.british-history.ac.uk/catalogue/source_type/Secondary%20texts) (BHO) custom XML
+format. It provides a user-friendly interface for selecting PDF files, configuring options, and
+viewing the conversion results.
+
+**It is running on GitHub Pages [HERE](https://vchconverter.github.io/vch-converter/).**
+
+*Note: The final conversion from HTML to BHO-XML format is currently disabled.*
 
 ## Features
 
@@ -16,6 +24,11 @@ This project is a web-based application that converts Victoria County History (V
 
 - **JavaScript**: Core language for the application logic.
 - **HTML/CSS**: Markup and styling for the user interface.
+- **OpenCV.js**: Library for image processing.
+- **Web Workers**: Background threads for OpenCV operations and fetching hyphenation data from the [Datamuse API](https://www.datamuse.com/api/).
+- **XSLT**: Transformation language for converting HTML to BHO-XML format.
+- **GitHub Pages**: Hosting platform for the application.
+- **GitHub Actions**: Continuous deployment workflow for the application.
 - **Bootstrap**: Framework for responsive design and UI components.
 - **jQuery**: Simplified DOM manipulation and event handling.
 - **PDF.js**: Library for parsing and rendering PDF files.
@@ -23,6 +36,7 @@ This project is a web-based application that converts Victoria County History (V
 - **FileSaver.js**: Library for saving files on the client-side.
 - **Simple Statistics**: Library for statistical calculations.
 - **LZ-String**: Library for string compression.
+- **LocalStorage**: Browser storage for saving page data, optimising memory usage.
 
 ## Project Structure
 
@@ -45,8 +59,10 @@ This project is a web-based application that converts Victoria County History (V
 
 ## Deployment
 
-The project uses GitHub Actions for continuous deployment to GitHub Pages. The `build.yml` workflow handles the deployment process, including cache busting for static assets.
+The project uses GitHub Actions for continuous deployment to GitHub Pages. The `build.yml` workflow handles the
+deployment process, including cache busting for static assets.
 
 ## License
 
-This project is licensed under the Creative Commons Attribution-NonCommercial 4.0 International License. See the [LICENSE](LICENSE.md) file for more details.
+This project is licensed under the Creative Commons Attribution-NonCommercial 4.0 International License. See
+the [LICENSE](LICENSE.md) file for more details.
