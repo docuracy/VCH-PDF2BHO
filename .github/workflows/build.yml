@@ -1,34 +1,41 @@
-name: build-and-deploy-no-cache
+name: Node.js CI
 
 on:
   push:
-    branches:
-      - main  # or the branch you want to deploy from
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
 
 jobs:
   build:
+
     runs-on: ubuntu-latest
 
+    strategy:
+      matrix:
+        node-version: [ 18.x, 20.x, 22.x ]
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v3
+      - uses: actions/checkout@v4
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+      - run: npm ci
+      - name: Run anti-cache script
+        run: node scripts/anti-cache.js
+      - run: npm run build --if-present
+      - run: npm test
 
-      - name: Install dependencies
-        run: npm install
-
-      - name: Run main build
-        run: npm run build
-
-      - name: Run timestamping script
-        run: node .github/workflows/build.js
-
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+        - uses: actions/checkout@v4
+          name: Checkout code
+        - name: Deploy to GitHub Pages
+          uses: peaceiris/actions-gh-pages@v3
+          with:
+            github_token: ${{ secrets.GITHUB_TOKEN }}
+            publish_dir: ./build
