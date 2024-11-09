@@ -3,7 +3,7 @@ self.importScripts('./opencv.js');
 
 // Ensure OpenCV is ready before processing
 cv.onRuntimeInitialized = () => {
-    console.log('OpenCV loaded and ready');
+    console.debug('OpenCV loaded and ready');
     self.onmessage = async (e) => {
         const { action, imageData, chartItems } = e.data;
 
@@ -34,7 +34,6 @@ function processPage(imageData, chartItems) {
     let [rowBoundaries, lineItems] = detectRows(binary);
 
     // Merge rows closer than 18 pixels if not the first or last row, and ignoring lines (height <= 5)
-    console.log('Row Boundaries:', structuredClone(rowBoundaries));
     for (let i = rowBoundaries.length - 2; i > 1; i--) {
         if (
             rowBoundaries[i][0] - rowBoundaries[i - 1][1] < 18 &&
@@ -361,14 +360,14 @@ function checkSolidBorders(src, binary, originalBlocks, width = 3, tolerance = 0
         }
     }
 
-    console.warn('Detected Rectangles:', rectangles);
+    console.debug('Detected Rectangles:', rectangles);
     return rectangles;
 }
 
 
 function addCharts(chartItems, blocks, rectangles, binary) {
 
-    console.log('Blocks:', structuredClone(blocks));
+    console.debug('Blocks:', structuredClone(blocks));
 
     // Locate chart items within the detected blocks and check pixel density above them
     chartItems.forEach(item => {
@@ -406,8 +405,6 @@ function addCharts(chartItems, blocks, rectangles, binary) {
                     height: innerRowMax - blocks[1]?.range[0] + 2 * borderWidth
                 };
 
-                console.log('Test Area:', testArea);
-
                 // Find area between header and current block
                 const testRect = binary.roi(new cv.Rect(testArea.left, testArea.top, testArea.width, testArea.height));
                 item.density = cv.countNonZero(testRect) / (testArea.width * testArea.height);
@@ -429,6 +426,6 @@ function addCharts(chartItems, blocks, rectangles, binary) {
         }
     });
 
-    console.info('Chart Items:', structuredClone(chartItems));
+    console.debug('Chart Items:', structuredClone(chartItems));
 
 }

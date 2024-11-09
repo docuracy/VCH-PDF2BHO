@@ -51,7 +51,7 @@ function processPDF(file, fileName, zip) {  // Accept zip as a parameter
                     }
                 }
                 fillMissingPageNumerals(pageNumerals);
-                console.warn('Page Numerals:', pageNumerals);
+                console.debug('Page Numerals:', pageNumerals);
 
                 // Find the most common font
                 const defaultFont = Object.entries(masterFontMap).reduce((mostCommon, [fontName, fontEntry]) => {
@@ -80,7 +80,7 @@ function processPDF(file, fileName, zip) {  // Accept zip as a parameter
                             })
                     )
                 ).sort((a, b) => b - a);
-                console.log('headerFontSizes:', headerFontSizes);
+                console.info('headerFontSizes:', headerFontSizes);
 
                 // Iterate over pages to preprocess footnote areas and remove header; tag headers and italic, bold, and capital fonts
                 for (let pageNum = startPage; pageNum <= maxPage; pageNum++) {
@@ -96,9 +96,9 @@ function processPDF(file, fileName, zip) {  // Accept zip as a parameter
                     return mostCommon;
                 }, { fontName: null, fontSize: null, maxFootArea: 0 });
 
-                console.log('Master Font Map:', masterFontMap);
-                console.log(`Default Font: ${defaultFont.fontName} @ ${defaultFont.fontSize}`);
-                console.log(`Footnote Font: ${footFont.fontName} @ ${footFont.fontSize}`);
+                console.info('Master Font Map:', masterFontMap);
+                console.debug(`Default Font: ${defaultFont.fontName} @ ${defaultFont.fontSize}`);
+                console.debug(`Footnote Font: ${footFont.fontName} @ ${footFont.fontSize}`);
 
                 let docHTML = ''; // Initialize the document HTML content
 
@@ -169,8 +169,8 @@ function augmentItems(items, viewport) {
 
 async function storePageData(pdf, pageNum) {
     appendLogMessage(`====================`);
-    appendLogMessage(`Processing page ${pageNum}...`);
-    console.log(`Processing page ${pageNum}...`);
+    appendLogMessage(`Pre-processing page ${pageNum}...`);
+    console.info(`Pre-processing page ${pageNum}...`);
     const page = await pdf.getPage(pageNum);
     const content = await page.getTextContent();
     const viewport = await page.getViewport({scale: 1});
@@ -192,7 +192,7 @@ async function storePageData(pdf, pageNum) {
 
     const segments = await segmentPage(page, viewport, operatorList, chartItems);
     localStorage.setItem(`page-${pageNum}-segments`, JSON.stringify(segments));
-    console.log(`Segments:`, segments);
+    console.debug(`Segments for page ${pageNum}:`, segments);
 
     const cropRange = segments.cropRange;
     localStorage.setItem(`page-${pageNum}-cropRange`, JSON.stringify(cropRange));
@@ -206,7 +206,7 @@ async function storePageData(pdf, pageNum) {
     const drawingBorders = segments.embeddedImages.concat(segments.rectangles);
 
     if (segments.lineItems.length > 0) {
-        console.log(`Detected Line Items:`, segments.lineItems);
+        console.debug(`Detected Line Items:`, segments.lineItems);
         content.items.push(...segments.lineItems);
     }
 
@@ -222,7 +222,7 @@ async function storePageData(pdf, pageNum) {
 
     // Log remaining lineItems
     if (segments.lineItems.length > 0) {
-        console.log('Cropped line Items:', content.items.filter(item => item.tableLine === true));
+        console.debug('Cropped line Items:', content.items.filter(item => item.tableLine === true));
     }
 
     if (drawingBorders.length > 0) {
@@ -282,7 +282,7 @@ async function storePageData(pdf, pageNum) {
         headerItems.forEach(item => {
             item.column = segmentation[0].columns.findIndex(column => item.left <= column.range[1]);
         });
-        console.log(`Page ${pageNum} - header items: ${headerItems.length}:`, headerItems);
+        console.debug(`Page ${pageNum} - header items: ${headerItems.length}:`, headerItems);
         // Check first and last columns for page number
         const firstColumn = headerItems.filter(item => item.column === 0).map(item => item.str).join(' ').trim();
         const lastColumn = headerItems.filter(item => item.column === segmentation[0].columns.length - 1).map(item => item.str).join(' ').trim();

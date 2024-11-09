@@ -3,6 +3,9 @@
 
 
 async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pageNumeral) {
+
+    console.info(`Processing page ${pageNum}...`);
+
     let items = JSON.parse(LZString.decompressFromUTF16(localStorage.getItem(`page-${pageNum}-items`)));
     const segments = JSON.parse(localStorage.getItem(`page-${pageNum}-segments`));
     const drawingBorders = JSON.parse(localStorage.getItem(`page-${pageNum}-drawingBorders`));
@@ -52,7 +55,7 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
         footnotes = items.filter(item => item.row === bottomRow);
         items = items.filter(item => item.row !== bottomRow);
     }
-    console.log(`Page ${pageNum} row ${bottomRow} - footnotes: ${footnotes.length}:`, footnotes);
+    console.debug(`Page ${pageNum} row ${bottomRow} - footnotes: ${footnotes.length}:`, footnotes);
 
     // Discard any invisible items above visible text in row 0 (e.g. hidden headers)
     items = items.filter(item => item.row > 0 || item.bottom > segmentation[0].range[0]);
@@ -180,7 +183,7 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
         const endnoteNumber = item.footIndex + maxEndnote;
         item.str = `<sup><a id="endnoteIndex${endnoteNumber}" href="#endnote${endnoteNumber}" data-footnote="${item.footIndex}" data-endnote="${endnoteNumber}">${endnoteNumber}</a></sup>`;
     });
-    console.log(`Page ${pageNum} - items pre-merge: ${items.length}:`, structuredClone(items));
+    console.debug(`Page ${pageNum} - items pre-merge: ${items.length}:`, structuredClone(items));
 
     await mergeItems(items, ['row', 'subColumns', 'fontName', 'height', 'header', 'italic', 'bold']);
 
@@ -205,7 +208,7 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
         }
     });
 
-    console.log(`Page ${pageNum} - items: ${items.length}:`, structuredClone(items));
+    console.debug(`Page ${pageNum} - remaining items: ${items.length}:`, structuredClone(items));
 
     wrapStrings(items);
 
@@ -276,7 +279,7 @@ async function dehyphenate(item, nextItem) {
             keepHyphen = 'unchecked check-failed';
         }
         else {
-            console.log(`Hyphenation: "${lastWord}-${nextItemFirstWord}"${keepHyphen ? '*' : ''}`);
+            console.debug(`Hyphenation: "${lastWord}-${nextItemFirstWord}"${keepHyphen ? '*' : ''}`);
         }
         item.str = `${truncated}<span class="line-end-hyphen${keepHyphen === false ? ' remove' : typeof keepHyphen === 'string' ? ` ${keepHyphen}` : ''}" data-bs-title="Hyphen found at the end of a line." data-bs-toggle="tooltip">-</span>`;
     } else if ((!nextItem.footIndex) && (!nextItem.str.startsWith(')'))) {
@@ -322,7 +325,7 @@ async function checkHyphenation(a, b) {
 
         const keepHyphen = hyphen >= noHyphen / 2; // Weight any hyphenated form
 
-        console.log(`Hyphenation: ${a}-${b}${keepHyphen ? '*' : ''}: ${hyphen}, ${a}${b}${keepHyphen ? '' : '*'}: ${noHyphen}`);
+        console.debug(`Hyphenation: ${a}-${b}${keepHyphen ? '*' : ''}: ${hyphen}, ${a}${b}${keepHyphen ? '' : '*'}: ${noHyphen}`);
 
         return keepHyphen;
     } catch (error) {
@@ -468,7 +471,6 @@ async function buildTables(items) {
                 // Build and insert the table HTML for the current group
                 spliceLength += currentGroup.length;
                 const tableHTML = await buildTableHTML(currentGroup);
-                console.log(`Table HTML for group ${i}:`, tableHTML);
                 items.splice(i + 1, spliceLength, { str: tableHTML });
                 currentGroup = [];
             }
@@ -478,11 +480,8 @@ async function buildTables(items) {
     if (currentGroup.length > 0) {
         spliceLength += currentGroup.length;
         const tableHTML = await buildTableHTML(currentGroup);
-        console.log(`Table HTML for final group:`, tableHTML);
         items.splice(0, spliceLength, { ...firstItem, str: tableHTML, fontName: 'table', paragraph: 'table' });
     }
-
-    console.log('Remaining items:', structuredClone(items));
 }
 
 
@@ -498,11 +497,9 @@ async function buildTableHTML(tableItems) {
         a.left - b.left
     );
 
-    console.log('Table items:', structuredClone(tableItems));
-
     await mergeItems(tableItems, ['row', 'tableColumn']);
 
-    console.log('Merged table items:', structuredClone(tableItems));
+    console.debug('Merged table items:', structuredClone(tableItems));
 
     // Group items by row and column
     tableItems.forEach(item => {
@@ -514,8 +511,6 @@ async function buildTableHTML(tableItems) {
         }
         rows[trKey][tableColumn] = str;
     });
-
-    console.log('Table item rows:', structuredClone(rows));
 
     // Split tabbed items followed by a missing column key
     Object.keys(rows).forEach(rowKey => {
