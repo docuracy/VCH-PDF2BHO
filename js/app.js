@@ -1,4 +1,5 @@
 jQuery(document).ready(function ($) {
+
     // Set the workerSrc for PDF.js
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.7.570/pdf.worker.min.js';
 
@@ -39,6 +40,8 @@ jQuery(document).ready(function ($) {
         const zip = new JSZip();  // Initialize the JSZip instance here
         const pdfFiles = Array.from(fileInput.files);
         const promises = [];
+
+        $('#conversionInputs').addClass('d-none');
 
         // Iterate through selected files
         pdfFiles.forEach(file => {
@@ -99,21 +102,26 @@ jQuery(document).ready(function ($) {
         // Wait for all promises to resolve
         Promise.all(promises).then(() => {
             appendLogMessage('All PDF files processed successfully. Generating ZIP...');
-
-            // Generate the ZIP file and trigger download
-            // zip.generateAsync({type: 'blob'}).then(function (content) {
-            //     saveAs(content, 'pdfs_to_xml.zip');
-            //     showAlert('All XML files have been generated and zipped successfully!', 'success');
-            // }).catch(err => {
-            //     appendLogMessage(`Error generating ZIP: ${err}`);
-            //     console.error('Error generating ZIP:', err);
-            // });
+            // Generate the ZIP file and store in session storage
+            zip.generateAsync({type: 'blob'}).then(function (content) {
+                // Convert blob to Base64 and save in session storage
+                const reader = new FileReader();
+                reader.onload = function () {
+                    sessionStorage.setItem('preparedZip', reader.result);
+                    showAlert('All XML files have been generated and zipped successfully! Click "XML Download" to save the file.', 'success');
+                };
+                reader.readAsDataURL(content); // Convert blob to Base64
+            }).catch(err => {
+                console.error('Error generating ZIP:', err);
+                showAlert('Error generating ZIP. Please try again.', 'danger');
+            });
         }).catch(err => {
             appendLogMessage(`Error processing files: ${err}`);
             console.error('Error processing files:', err);
         }).finally(() => {
             appendLogMessage('End of file processing.');
             appendLogMessage('=======================');
+            $('#resultInputs').removeClass('d-none');
         });
     });
 

@@ -10,17 +10,32 @@
 $('#pdfInput').on('change', function () {
     $('#alertPlaceholder').empty(); // Clear any existing alerts
     $('#logContainer').hide().html('<p><strong>Logs:</strong></p>'); // Clear the log container
+    $('#resultInputs').addClass('d-none'); // Hide the result inputs
+    $('#conversionInputs').removeClass('d-none'); // Show the conversion inputs
+});
+
+$('#downloadBtn').on('click', function () {
+    const base64Zip = sessionStorage.getItem('preparedZip');
+    if (base64Zip) {
+        const binaryZip = atob(base64Zip.split(',')[1]); // Decode Base64 to binary
+        const array = new Uint8Array(binaryZip.length);
+        for (let i = 0; i < binaryZip.length; i++) {
+            array[i] = binaryZip.charCodeAt(i);
+        }
+        const blob = new Blob([array], { type: 'application/zip' });
+        saveAs(blob, 'pdfs_to_xml.zip');
+    } else {
+        showAlert('No ZIP file prepared. Please convert the files first.', 'warning');
+    }
+});
+
+$('#previewBtn').on('click', function () {
+    $('#previewModal').modal('show');
 });
 
 //////////////////////////
 // Functions
 //////////////////////////
-
-// Display HTML in the modal overlay for checking
-function showHtmlPreview(htmlContent) {
-    $('#htmlPreviewContent').html(htmlContent);
-    $('#previewModal').modal('show');
-}
 
 // Function to decode HTML entities to UTF-8
 // TODO: Check that this works - escapeXML converts "&" back to "&amp;" which may not be necessary

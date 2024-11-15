@@ -122,10 +122,9 @@ function processPDF(file, fileName, zip) {  // Accept zip as a parameter
                     return footnotes.map(item => `<div class="endnote">${item.str}</div>`).join('');
                 }).join('');
 
-                showHtmlPreview(docHTML); // Display HTML in modal overlay for checking
                 appendLogMessage(`Generated HTML for file: ${fileName}, size: ${docHTML.length} characters`); // Debugging log
 
-                docHTML = `<document><head></head><body>${docHTML}</body></document>`;
+                $('#htmlPreviewContent').html(`<document><head></head><body>${docHTML}</body></document>`);
 
                 // Fetch the XSLT file and transform the HTML document to BHO XML
                 const xsltResponse = await fetch('./xml/html-to-bho-xml.xslt');

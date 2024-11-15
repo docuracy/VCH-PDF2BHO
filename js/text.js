@@ -74,11 +74,11 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
 
                 // Check if item.column was found
                 if (item.column !== -1) {
-                    // Find the line index where the item's top boundary falls within the line range
-                    item.line = segmentation[item.row].columns[item.column].lines.findIndex(line => item.top <= line[1]);
+                    // Find the line index where the item's middle falls within the line range
+                    item.line = segmentation[item.row].columns[item.column].lines.findIndex(line => item.top + item.height / 2 <= line[1]);
 
-                    // Find the innerRow index where the item's top boundary falls within the innerRow range
-                    item.innerRow = segmentation[item.row].columns[item.column].innerRows?.findIndex(innerRow => item.top <= innerRow.range[1]) ?? -1;
+                    // Find the innerRow index where the item's middle falls within the innerRow range
+                    item.innerRow = segmentation[item.row].columns[item.column].innerRows?.findIndex(innerRow => item.top + item.height / 2 <= innerRow.range[1]) ?? -1;
 
                     // Find a subColumn index where the item's left boundary falls within the subColumn range
                     const tabular = segmentation[item.row].columns[item.column].innerRows[item.innerRow]?.subColumns.length >= 3;
@@ -103,6 +103,8 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
         a.line - b.line ||
         a.left - b.left
     );
+
+    console.debug(`Page ${pageNum} - segmentation:`, structuredClone(segmentation));
 
     closeOverlaps(items);
 
