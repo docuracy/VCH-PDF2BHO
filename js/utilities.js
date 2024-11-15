@@ -29,7 +29,27 @@ $('#downloadBtn').on('click', function () {
     }
 });
 
-$('#previewBtn').on('click', function () {
+$('#previewHTMLBtn').on('click', function () {
+
+    const savedHTML = sessionStorage.getItem('htmlPreview');
+    if (savedHTML) {
+        $('#htmlPreviewContent').html(savedHTML);
+    } else {
+        alert('No saved preview found!');
+    }
+
+    $('#previewModal').modal('show');
+});
+
+$('#previewXMLBtn').on('click', function () {
+
+    const savedXML = sessionStorage.getItem('XMLPreview');
+    if (savedXML) {
+        $('#htmlPreviewContent').text(savedXML);
+    } else {
+        alert('No saved preview found!');
+    }
+
     $('#previewModal').modal('show');
 });
 
@@ -143,7 +163,7 @@ function appendLogMessage(message) {
     logContainer.scrollTop(logContainer.prop("scrollHeight"));
 }
 
-function transformXml(xml, xslt) {
+function transformXml(html, xslt) {
     // Create a new XSLTProcessor
     const xsltProcessor = new XSLTProcessor();
 
@@ -154,8 +174,8 @@ function transformXml(xml, xslt) {
     // Import the XSLT stylesheet
     xsltProcessor.importStylesheet(xsltDoc);
 
-    // Parse the XML string into a document
-    const xmlDoc = parser.parseFromString(xml, 'application/xml');
+    // Parse the HTML string into an XML document
+    const xmlDoc = parser.parseFromString(html, 'application/xml');
 
     // Perform the transformation
     const transformedDoc = xsltProcessor.transformToFragment(xmlDoc, document);

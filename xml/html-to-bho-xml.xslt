@@ -14,6 +14,11 @@
         </note>
     </xsl:template>
 
+    <!-- Template to remove all <img> elements -->
+    <xsl:template match="img">
+        <!-- Empty template: do not copy <img> elements -->
+    </xsl:template>
+
     <!-- Template to remove elements with class="remove" -->
     <xsl:template match="*[contains(@class, 'remove')]">
         <!-- Empty template: do not copy this element -->
@@ -26,16 +31,22 @@
         </page>
     </xsl:template>
 
-    <!-- Convert <p> elements to <para> elements, preserving attributes -->
-    <xsl:template match="p">
+    <!-- Convert <div class="paragraph"> elements to <para> elements, dropping attributes -->
+    <xsl:template match="div[contains(@class, 'paragraph')]">
         <para>
-            <xsl:copy-of select="@*"/>
             <xsl:apply-templates/>
         </para>
     </xsl:template>
 
-    <!-- Convert <i> elements to <emph type="i">, preserving attributes -->
-    <xsl:template match="i">
+    <!-- Template to transform <para> containing <h*> to <head> -->
+    <xsl:template match="h1 | h2 | h3 | h4 | h5 | h6">
+        <head>
+            <xsl:value-of select="normalize-space(.)"/>
+        </head>
+    </xsl:template>
+
+    <!-- Convert <em> elements to <emph type="i">, preserving attributes -->
+    <xsl:template match="em">
         <emph type="i">
             <xsl:copy-of select="@*"/>
             <xsl:apply-templates/>

@@ -124,13 +124,24 @@ function processPDF(file, fileName, zip) {  // Accept zip as a parameter
 
                 appendLogMessage(`Generated HTML for file: ${fileName}, size: ${docHTML.length} characters`); // Debugging log
 
-                $('#htmlPreviewContent').html(`<document><head></head><body>${docHTML}</body></document>`);
+                // Save the HTML to session storage
+                sessionStorage.setItem('htmlPreview', docHTML);
+                console.log('HTML saved to session storage.');
+
+                docHTML = `<document><head></head><body>${docHTML}</body></document>`;
 
                 // Fetch the XSLT file and transform the HTML document to BHO XML
                 const xsltResponse = await fetch('./xml/html-to-bho-xml.xslt');
                 const xsltText = await xsltResponse.text();
                 const docXML = transformXml(docHTML, xsltText); // Transform the page XML
                 appendLogMessage(`Transformed XML for file: ${fileName}, size: ${docXML.length} characters`); // Debug
+
+                // Save the XML to session storage
+                sessionStorage.setItem('XMLPreview', docXML);
+                console.log('XML saved to session storage.', docXML);
+
+                // Clear docHTML to free up memory
+                docHTML = null;
 
                 // Add the transformed XML content to the ZIP file
                 zip.file(fileName.replace(/\.pdf$/i, '.xml'), docXML); // Use the passed zip object

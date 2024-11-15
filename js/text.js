@@ -227,19 +227,21 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
     });
 
     // Construct page HTML
-    let pageHTML = `<p class="pageNum">--- Page ${pageNumeral} (PDF ${pageNum}) ---</p>`;
+    let pageHTML = `<p class="pageNum" start="${pageNumeral}">--- Page ${pageNumeral} (PDF ${pageNum}) ---</p>`;
     items.forEach(item => {
         if (item.fontName === 'drawing') {
             pageHTML += `<div class="drawing">${item.str}</div>`;
         } else {
-            const classes = ['paragraph', 'tooltip-item'];
+            const classes = ['paragraph'];
             if (item.drawingNumber) classes.push('drawing-label');
-            // Create an HTML string for the tooltip content
-            const tooltipContent = Object.entries(item).filter(([key]) => key !== 'str')
-                .map(([key, value]) => `<strong>${escapeXML(key)}:</strong> ${escapeXML(value)}`)
-                .join('<br>');
 
-            pageHTML += `<div class="${classes.join(' ')}" data-bs-title="${tooltipContent}" data-bs-toggle="tooltip">${item.str}</div>`;
+            // Create an HTML string for the tooltip content
+            // const tooltipContent = Object.entries(item).filter(([key]) => key !== 'str')
+            //     .map(([key, value]) => `<strong>${escapeXML(key)}:</strong> ${escapeXML(value)}`)
+            //     .join('<br>');
+            // pageHTML += `<div class="${classes.join(' ')}" data-bs-title="${tooltipContent}" data-bs-toggle="tooltip">${item.str}</div>`;
+
+            pageHTML += `<div class="${classes.join(' ')}">${item.str}</div>`;
         }
     });
 
