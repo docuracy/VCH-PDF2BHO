@@ -348,12 +348,17 @@ function checkSolidBorders(src, binary, originalBlocks, width = 3, tolerance = 0
     });
 
     // Remove any duplicate rectangles (iterate in reverse to avoid index issues)
+    const overlapTolerance = 2;
     for (let i = rectangles.length - 1; i > 0; i--) {
         const currentRect = rectangles[i];
         for (let j = i - 1; j >= 0; j--) {
             const previousRect = rectangles[j];
-            if (currentRect.top === previousRect.top && currentRect.bottom === previousRect.bottom &&
-                currentRect.left === previousRect.left && currentRect.right === previousRect.right) {
+            if (
+                Math.abs(currentRect.top - previousRect.top) <= overlapTolerance &&
+                Math.abs(currentRect.bottom - previousRect.bottom) <= overlapTolerance &&
+                Math.abs(currentRect.left - previousRect.left) <= overlapTolerance &&
+                Math.abs(currentRect.right - previousRect.right) <= overlapTolerance
+            ) {
                 rectangles.splice(i, 1);
                 break;
             }

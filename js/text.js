@@ -153,6 +153,7 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
         item.isNextItemTabbed = item.isNextItemSameLine && nextItem?.left - 2 * tolerance > item.right;
         item.isNextItemIndented = nextItem?.left - tolerance > (segmentation[nextItem?.row]?.columns[nextItem?.column]?.range[0] ?? 'Infinity') && !item.isNextItemSameLine;
         item.isNextItemItalic = nextItem?.italic || nextItem?.str.startsWith('<em>') || nextItem?.str.startsWith('<i>');
+        item.isNextItemFootindex = nextItem?.footIndex;
 
         item.isMidCaption =
             (['drawing', 'line'].includes(items.filter(i => isSameBlock(i, item))[0]?.fontName) || (item.isPreviousItemSameLine && prevItem?.drawingNumber) || item.isPreviousItemMidCaption) &&
@@ -161,8 +162,8 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
 
         // Define paragraph conditions with identifiers
         const paragraphConditions = [
-            { id: '!indented!midCaption|indented', check: item.isNextItemIndented && !item.isMidCaption && !item.isItemIndented },
-            { id: 'endsPeriod!lineEnd!midCaption|!sameLine', check: (item.str?.endsWith('.') || (item.isPreviousFullStop && item.isItemFootindex)) && !item.isItemAtLineEnd && !item.isNextItemSameLine && !item.isMidCaption },
+            { id: '!indented!midCaption|indented!footIndex', check: !item.isNextItemFootindex && item.isNextItemIndented && !item.isMidCaption && !item.isItemIndented },
+            { id: 'endsPeriod!lineEnd!midCaption|!sameLine!footIndex', check: (item.str?.endsWith('.') || (item.isPreviousFullStop && item.isItemFootindex)) && !item.isItemAtLineEnd && !item.isNextItemSameLine && !item.isMidCaption && !item.isNextItemFootindex },
             { id: 'bold|!bold', check: item.bold && !nextItem?.bold },
             { id: 'indented&italic!midCaption|!sameLine', check: item.isItemIndented && item.isItalic && !item.isNextItemSameLine && !item.isMidCaption },
             { id: 'italic|tabbed!sameLine', check: item.isItalic && item.isNextItemTabbed && !item.isNextItemSameLine },
@@ -364,12 +365,13 @@ async function processFootnotes(segmentation, footnotes, pageNum, pageNumeral, m
 
     footnotes.forEach((item, index) => {
         item.column = segmentation.columns.findIndex(column => item.left <= column.range[1]);
-        item.line = segmentation.columns[item.column].lines.findIndex(line => item.top <= line[1]);
+        // item.line = segmentation.columns[item.column].lines.findIndex(line => item.top <= line[1]); // Footnote lines are too close for this method
         item.footnote = true;
     });
 
     // Sort footnotes in reading order based on row and column (allow tolerance in bottom)
-    footnotes.sort((a, b) => a.column - b.column || a.line - b.line || a.left - b.left);
+    // footnotes.sort((a, b) => a.column - b.column || a.line - b.line || a.left - b.left);
+    footnotes.sort((a, b) => a.column - b.column || a.bottom - b.bottom || a.left - b.left);
 
     // Split footnotes if they include an integer after three or more spaces
     for (let i = footnotes.length - 1; i >= 0; i--) { // Start from the end and move to the beginning
@@ -388,6 +390,7 @@ async function processFootnotes(segmentation, footnotes, pageNum, pageNumeral, m
     // Sort foundFootnoteIndices in ascending order
     foundFootnoteIndices = Array.from(foundFootnoteIndices).sort((a, b) => a - b);
 
+    // console.log(`Page ${pageNumeral} (PDF ${pageNum}) segmentation:`, structuredClone(segmentation));
     // console.log(structuredClone(footnotes));
     // console.log(foundFootnoteIndices);
 
