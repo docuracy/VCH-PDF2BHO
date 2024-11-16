@@ -72,7 +72,7 @@ function formatXML(xmlString) {
         if (line.match(/^\/\w/)) indent -= 1; // Decrease indent level if closing tag
         const padding = PADDING.repeat(Math.max(indent, 0));
         if (line.match(/^<?\w[^>]*[^/]$/) && !line.startsWith('?xml')) indent += 1; // Increase indent level if opening tag
-        return padding + '<' + line + (i === lines.length - 1 ? '' : '>');
+        return padding + (line.startsWith('<xml') ? '' : '<') + line + (i === lines.length - 1 ? '' : '>');
     }).join('\n');
 }
 
