@@ -49,6 +49,8 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
         }
     })
 
+    escapeStrings(items);
+
     // Split off bottom row if it contains footnotes
     let footnotes = [];
     if (footFontArea > defaultFontArea) {
@@ -123,7 +125,7 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
         }
         // Drawing Numbers: integer items with a period mark and with the same bottom as the next item
         if (item.bottom === items[index + 1]?.bottom && /^\d+.$/.test(item.str)) {
-            item.drawingNumber = true;
+            item.drawingNumber = item.str.slice(0, -1);
         }
     });
 
@@ -231,9 +233,18 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
     items.forEach(item => {
         if (item.fontName === 'drawing') {
             pageHTML += `<div class="drawing">${item.str}</div>`;
+        } else if (item?.header) {
+            if (item.header === 1) {
+                pageHTML += `<div class="title">${item.str}</div>`;
+            } else if (item.header === 2) {
+                pageHTML += `<div class="subtitle">${item.str}</div>`;
+            } else {
+                pageHTML += `<div class="header">${item.str}</div>`;
+            }
+        } else if (item?.drawingNumber) {
+            pageHTML += `<div class="caption" data-number="${item.drawingNumber}">${item.str}</div>`;
         } else {
             const classes = ['paragraph'];
-            if (item.drawingNumber) classes.push('drawing-label');
 
             // Create an HTML string for the tooltip content
             // const tooltipContent = Object.entries(item).filter(([key]) => key !== 'str')

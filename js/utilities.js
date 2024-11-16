@@ -12,6 +12,8 @@ $('#pdfInput').on('change', function () {
     $('#logContainer').hide().html('<p><strong>Logs:</strong></p>'); // Clear the log container
     $('#resultInputs').addClass('d-none'); // Hide the result inputs
     $('#conversionInputs').removeClass('d-none'); // Show the conversion inputs
+}).on('click', function () {
+    this.value = ''; // Clear the file input value to allow re-selection of the same file
 });
 
 $('#downloadBtn').on('click', function () {
@@ -45,13 +47,34 @@ $('#previewXMLBtn').on('click', function () {
 
     const savedXML = sessionStorage.getItem('XMLPreview');
     if (savedXML) {
-        $('#htmlPreviewContent').text(savedXML);
+        // Parse and pretty-print the saved XML
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(savedXML, "application/xml");
+
+        const serializer = new XMLSerializer();
+        const prettyXML = formatXML(serializer.serializeToString(xmlDoc));
+
+        $('#htmlPreviewContent').text(prettyXML);
     } else {
         alert('No saved preview found!');
     }
 
     $('#previewModal').modal('show');
 });
+
+// Helper function to pretty-print XML with indentation
+function formatXML(xmlString) {
+    const PADDING = '    '; // 4 spaces for indentation
+    const lines = xmlString.split(/>\s*</);
+    let indent = 0;
+
+    return lines.map((line, i) => {
+        if (line.match(/^\/\w/)) indent -= 1; // Decrease indent level if closing tag
+        const padding = PADDING.repeat(Math.max(indent, 0));
+        if (line.match(/^<?\w[^>]*[^/]$/) && !line.startsWith('?xml')) indent += 1; // Increase indent level if opening tag
+        return padding + '<' + line + (i === lines.length - 1 ? '' : '>');
+    }).join('\n');
+}
 
 //////////////////////////
 // Functions
@@ -112,7 +135,6 @@ function wrapStrings(items) {
     items.forEach(item => {
         if (item?.header) {
             item.str = `<h${item.header}>${item.str}</h${item.header}>`;
-            delete item.header;
             delete item.fontName
         } else if (item.bold) {
             item.str = `<strong>${item.str}</strong>`;
@@ -137,15 +159,17 @@ function trimStrings(items) {
 }
 
 
-// Function to Escape XML Special Characters
-function escapeXML(input) {
-    const str = (input != null) ? String(input) : '';
-    return str.replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&apos;');
+function escapeStrings(items) {
+    items.forEach(item => {
+        item.str = item.str
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&apos;');
+    });
 }
+
 
 // Function to Display Alerts
 function showAlert(message, type) {

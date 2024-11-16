@@ -18,7 +18,7 @@ function processPDF(file, fileName, zip) {  // Accept zip as a parameter
 
                 // Discard all except the first `n` pages (set to `Infinity` to process all pages)
                 let maxPages = Infinity;
-                maxPages = 15; // DEBUG: Limit to first 2 pages for testing
+                // maxPages = 15; // DEBUG: Limit to first 2 pages for testing
 
                 const maxPage = Math.min(pdf.numPages, startPage + maxPages - 1);
 
@@ -128,12 +128,12 @@ function processPDF(file, fileName, zip) {  // Accept zip as a parameter
                 sessionStorage.setItem('htmlPreview', docHTML);
                 console.log('HTML saved to session storage.');
 
-                docHTML = `<document><head></head><body>${docHTML}</body></document>`;
+                docHTML = `<document>${docHTML}</document>`;
 
                 // Fetch the XSLT file and transform the HTML document to BHO XML
-                const xsltResponse = await fetch('./xml/html-to-bho-xml.xslt');
-                const xsltText = await xsltResponse.text();
-                const docXML = transformXml(docHTML, xsltText); // Transform the page XML
+                let xsltResponse = await fetch('./xml/html-to-bho-xml.xslt');
+                let xsltText = await xsltResponse.text();
+                let docXML = transformXml(docHTML, xsltText); // Transform the page XML
                 appendLogMessage(`Transformed XML for file: ${fileName}, size: ${docXML.length} characters`); // Debug
 
                 // Save the XML to session storage
