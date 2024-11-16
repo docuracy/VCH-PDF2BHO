@@ -177,6 +177,10 @@ body {
     text-transform: uppercase; /* Uppercase for header text */
 }
 
+/*.generated-table .table-caption-row {*/
+/*    display: none; !* Hide caption row *!*/
+/*}*/
+
 .generated-table tbody tr:nth-child(even) {
     background-color: #f2f2f2; /* Alternate row shading */
 }

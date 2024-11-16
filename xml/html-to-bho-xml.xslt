@@ -114,6 +114,25 @@
         </emph>
     </xsl:template>
 
+    <!-- Template to match <div> elements with class="table" -->
+    <xsl:template match="div[contains(@class, 'table')]">
+        <xsl:apply-templates/>
+    </xsl:template>
+
+    <!-- Remove class of table and apply numbering -->
+    <xsl:template match="table">
+        <table id="t{count(preceding::table) + 1}">
+            <xsl:apply-templates/>
+        </table>
+    </xsl:template>
+
+    <!-- Remove class of tr and apply numbering -->
+    <xsl:template match="tr">
+        <tr id="tr{count(preceding::tr) + 1}">
+            <xsl:apply-templates/>
+        </tr>
+    </xsl:template>
+
     <!-- Remove wrapper around line-end hyphen -->
     <xsl:template match="span[contains(@class, 'line-end-hyphen')]">
         <xsl:apply-templates/>

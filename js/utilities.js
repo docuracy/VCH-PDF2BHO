@@ -145,6 +145,12 @@ function wrapStrings(items) {
             delete item.italic;
             delete item.fontName
         }
+        // Wrap any URLs found in the string
+        const urlRegex = /(https?:\/\/[^\s]+)/g; // Matches URLs starting with http:// or https://
+        item.str = item.str.replace(urlRegex, (url) => {
+            return `<emph type="i"><a href="${url}">${url}</a></emph>`;
+        });
+
     });
 }
 

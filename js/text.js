@@ -221,6 +221,8 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
 
     await mergeItems(items, ['row']);
 
+    await moveTableCaptions(items);
+
     trimStrings(items);
 
     // Add drawing images to items
@@ -233,6 +235,10 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
     items.forEach(item => {
         if (item.fontName === 'drawing') {
             pageHTML += `<div class="drawing">${item.str}</div>`;
+        } else if (item?.paragraph === 'table') {
+            pageHTML += `<div class="table">${item.str}</div>`;
+        } else if (item?.tableHead) {
+            pageHTML += `<div class="tableCaption">${item.str}</div>`;
         } else if (item?.header) {
             if (item.header === 1) {
                 pageHTML += `<div class="title">${item.str}</div>`;
@@ -467,6 +473,19 @@ async function processFootnotes(segmentation, footnotes, pageNum, pageNumeral, m
 }
 
 
+async function moveTableCaptions(items) {
+    for (let i = items.length - 1; i >= 0; i--) {
+        const item = items[i];
+        if (item?.tableHead) {
+            const associatedTable = items[i - 1];
+            // Insert tableHead into the table using regex search for "@@@CAPTION@@@"
+            associatedTable.str = associatedTable.str.replace('@@@CAPTION@@@', item.str);
+            items.splice(i, 1); // Remove the tableHead item after merging
+        }
+    }
+}
+
+
 async function buildTables(items) {
     let currentGroup = [];
 
@@ -556,6 +575,8 @@ async function buildTableHTML(tableItems) {
     let tableHTML = '<table class="generated-table"><tbody>';
     // Find maximum number of columns
     const maxColumns = Math.max(...Object.values(rows).map(row => Object.keys(row).length));
+    // Add full-width row for table caption
+    tableHTML += `<tr class="table-caption-row"><td colspan="${maxColumns}" class="table-caption">@@@CAPTION@@@</td></tr>`;
     for (const rowKey of Object.keys(rows)) {
         const row = rows[rowKey];
         // Include colspan if the row has fewer columns than the maximum
