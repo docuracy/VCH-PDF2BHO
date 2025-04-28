@@ -24,15 +24,15 @@
     </xsl:template>
 
     <!-- Template to match <div> elements with class="endnote" -->
-    <xsl:template match="div[contains(@class, 'endnote')]/a">
-        <!-- Extract the value of the data-endnote attribute -->
-        <xsl:variable name="idref" select="@data-endnote" />
+    <xsl:template match="div[contains(@class, 'endnote')]">
+        <xsl:variable name="idref" select="a/@data-endnote" />
         <note id="n{$idref}" number="{$idref}">
-            <xsl:value-of select="."/>
+            <xsl:apply-templates/>
         </note>
     </xsl:template>
-    <xsl:template match="div[contains(@class, 'endnote')]">
-        <xsl:apply-templates/>
+    <!-- Special treatment for the <a> inside -->
+    <xsl:template match="div[contains(@class, 'endnote')]/a">
+        <xsl:value-of select="."/>
     </xsl:template>
 
     <!-- Template to match <div> elements with class="caption" -->
