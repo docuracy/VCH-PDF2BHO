@@ -76,6 +76,112 @@ function formatXML(xmlString) {
     }).join('\n');
 }
 
+$('#renumber').on('click', function () {
+    $('#renumberModal').modal('show');
+});
+
+$('#renumberGoBtn').on('click', async function () {
+    const selectedTag = $('input[name="renumberTarget"]:checked').val();
+    const resetFrom = parseInt($('#resetFrom').val(), 10);
+    const resetTo = parseInt($('#resetTo').val(), 10);
+
+    if (isNaN(resetFrom) || isNaN(resetTo)) {
+        showAlert('Please enter valid numbers for reset range.', 'warning');
+        return;
+    }
+
+    const savedHTML = sessionStorage.getItem('htmlPreview');
+    if (!savedHTML) {
+        showAlert('No saved HTML found in sessionStorage.', 'warning');
+        return;
+    }
+
+    let current = resetTo;
+    let updatedHTML = savedHTML;
+
+    if (selectedTag === 'page') {
+        const pageRegex = /<p\s+class="pageNum"\s+start="(\d+)">--- Page \d+ \(PDF \d+\) ---<\/p>/g;
+
+        let firstFound = false;
+        updatedHTML = savedHTML.replace(pageRegex, (match, oldStart) => {
+            if (!firstFound && parseInt(oldStart, 10) !== resetFrom) return match;
+            if (!firstFound && parseInt(oldStart, 10) === resetFrom) firstFound = true;
+            if (!firstFound) return match;
+
+            const newStart = current;
+            current++;
+
+            return match
+                .replace(/start="\d+"/, `start="${newStart}"`)
+                .replace(/--- Page \d+/, `--- Page ${newStart}`);
+        });
+    }
+
+    if (selectedTag === 'ref') {
+        const refRegex = /<a\s+[^>]*?id="endnoteIndex(\d+)"[^>]*?>.*?<\/a>/gs;
+
+        let firstFound = false;
+        updatedHTML = savedHTML.replace(refRegex, (match, oldId) => {
+            const idNum = parseInt(oldId, 10);
+            if (!firstFound) {
+                if (idNum !== resetFrom) return match;
+                firstFound = true;
+            }
+
+            const newNum = current++;
+
+            return match
+                .replace(/id="endnoteIndex\d+"/, `id="endnoteIndex${newNum}"`)
+                .replace(/href="#endnote\d+"/, `href="#endnote${newNum}"`)
+                .replace(/data-footnote="\d+"/, `data-footnote="${newNum}"`)
+                .replace(/data-endnote="\d+"/, `data-endnote="${newNum}"`)
+                .replace(/>\d+<\/a>/, `>${newNum}</a>`);
+        });
+    }
+
+    if (selectedTag === 'note') {
+        // Match all <a ...>...</a> where id="endnote123"
+        const noteRegex = /<a\s+[^>]*?id="endnote(\d+)"[^>]*?>.*?<\/a>/gs;
+
+        let foundFirst = false;
+        updatedHTML = savedHTML.replace(noteRegex, (match, idStr) => {
+            const idNum = parseInt(idStr, 10);
+            if (!foundFirst) {
+                if (idNum !== resetFrom) return match;
+                foundFirst = true;
+            }
+
+            // Replace all 4 places: id, href, data-endnote, inner text
+            const newNum = current++;
+
+            return match
+                .replace(/id="endnote\d+"/, `id="endnote${newNum}"`)
+                .replace(/href="#endnoteIndex\d+"/, `href="#endnoteIndex${newNum}"`)
+                .replace(/data-endnote="\d+"/, `data-endnote="${newNum}"`)
+                .replace(/>(\d+)<\/a>/, `>${newNum}</a>`);
+        });
+    }
+
+    // Save updated HTML
+    sessionStorage.setItem('htmlPreview', updatedHTML);
+
+    // Convert to XML
+    try {
+        updatedHTML = `<document>${updatedHTML}</document>`;
+        const xsltResponse = await fetch('./xml/html-to-bho-xml.xslt');
+        const xsltText = await xsltResponse.text();
+        const docXML = transformXml(updatedHTML, xsltText);
+        sessionStorage.setItem('XMLPreview', docXML);
+        console.log('XML saved to session storage.', docXML);
+    } catch (error) {
+        console.error('XSLT transform failed:', error);
+        showAlert('XSLT transformation failed.', 'danger');
+    }
+
+    showAlert(`Successfully renumbered <code>${selectedTag}</code> elements starting from ${resetFrom}.`, 'success');
+    $('#renumberModal').modal('hide');
+});
+
 //////////////////////////
 // Functions
 //////////////////////////
