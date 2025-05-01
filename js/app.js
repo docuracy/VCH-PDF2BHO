@@ -13,7 +13,7 @@ jQuery(document).ready(function ($) {
     }
 
     // Initialise Bootstrap tooltips using JQuery
-    $(document).ready(function() {
+    $(document).ready(function () {
         $('body').tooltip({
             selector: '[data-bs-toggle="tooltip"]',
             html: true,
@@ -22,9 +22,9 @@ jQuery(document).ready(function ($) {
         });
 
         // Show tooltip on mouse enter and hide on mouse leave (default is unreliable)
-        $('[data-bs-toggle="tooltip"]').on('mouseenter', function() {
+        $('[data-bs-toggle="tooltip"]').on('mouseenter', function () {
             $(this).tooltip('show');
-        }).on('mouseleave', function() {
+        }).on('mouseleave', function () {
             $(this).tooltip('hide');
         });
     });
@@ -38,16 +38,17 @@ jQuery(document).ready(function ($) {
         }
 
         const zip = new JSZip();  // Initialize the JSZip instance here
-        const pdfFiles = Array.from(fileInput.files);
+        const uploadedFiles = Array.from(fileInput.files);
         const promises = [];
 
         $('#conversionInputs').addClass('d-none');
 
         // Iterate through selected files
-        pdfFiles.forEach(file => {
+        uploadedFiles.forEach(file => {
             const extension = file.name.split('.').pop().toLowerCase();
             const fileType = (extension === 'pdf') ? 'application/pdf' :
-                (extension === 'zip') ? 'application/zip' : '';
+                (extension === 'zip') ? 'application/zip' :
+                    (extension === 'xml') ? 'application/xml' : '';
 
             appendLogMessage(`Processing file: ${file.name}, extension: ${extension}, type: ${fileType}`); // Debugging log
             if (fileType === 'application/zip') {
@@ -94,6 +95,9 @@ jQuery(document).ready(function ($) {
                 // Process single PDF files directly
                 appendLogMessage(`Processing PDF file: ${file.name}`);
                 promises.push(processPDF(file, file.name, zip)); // Pass the zip object to processPDF
+            } else if (fileType === 'application/xml') {
+                appendLogMessage(`Processing XML file: ${file.name}`);
+                promises.push(processXML(file, file.name, zip)); // Process XML files
             } else {
                 showAlert('Unsupported file type: ' + file.name, 'danger');
             }
@@ -101,7 +105,7 @@ jQuery(document).ready(function ($) {
 
         // Wait for all promises to resolve
         Promise.all(promises).then(() => {
-            appendLogMessage('All PDF files processed successfully. Generating ZIP...');
+            appendLogMessage('All files processed successfully. Generating ZIP...');
             // Generate the ZIP file and store in session storage
             zip.generateAsync({type: 'blob'}).then(function (content) {
                 // Convert blob to Base64 and save in session storage

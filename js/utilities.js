@@ -90,38 +90,52 @@ $('#renumberGoBtn').on('click', async function () {
         return;
     }
 
-    const savedHTML = sessionStorage.getItem('htmlPreview');
-    if (!savedHTML) {
-        showAlert('No saved HTML found in sessionStorage.', 'warning');
+    const savedXML = sessionStorage.getItem('XMLPreview');
+    if (!savedXML) {
+        showAlert('No saved XML found in sessionStorage.', 'warning');
         return;
     }
 
     let current = resetTo;
-    let updatedHTML = savedHTML;
+    let updatedXML = savedXML;
 
     if (selectedTag === 'page') {
-        const pageRegex = /<p\s+class="pageNum"\s+start="(\d+)">--- Page \d+ \(PDF \d+\) ---<\/p>/g;
+        const pageRegex = /<page\s+start="(\d+)"\s*\/>/g;
 
         let firstFound = false;
-        updatedHTML = savedHTML.replace(pageRegex, (match, oldStart) => {
-            if (!firstFound && parseInt(oldStart, 10) !== resetFrom) return match;
-            if (!firstFound && parseInt(oldStart, 10) === resetFrom) firstFound = true;
-            if (!firstFound) return match;
+        updatedXML = updatedXML.replace(pageRegex, (match, oldStart) => {
+            const startNum = parseInt(oldStart, 10);
+            if (!firstFound) {
+                if (startNum !== resetFrom) return match;
+                firstFound = true;
+            }
 
-            const newStart = current;
-            current++;
-
-            return match
-                .replace(/start="\d+"/, `start="${newStart}"`)
-                .replace(/--- Page \d+/, `--- Page ${newStart}`);
+            const newStart = current++;
+            return `<page start="${newStart}"/>`;
         });
     }
 
     if (selectedTag === 'ref') {
-        const refRegex = /<a\s+[^>]*?id="endnoteIndex(\d+)"[^>]*?>.*?<\/a>/gs;
+        const refRegex = /<ref\s+idref="(\d+)">(\d+)<\/ref>/g;
 
         let firstFound = false;
-        updatedHTML = savedHTML.replace(refRegex, (match, oldId) => {
+        updatedXML = updatedXML.replace(refRegex, (match, oldIdref, oldContent) => {
+            const idNum = parseInt(oldIdref, 10);
+            if (!firstFound) {
+                if (idNum !== resetFrom) return match;
+                firstFound = true;
+            }
+
+            const newNum = current++;
+            return `<ref idref="${newNum}">${newNum}</ref>`;
+        });
+    }
+
+    if (selectedTag === 'note') {
+        const noteRegex = /<note\s+id="n(\d+)"\s+number="(\d+)">(\d+)/g;
+
+        let firstFound = false;
+        updatedXML = updatedXML.replace(noteRegex, (match, oldId, oldNumber, oldContent) => {
             const idNum = parseInt(oldId, 10);
             if (!firstFound) {
                 if (idNum !== resetFrom) return match;
@@ -129,54 +143,12 @@ $('#renumberGoBtn').on('click', async function () {
             }
 
             const newNum = current++;
-
-            return match
-                .replace(/id="endnoteIndex\d+"/, `id="endnoteIndex${newNum}"`)
-                .replace(/href="#endnote\d+"/, `href="#endnote${newNum}"`)
-                .replace(/data-footnote="\d+"/, `data-footnote="${newNum}"`)
-                .replace(/data-endnote="\d+"/, `data-endnote="${newNum}"`)
-                .replace(/>\d+<\/a>/, `>${newNum}</a>`);
+            return `<note id="n${newNum}" number="${newNum}">${newNum}`;
         });
     }
 
-    if (selectedTag === 'note') {
-        // Match all <a ...>...</a> where id="endnote123"
-        const noteRegex = /<a\s+[^>]*?id="endnote(\d+)"[^>]*?>.*?<\/a>/gs;
-
-        let foundFirst = false;
-        updatedHTML = savedHTML.replace(noteRegex, (match, idStr) => {
-            const idNum = parseInt(idStr, 10);
-            if (!foundFirst) {
-                if (idNum !== resetFrom) return match;
-                foundFirst = true;
-            }
-
-            // Replace all 4 places: id, href, data-endnote, inner text
-            const newNum = current++;
-
-            return match
-                .replace(/id="endnote\d+"/, `id="endnote${newNum}"`)
-                .replace(/href="#endnoteIndex\d+"/, `href="#endnoteIndex${newNum}"`)
-                .replace(/data-endnote="\d+"/, `data-endnote="${newNum}"`)
-                .replace(/>(\d+)<\/a>/, `>${newNum}</a>`);
-        });
-    }
-
-    // Save updated HTML
-    sessionStorage.setItem('htmlPreview', updatedHTML);
-
-    // Convert to XML
-    try {
-        updatedHTML = `<document>${updatedHTML}</document>`;
-        const xsltResponse = await fetch('./xml/html-to-bho-xml.xslt');
-        const xsltText = await xsltResponse.text();
-        const docXML = transformXml(updatedHTML, xsltText);
-        sessionStorage.setItem('XMLPreview', docXML);
-        console.log('XML saved to session storage.', docXML);
-    } catch (error) {
-        console.error('XSLT transform failed:', error);
-        showAlert('XSLT transformation failed.', 'danger');
-    }
+    // Save updated XML
+    sessionStorage.setItem('XMLPreview', updatedXML);
 
     showAlert(`Successfully renumbered <code>${selectedTag}</code> elements starting from ${resetFrom}.`, 'success');
     $('#renumberModal').modal('hide');
@@ -337,4 +309,21 @@ function fillMissingPageNumerals(pageNumerals) {
             pageNumerals[i] = (startValue + i).toString();
         }
     }
+}
+
+function processXML(file, fileName, zip) {  // Accept zip as a parameter
+    return new Promise((resolve, reject) => {
+        const fileReader = new FileReader();
+        fileReader.onload = function (event) {
+            const xmlContent = event.target.result;
+
+            sessionStorage.setItem('XMLPreview', xmlContent);
+
+            // Add the uploaded XML content to the ZIP file
+            zip.file(fileName, xmlContent); // Use the passed zip object
+            resolve();
+        };
+
+        fileReader.readAsText(file);
+    });
 }
