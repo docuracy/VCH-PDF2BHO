@@ -150,6 +150,17 @@ $('#renumberGoBtn').on('click', async function () {
     // Save updated XML
     sessionStorage.setItem('XMLPreview', updatedXML);
 
+    const zip = new JSZip();
+    const fileName = window.uploadedFileName || 'renumbered.xml';
+    zip.file(fileName, updatedXML);
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const reader = new FileReader();
+    reader.onload = function () {
+        const base64Zip = reader.result;
+        sessionStorage.setItem('preparedZip', base64Zip);
+    }
+    reader.readAsDataURL(blob);
+
     showAlert(`Successfully renumbered <code>${selectedTag}</code> elements starting from ${resetFrom}.`, 'success');
     $('#renumberModal').modal('hide');
 });

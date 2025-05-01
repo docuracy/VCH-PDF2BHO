@@ -45,6 +45,7 @@ jQuery(document).ready(function ($) {
 
         // Iterate through selected files
         uploadedFiles.forEach(file => {
+            window.uploadedFileName = file.name; // Store the uploaded file name in a global variable
             const extension = file.name.split('.').pop().toLowerCase();
             const fileType = (extension === 'pdf') ? 'application/pdf' :
                 (extension === 'zip') ? 'application/zip' :
