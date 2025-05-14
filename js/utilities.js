@@ -99,53 +99,51 @@ $('#renumberGoBtn').on('click', async function () {
     let current = resetTo;
     let updatedXML = savedXML;
 
-    if (selectedTag === 'page') {
-        const pageRegex = /<page\s+start="(\d+)"\s*\/>/g;
-
-        let firstFound = false;
-        updatedXML = updatedXML.replace(pageRegex, (match, oldStart) => {
-            const startNum = parseInt(oldStart, 10);
-            if (!firstFound) {
-                if (startNum !== resetFrom) return match;
-                firstFound = true;
+    const renumberConfigs = {
+        ref: {
+            regex: /<ref\s+idref="(\d+)">(\d+)<\/ref>/g,
+            replace: () => {
+                const newNum = current++;
+                return `<ref idref="${newNum}">${newNum}</ref>`;
             }
+        },
+        note: {
+            regex: /<note\s+id="n(\d+)"\s+number="(\d+)">(\d+)/g,
+            replace: () => {
+                const newNum = current++;
+                return `<note id="n${newNum}" number="${newNum}">${newNum}`;
+            }
+        },
+        para: {
+            regex: /<para\s+id="p(\d+)"\s*>/g,
+            replace: () => `<para id="p${current++}">`
+        },
+        section: {
+            regex: /<section\s+id="s(\d+)"\s*>/g,
+            replace: () => `<section id="s${current++}">`
+        },
+        page: {
+            regex: /<page\s+start="(\d+)"\s*\/>/g,
+            replace: () => `<page start="${current++}"/>`
+        }
+    };
 
-            const newStart = current++;
-            return `<page start="${newStart}"/>`;
-        });
+    const config = renumberConfigs[selectedTag];
+    if (!config) {
+        showAlert(`Unsupported tag: ${selectedTag}`, 'danger');
+        return;
     }
 
-    if (selectedTag === 'ref') {
-        const refRegex = /<ref\s+idref="(\d+)">(\d+)<\/ref>/g;
-
-        let firstFound = false;
-        updatedXML = updatedXML.replace(refRegex, (match, oldIdref, oldContent) => {
-            const idNum = parseInt(oldIdref, 10);
-            if (!firstFound) {
-                if (idNum !== resetFrom) return match;
-                firstFound = true;
-            }
-
-            const newNum = current++;
-            return `<ref idref="${newNum}">${newNum}</ref>`;
-        });
-    }
-
-    if (selectedTag === 'note') {
-        const noteRegex = /<note\s+id="n(\d+)"\s+number="(\d+)">(\d+)/g;
-
-        let firstFound = false;
-        updatedXML = updatedXML.replace(noteRegex, (match, oldId, oldNumber, oldContent) => {
-            const idNum = parseInt(oldId, 10);
-            if (!firstFound) {
-                if (idNum !== resetFrom) return match;
-                firstFound = true;
-            }
-
-            const newNum = current++;
-            return `<note id="n${newNum}" number="${newNum}">${newNum}`;
-        });
-    }
+    let firstFound = false;
+    updatedXML = updatedXML.replace(config.regex, function (...args) {
+        const match = args;
+        const matchedValue = parseInt(match[1], 10);
+        if (!firstFound) {
+            if (matchedValue !== resetFrom) return match[0];
+            firstFound = true;
+        }
+        return config.replace(match);
+    });
 
     // Save updated XML
     sessionStorage.setItem('XMLPreview', updatedXML);
