@@ -62,7 +62,11 @@ body {
     top: -.2rem;
 }
 
-#htmlPreviewContent .sub {
+#htmlPreviewContent key {
+    background-color: bisque;
+}
+
+#htmlPreviewContent .index-sub {
     margin-left: 32px;
 }
 

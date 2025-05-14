@@ -255,7 +255,7 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
                     pageHTML += `<div class="entry">${indexBuffer}</div>`;
                     indexBuffer = '';
                 }
-                indexBuffer += `<div class="index-head">${normaliseIndexEntry(item.str)}</div>`;
+                indexBuffer += `<div class="index-head">${normaliseIndexEntry(item.str, true)}</div>`;
             } else if (item.subStart) {
                 indexBuffer += `<div class="index-sub">${normaliseIndexEntry(item.str)}</div>`;
             }
