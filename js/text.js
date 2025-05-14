@@ -109,7 +109,7 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
     console.debug(`Page ${pageNum} - segmentation:`, structuredClone(segmentation));
     console.debug(`Page ${pageNum} - items pre-overlap: ${items.length}:`, structuredClone(items));
 
-    if (!isIndex) closeOverlaps(items);
+    // if (!isIndex) closeOverlaps(items);
 
     // Initialise set to store found footnote numbers
     let foundFootnoteIndices = new Set();
