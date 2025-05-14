@@ -175,6 +175,34 @@ const decodeHtmlEntities = (html) => {
     return txt.value;
 };
 
+function normaliseIndexEntry(input) {
+    let result = input;
+
+    // Step 1: Move numbers out of <h*> tag
+    result = result.replace(/^<h(\d+)>([^<]*?)([ ,;\d–npl.]+)<\/h\1>/i, (match, level, label, nums) => {
+        return `<h${level}>${label}</h${level}>, ${nums.trim()}`;
+    });
+
+    // Step 2: Spacing fixes
+    result = result.replace(/([,;])(?=\S)/g, '$1 ');      // Ensure space after , ;
+    result = result.replace(/\s{2,}/g, ' ');              // Collapse multiple spaces
+    result = result.replace(/\s+([,;])/g, '$1');          // Remove space before , ;
+    result = result.replace(/([^>\s])pl\./g, '$1 pl.');   // Ensure space before 'pl.'
+    result = result.replace(/h6>/g, 'b>');                // Replace <h6> with <b>
+    result = result.replace(/(\s+)<em>n<\/em>/g, '<em>n</em>'); // Remove space before <em>n</em>
+
+    // Step 3: Insert <key> around label before index numbers
+    const keyMatch = result.match(
+        /^(.*?)(?=(,\s*(<em>see<\/em>|m\.\s+\d+|pl\.\s+\d+|<em>\d+|<b>\d+|\d+)|:$))/i
+    );
+    if (keyMatch) {
+        const key = keyMatch[1].trimEnd();
+        result = result.replace(key, `<key>${key}</key>`);
+    }
+
+    return result;
+}
+
 function closeOverlaps(items) {
     // Reverse loop to merge overlapping items
     for (let i = items.length - 1; i > 0; i--) {

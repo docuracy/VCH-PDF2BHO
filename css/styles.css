@@ -62,6 +62,10 @@ body {
     top: -.2rem;
 }
 
+#htmlPreviewContent .sub {
+    margin-left: 32px;
+}
+
 #htmlPreviewContent .endnote {
     text-align: left;
     margin-bottom: 0.2rem;

@@ -2,7 +2,7 @@
 // Description: Contains functions for extracting text from PDFs.
 
 
-async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pageNumeral) {
+async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pageNumeral, isIndex) {
 
     console.info(`Processing page ${pageNum}...`);
 
@@ -107,8 +107,9 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
     );
 
     console.debug(`Page ${pageNum} - segmentation:`, structuredClone(segmentation));
+    console.debug(`Page ${pageNum} - items pre-overlap: ${items.length}:`, structuredClone(items));
 
-    closeOverlaps(items);
+    if (!isIndex) closeOverlaps(items);
 
     // Initialise set to store found footnote numbers
     let foundFootnoteIndices = new Set();
@@ -134,6 +135,7 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
 
     // Identify paragraph ends
     const tolerance = 5;
+    let indexRow = 1000000;
 
     function isSameBlock(item, reference) {
         return item?.row === reference?.row && item?.column === reference?.column;
@@ -181,6 +183,15 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
         if (matchedCondition) {
             item.paragraph = matchedCondition.id;
         }
+
+        if (isIndex) {
+            const subLeft = 10;
+            item.index = item.height === 8.5;
+            item.entryStart = item.index && !item.isItemIndented;
+            item.subStart = item.index && item.isItemIndented && !item.isPreviousItemSameLine && item.left - subLeft < (segmentation[item.row].columns[item.column]?.range[0] ?? 'Infinity');
+            if (item.entryStart || item.subStart) indexRow++;
+            item.row = indexRow;
+        }
     });
 
     // Wrap footnote indices in superscript tags
@@ -191,6 +202,7 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
     console.debug(`Page ${pageNum} - items pre-merge: ${items.length}:`, structuredClone(items));
 
     await mergeItems(items, ['row', 'subColumns', 'fontName', 'height', 'header', 'italic', 'bold']);
+    console.debug(`Page ${pageNum} - items post-merge: ${items.length}:`, structuredClone(items));
 
     // Identify tables
     let tabular = false;
@@ -230,10 +242,24 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
         item.str = `<img src="${drawings[index]}" />`;
     });
 
+    console.debug(`Page ${pageNum} - pre-HTML: ${items.length}:`, structuredClone(items));
+
     // Construct page HTML
     let pageHTML = `<p class="pageNum" start="${pageNumeral}">--- Page ${pageNumeral} (PDF ${pageNum}) ---</p>`;
+    let indexFlush = false;
+    let indexBuffer = '';
     items.forEach(item => {
-        if (item.fontName === 'drawing') {
+        if (item?.index) {
+            if (item.entryStart) {
+                if (indexBuffer) {
+                    pageHTML += `<div class="entry">${indexBuffer}</div>`;
+                    indexBuffer = '';
+                }
+                indexBuffer += `<div class="index-head">${normaliseIndexEntry(item.str)}</div>`;
+            } else if (item.subStart) {
+                indexBuffer += `<div class="index-sub">${normaliseIndexEntry(item.str)}</div>`;
+            }
+        } else if (item.fontName === 'drawing') {
             pageHTML += `<div class="drawing">${item.str}</div>`;
         } else if (item?.paragraph === 'table') {
             pageHTML += `<div class="table">${item.str}</div>`;
@@ -261,6 +287,9 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
             pageHTML += `<div class="${classes.join(' ')}">${item.str}</div>`;
         }
     });
+    if (indexBuffer) {
+        pageHTML += `<div class="entry">${indexBuffer}</div>`;
+    }
 
     /////////////////////////////
     // FINALISE
@@ -361,8 +390,8 @@ async function mergeItems(items, properties) {
     for (let i = items.length - 1; i > 0; i--) { // Start from the end and move to the beginning
         const currentItem = items[i];
         const previousItem = items[i - 1];
-        if (!previousItem.paragraph && !previousItem.tableLine) {
-            // Merge if all properties match and the previous item is not a paragraph end
+        if ((!currentItem.index && !previousItem.paragraph && !previousItem.tableLine) || (currentItem.index && !currentItem.entryStart && !currentItem.subStart)) {
+            // Merge if all properties match
             if (properties.every(prop => (
                 ((prop in currentItem && prop in previousItem) &&
                 currentItem[prop] === previousItem[prop]) || // Check that property values match if present in both items

@@ -3,6 +3,9 @@
 
 // Function to process PDF files
 function processPDF(file, fileName, zip) {  // Accept zip as a parameter
+
+    const isIndex = fileName.includes('_Index');
+
     return new Promise((resolve, reject) => {
         const fileReader = new FileReader();
         fileReader.onload = function () {
@@ -106,7 +109,7 @@ function processPDF(file, fileName, zip) {  // Accept zip as a parameter
                 // Iterate over pages to process items
                 for (let pageNum = startPage; pageNum <= maxPage; pageNum++) {
                     let pageHTML = '';
-                    [maxEndnote, pageHTML] = await processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pageNumerals[pageNum - 1]);
+                    [maxEndnote, pageHTML] = await processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pageNumerals[pageNum - 1], isIndex);
                     docHTML += `${pageHTML}<hr class="remove" />`; // Add horizontal rule between pages
                 }
 

@@ -72,6 +72,27 @@
         </section>
     </xsl:template>
 
+    <!-- Convert <div class="head"> elements to <head> elements -->
+    <xsl:template match="div[contains(@class, 'index-head')]">
+        <head>
+            <xsl:apply-templates/>
+        </head>
+    </xsl:template>
+
+    <!-- Convert <div class="sub"> elements to <sub> elements -->
+    <xsl:template match="div[contains(@class, 'index-sub')]">
+        <sub>
+            <xsl:apply-templates/>
+        </sub>
+    </xsl:template>
+
+    <!-- Convert <div class="entry"> elements to <entry> elements -->
+    <xsl:template match="div[contains(@class, 'entry')]">
+        <entry>
+            <xsl:apply-templates/>
+        </entry>
+    </xsl:template>
+
     <!-- Convert <div class="paragraph"> elements to <para> elements, dropping attributes -->
     <xsl:template match="div[contains(@class, 'paragraph')]">
         <section id="s{count(preceding::div[contains(@class, 'header') or contains(@class, 'paragraph')]) + 1}">
