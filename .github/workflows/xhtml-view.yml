@@ -5,14 +5,26 @@ on:
     branches: ["master"]
   workflow_dispatch:
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write  # required by configure-pages
+
 jobs:
   deploy-xhtml:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload XHTML folder
+        uses: actions/upload-pages-artifact@v3
         with:
-          path: 'xhtml-view'
-      - uses: actions/deploy-pages@v4
+          path: 'xhtml-view'  # your folder containing index.html
+
+      - name: Deploy Pages
         id: deployment
+        uses: actions/deploy-pages@v4
