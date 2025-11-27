@@ -4,15 +4,21 @@
 <head>
     <meta charset="UTF-8"/>
     <meta content="application/xhtml+xml"/>
+    <meta data-pubid="2001"/>
 </head>
-<body class="vch-report" data-pubid="160028">
+<body>
 <hr class="vch-page" data-idstart="249"/>
-<h2 class="title">Preparing VCH Content in XHTML for BHO</h2>
-<p class="subtitle">Author: Stephen Gadd</p>
+<h2 id="title">Preparing VCH Content in XHTML for BHO</h2>
+<p id="subtitle">Author: Stephen Gadd</p>
 
 <h3>Overview</h3>
 
-<p>This document demonstrates the simplicity of preparing VCH content in standard XHTML for use in BHO.</p>
+<p>This document demonstrates the simplicity of preparing VCH content in standard XHTML for use in BHO. <i>It uses
+    JavaScript to replicate the functionality of the BHO XSLT stylesheet: a prototype of that can be seen <a
+            target="_blank"
+            href="https://raw.githubusercontent.com/docuracy/VCH-PDF2BHO/refs/heads/master/xhtml-view/xsl/xhtml.xsl">here</a>, and its output <a
+            target="_blank"
+            href="https://docuracy.github.io/VCH-PDF2BHO/xhtml-view/xsl-output/output.html">here</a>.</i></p>
 
 <ul>
     <li>The numbering of elements requires no manual intervention. If you need to force a specific number, add a
@@ -25,6 +31,10 @@
 
     <li>The page title must be entered in a <code>&lt;h1 class="title"&gt;</code> or <code>&lt;h2
         class="title"&gt;</code> element; subtitles can be added using <code>&lt;p class="subtitle"&gt;</code>.
+    </li>
+
+    <li>The BHO <code>pubid</code> (if known) should be included in a <code>&lt;meta
+        data-pubid="..."&gt;</code> element in the document head. It is used to generate urls for BHO images and pages.
     </li>
 
     <li>Formatting uses ordinary, readable XHTML elements:
@@ -56,82 +66,309 @@
     </li>
 </ul>
 
-The remainder of this document is a selection of VCH content prepared in XHTML format.
+The remainder of this document is a selection of VCH content prepared in XHTML format. It can be viewed in its naked simplicity <a
+        target="_blank"
+        href="https://raw.githubusercontent.com/docuracy/VCH-PDF2BHO/refs/heads/master/xhtml-view/160028.xhtml">here</a>.
 
 <hr class="vch-page"/>
 
-<p>From the eleventh to the 19th century Wychwood was one of the great royal forests of England,
-    <aside>This account was written in 2016–17...</aside>
-    comparable with Savernake, Rockingham, or Whittlewood.
-    <aside>Oxon. Atlas, pp. 48–9...</aside>
-    Its boundaries as a legal entity were the subject of repeated conflict.
-    <aside>Below (boundaries).</aside>
+<p>The late 1870s, in Staffordshire as in England generally, marked the beginning of a long period during which
+    agriculture was exposed to the full force of foreign competition and was often held by contemporaries to be in
+    depression.
+    <aside>For general accounts see E. H. Whetham, Agrarian Hist. vi (1), 216–357; P. J. Perry, Brit. Agric. 1875–1914,
+        1–40.
+    </aside>
+    The period was one of low or falling rents and prices and of declining employment. Farmers were compelled to reduce
+    costs and to alter their methods to produce those goods whose prices were least affected by imports. Those
+    constraints persisted until the outbreak of the Second World War, though the First World War gave a brief respite.
 </p>
 
-<h3>Landscape, Settlement, and Buildings</h3>
-
-<h4>Forest and Park Boundaries To 1857</h4>
-
-<p>When first mentioned <em>c</em>.840–2 ‘Wychwood’ (Huiccewudu) comprised a large and apparently ill-defined
-    area.
-    <aside>Sawyer S.196...</aside>
-    By 1086, along with Cornbury, Woodstock, Shotover, and Stowood, it formed one of Oxfordshire’s royal demesne
-    forests.
-    <aside>DB, f. 154v.</aside>
+<p>The beginning of the period of adjustment is difficult to pinpoint: on some estates rents were falling from 1870, on
+    others they declined only from the late 1870s.
+    <aside>Below (rents).</aside>
+    The weather in the 1870s was frequently unfavourable. In 1877 floods of the Trent at Trentham were said to have
+    destroyed the hay crop six times since 1865.
+    <aside>S.R.O., D. 593/K/1/5/47, Trentham Hall est. letter bk. 1870–80, pp. 324–5.</aside>
+    The wet summer of 1879 was disastrous in many places, though not universally.
+    <aside>Rep. of R.C. on Agric. Depression [C 2778], pp. 421–39, H.C. (1881), xvi; Agric. Returns G.B. 1879, pp.
+        66–7.
+    </aside>
+    Successive wet years caused widespread losses of stock from liver rot.
+    <aside>Rep. of R.C. on Agric. Depression, pp. 421, 423, 425, 430.</aside>
 </p>
 
-<figure>
-    <img src="../images/VCH.jpeg"/>
-    <figcaption data-idstart="71">Wychwood forest boundaries c.1154–1300.</figcaption>
-</figure>
+<h3>Arable Farming</h3>
 
-<p>Following inquisitions in 1219 and 1229 the forest was reduced to the alleged bounds of 1154.
-    <aside>Schumer, ‘Perambulations’, 2–19.</aside>
-    James I attempted further enlargement in a bid to increase royal revenues, but in 1641 Charles I was forced
-    to accept a
+<p>From the mid 1870s until 1939 the importance of arable farming in Staffordshire declined, apart from a brief recovery
+    as a result of government action during the First World War. Arable acreage fell from 226,566 a. in 1875 to 150,554
+    a. in 1915, rose to 185,432 a. in 1918 (far less than the government's requirement), and fell again to 114,184 a. in
+    1938.
+    <aside>Agric. Returns G.B.</aside>
+    In 1915 only the Lichfield and Brownhills, the Wolverhampton, and the Kingswinford and Wordsley petty sessional
+    districts had more than half their land under the plough; while the Cheadle, Uttoxeter, and Leek districts, covering
+    the Moorlands, had less than 10 per cent arable.
+    <aside>Rep. on Agric. and Ind. Conditions in Staffs. for 1915, 12–13.</aside>
+</p>
+
+<hr class="vch-page"/>
+
+<p>There were, however, some changes in the balance of cropping. Wheat acreage declined from 60,092 a. in 1868 to 25,532
+    a. in 1916; it rose again under the government's ploughing-up campaign to 37,378 a. in 1919 but fell to 13,559 a. in
+    1931. As a result of the guaranteed minimum price under the Wheat Act, 1932,
+    <aside>22 &amp; 23 Geo. V, c. 12.</aside>
+    the acreage increased again to 26,022 in 1939.
+    <aside>Agric. Returns G.B.</aside>
+    It was then more or less evenly distributed, but was absent in the north-east and on Cannock Chase and was most
+    important on the light soils of the south.
+    <aside>Types of Farming Map of Eng. &amp; Wales (Min. of Agric. 1941), sheet 8.</aside>
+</p>
+
+<p>Barley declined more markedly from 32,660 a. in 1870 to 1,698 a. in 1939; it became concentrated almost exclusively
+    on the light soils.
+    <aside>Agric. Returns G.B.; Types of Farming Map, sheet 8.</aside>
+    The area under oats, which were grown more easily than barley on heavy and moorland soils, fluctuated; it increased
+    at the expense of barley to 37,522 a. in 1900, declined to 34,686 a. in 1916, reached a peak of 51,000 a. in 1918,
+    and then fell again to 21,255 a. in 1939.
 </p>
 
 <table>
-    <caption data-idstart="21">Forest Area Estimates (<u>fictitious example</u>)</caption>
+    <caption>Acreage of Principal Crops 1916–19</caption>
     <thead>
     <tr>
         <th>Year</th>
-        <th>Estimated Area (acres)</th>
-        <th>Source</th>
+        <th>Wheat</th>
+        <th>Barley</th>
+        <th>Oats</th>
+        <th>Potatoes</th>
+        <th>Turnips and Swedes</th>
     </tr>
     </thead>
     <tbody>
     <tr>
-        <td>1154</td>
-        <td>7,000</td>
-        <td>
-            <aside>Schumer, ‘Perambulations’, 12.</aside>
-        </td>
+        <td>1916</td>
+        <td>25,532</td>
+        <td>2,049</td>
+        <td>34,686</td>
+        <td>9,366</td>
+        <td>15,697</td>
     </tr>
     <tr>
-        <td>1229</td>
-        <td>5,400</td>
-        <td>
-            <aside>Oxon. Atlas, p. 49.</aside>
-        </td>
+        <td>1917</td>
+        <td>28,840</td>
+        <td>2,260</td>
+        <td>40,485</td>
+        <td>11,850</td>
+        <td>18,022</td>
     </tr>
     <tr>
-        <td>1641</td>
-        <td>4,800</td>
-        <td>
-            <aside>DB, f. 154v.</aside>
-        </td>
+        <td>1918</td>
+        <td>37,164</td>
+        <td>2,648</td>
+        <td>51,004</td>
+        <td>16,092</td>
+        <td>24,143</td>
+    </tr>
+    <tr>
+        <td>1919</td>
+        <td>37,378</td>
+        <td>2,383</td>
+        <td>45,932</td>
+        <td>14,423</td>
+        <td>20,537</td>
     </tr>
     </tbody>
 </table>
 
-<hr class="vch-page"/>
+<h3>Grassland and Stock</h3>
 
-<p>return to the earlier bounds.
-    <aside>Schumer, ‘Perambulations’, 22–5.</aside>
+<p>The conversion of arable to permanent grass continued fairly steadily from 1875 to 1939, except during the brief
+    reversion to arable caused by the First World War. By 1939 permanent grass occupied 78 per cent of the total crops
+    and grass. The grass acreage, however, reached its peak in 1910, and it grew most rapidly before 1890.</p>
+
+<h4>Cattle and Dairying</h4>
+
+<p>The number of cattle increased from 138,940 in 1875 to 300,803 in 1973. The only significant set-back was a fall from
+    189,276 animals in 1919 to 166,367 in 1920. The increase is largely attributable to the continued expansion of
+    dairying.
+    <aside>Below (dairying).</aside>
 </p>
 
-<link data-ignore="true" rel="stylesheet" href="./css/xhtml.css"/>
-<script data-ignore="true" type="text/javascript" src="./js/xhtml.js"/>
+<hr class="vch-page"/>
+
+<p>The intensification of dairying was accompanied by a change of emphasis from cheese production to liquid-milk sales.
+    The change was precipitated by large-scale imports of American cheese in 1879, which reduced cheese prices
+    disastrously. In north Staffordshire some farmers gave up dairying altogether. By 1881 cheese-making had been
+    'nearly done away with' round Lichfield, where labour difficulties aggravated the price fall; farmers were 'nearly
+    all sending their milk away as milk'.
+    <aside>Rep. of R.C. on Agric. Depression, pp. 421, 426.</aside>
+</p>
+
+<p>By 1890 milk was 'the chief article on which the farmer depends' in the Rocester area,
+    <aside>V.C.H. Staffs. ii. 210.</aside>
+    and cheese-making was rare round Burton-upon-Trent by 1888.
+    <aside>Ibid. 211.</aside>
+    Most of the milk was sent by rail to London.
+    <aside>Rep. of R.C. on Agric. Depression, p. 426.</aside>
+    By 1910 the Great Northern Railway ran a special milk train daily to London from Egginton Junction outside Burton.
+    <aside>S.R.O., D. 661/6/3/2, Dyott of Freeford papers, cutting from Burton Chron. 24 Oct. 1910.</aside>
+</p>
+
+<figure>
+    <img src="../images/fig12.jpg"/>
+    <figcaption>Friesian dairy cattle at Tittensor, 1925</figcaption>
+</figure>
+
+<h4>Sheep</h4>
+
+<p>Sheep-farming has become less significant in the 20th century than in the 19th. Between the 1870s and the First World
+    War the number of sheep in the county tended to fall. After the war, as F. R. Twemlow put it in 1919, 'sheep have
+    been given up as a bad job. They cannot be used at home, nor can they be sold at market for a fair price, under the
+    present system of control.'
+    <aside>S.R.O., D. 3643/F/11/24, F. R. Twemlow to Min. of Agric. 22 Jan. 1919.</aside>
+    There were 212,016 in 1915 but only 108,616 in 1923.
+</p>
+
+<p>The breeds of sheep kept also changed, perhaps because of a shift from fattening or folding sheep on arable to
+    keeping them less intensively on grassland.
+    <aside>Above (grassland).</aside>
+    In the late 19th century the Shropshire sheep remained predominant, especially in the southern arable areas, as its
+    early maturity suited it to the fat-lamb trade.
+    <aside>V.C.H. Staffs. ii. 212.</aside>
+</p>
+
+<h3>Agrarian Economy and Society</h3>
+
+<p>In the late 19th century some of the great estates of Staffordshire were still growing. Lord Harrowby, for example,
+    bought 418 a. in 1890 and a further 116 a. in 1891; the Sandon estate, which had been 4,100 a. in 1856, covered
+    6,170 a. in the late 1890s.</p>
+
+<hr class="vch-page"/>
+
+<h4>Estate Sales and Owner-Occupation</h4>
+
+<p>In the early years of the 20th century the great estates began to break up. Lord Ferrers sold the Chartley estate in
+    1904; nearly half went to one purchaser, much of the rest to sitting tenants.
+    <aside>S.R.O., D. 240/E/20/1–9.</aside>
+    Lord Macclesfield sold his Croxden estate and other lands in north Staffordshire in 1913, some of it to the tenants,
+    <aside>Ibid. D. 3288/2/12/1–6.</aside>
+    and in 1914 the duke of Sutherland sold most of his property at Tittensor in Stone and Great Wyrley in Cannock.
+    <aside>Ibid. D. 593/A/1/1/76–7; D. 593/A/2/4/50.</aside>
+</p>
+
+<p>Between 1918 and 1921 much more land was thrown on the market, though sales were perhaps less extensive in
+    Staffordshire than elsewhere.
+    <aside>Below (prices).</aside>
+    The estates were generally sold in lots and many farms were bought by their tenants. In 1918 2,938 a. of the
+    Giffards' Chillington estate, Lord Anglesey's 5,091-a. Burton estate, 880 a. of Lord Stafford's land round Stafford,
+    much of Lord Shrewsbury's property including 6,475 a. at Alton, the Sneyd-Kinnersleys' estate of 2,394 a. at Loxley
+    Park, and the Staffordshire estates of the earl of Wilton and Baroness Zouche were advertised for sale.
+    <aside>Staffs. Advertiser, 27 July, 3 Aug., 31 Aug., 21 Sept., 28 Sept., 12 Oct. 1918.</aside>
+</p>
+
+<h4>Agricultural Rents</h4>
+
+<p>The reduction of agricultural rents in Staffordshire in the late 19th century was less than in many other parts of
+    England, partly because the county was already predominantly pastoral. Rents fell further in south than in north
+    Staffordshire, and further on arable farms than on grass ones. Serious difficulties for both landlords and tenants
+    generally began in the late 1870s.</p>
+
+<p>The rental value of farm-land at Trentham began falling in 1877; it was than 42s. 11d. an acre, but by 1881 was down
+    to 38s. 11d. In 1879 there were rent reductions averaging 13½ per cent on six farms, but three of the reductions
+    were temporary.
+    <aside>S.R.O., D. 593/K/1/5/47, pp. 277, 300–1, 339, 359–60, 369–70, 377, 382, 385, 388, 401–2, 462, 550; /5/48, pp.
+        18–19, 42, 53; /5/49, p. 198.
+    </aside>
+</p>
+
+<hr class="vch-page"/>
+
+<h4>Farm Labour and Wages</h4>
+
+<p>The numbers occupied in agriculture greatly declined. In 1871 there were 31,029, in 1921 24,820, and in 1973 12,131.
+    <aside>Census, 1871–1971; Agric. Returns G.B. 1973.</aside>
+    The proportion of labourers to farmers also declined, especially in the late 19th and early 20th centuries. In 1871
+    the workforce included 11,038 farmers and their families, 14,127 out-labourers, and 4,997 farm servants;
+    <aside>Census, 1871.</aside>
+    by 1911 there were still 10,264 farmers and their working relatives but only 12,460 farm servants and labourers.
+    <aside>Census, 1911.</aside>
+</p>
+
+<p>In 1879 a labourer estimated that agricultural wages were only some 12s.–15s. a week, though farmers complained that
+    such rates were ruinous.
+    <aside>Rep. of R.C. on Agric. Depression, p. 439.</aside>
+    By 1881 15s. or 16s. was a common wage for ordinary labourers, though one witness to the Royal Commission on
+    Agriculture paid 18s. or more; up to 21s. was paid to stockmen and other skilled workers. Those rates often included
+    a rent-free cottage; when rent was charged it was generally £4–£4 10s. a year.
+</p>
+
+<p>During the First World War weekly wage rates, which from 1917 were subject to a minimum imposed under the Corn
+    Production Act,
+    <aside>7 &amp; 8 Geo. V, c. 46.</aside>
+    rose rapidly. By July 1917 the wage averaged 24s. By May 1918 the wages of ordinary labourers varied from 26s. to
+    27s., and those of wagoners and stockmen could be up to 30s. In that year the Agricultural Wages Board raised the
+    minimum to 35s.
+    <aside>S.R.O., C/PC/II/2/7, Staffs. War Agric. Ctee. min. bk. 1917–18, pp. 77, 127.</aside>
+</p>
+
+<h3>Agricultural Education</h3>
+
+<p>The 1890s saw great advances in the provision of agricultural education. In 1891 Lord Hatherton established an
+    agricultural technical school at Penkridge for the children of labourers on his estate and organized a series of
+    dairy lectures and demonstrations on his farms.
+    <aside>Staffs. Educ. Ctee. Tech. Instruction Sub-Ctee. Rep. 1891, 6.</aside>
+    More important for the future was the work of the county council's technical instruction committee, set up in 1890
+    under the Technical Instruction Act, 1889.
+    <aside>52 &amp; 53 Vic. c. 76.</aside>
+</p>
+
+<hr class="vch-page"/>
+
+<p>In 1891 the committee engaged two peripatetic instructors to give lectures on agriculture at villages throughout the
+    county. In the winter of 1891–2 general lectures on agriculture were given at 23 villages, and short courses on
+    dairy work at ten. Butter- and cheese-making demonstrations were arranged. By 1895 there were separate courses in
+    the making of Cheshire and Staffordshire cheese, and by 1898 there was a travelling dairy school.</p>
+
+<p>In 1898 an agricultural side was opened at Brewood grammar school, providing a three-year course of theoretical and
+    practical instruction in agriculture and related subjects. The technical instruction committee provided a building
+    grant and three (by 1913 five) agricultural scholarships.
+    <aside>Staffs. Educ. Ctee. Rep. 1897–8, 25; 1898–9, 21; 1912–13, 55.</aside>
+    In the years before the First World War the teaching of agricultural and horticultural subjects at council schools
+    was greatly extended. In 1904 four schools offered gardening courses. By 1913 there were 192, and 8 schools offered
+    poultry-keeping and 7 bee-keeping courses.
+    <aside>Staffs. Educ. Ctee. Rep. 1904–5, 92–3; 1912–13, 55, 97.</aside>
+</p>
+
+<figure>
+    <img src="../images/fig12.jpg"/>
+    <figcaption>Rodbaston Farm Institute, established 1921</figcaption>
+</figure>
+
+<p>In 1913 there were plans to establish a farm institute near Stafford,
+    <aside>Staffs. Educ. Ctee. Rep. 1912–13, 42.</aside>
+    but they were postponed until after the First World War. In 1919 the War Agricultural Committee opened its former
+    tractor depot at Dunston in Penkridge as a training depot for men working in agriculture; in the same year the
+    county council bought Rodbaston Hall (also in Penkridge) and the depot was transferred there. A farm institute was
+    finally opened at Rodbaston in 1921.
+    <aside>S.R.O., C/E/3/1, Staffs. Educ. Ctee. min. bk. 1919–22, pp. 84, 114, 190, 262, 324, 351, 376, 445; Staffs.
+        Educ. Ctee. Rep. 1920–1, 18, 28.
+    </aside>
+</p>
+
+<hr class="vch-page"/>
+
+<p>It provided 22-week winter courses for youths of 16–20 who intended to make their living from the land, and 17-week
+    summer courses in dairying, poultry-keeping, and domestic science for women over 16. There was a 300-a. farm
+    attached, which was run as a commercial venture.
+    <aside>Staffs. Educ. Ctee. Rep. 1920–1, 28.</aside>
+    The institute was requisitioned in 1940; it was later used to train Land Girls on short courses, and a hostel was
+    built. In October 1944 the institute was reopened on pre-war lines with an additional summer course for men.
+    <aside>Ibid. 1944–5, 28.</aside>
+    In the 1950s and 1960s the number of students was greatly increased, and the buildings were extended. In 1967 the
+    institute became the Staffordshire College of Agriculture.
+    <aside>Inf. from Mr. M. Stone, principal of Rodbaston Coll. (1977).</aside>
+</p>
+
+<link data-xsl-ignore="true" rel="stylesheet" href="./css/xhtml.css"/>
+<script data-xsl-ignore="true" type="text/javascript" src="./js/xhtml.js"/>
 </body>
 </html>

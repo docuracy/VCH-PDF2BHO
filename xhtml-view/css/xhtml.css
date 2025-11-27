@@ -7,8 +7,54 @@ body {
     padding: 20px;
 }
 
-section {
-    margin-bottom: 2em;
+header {
+    background-color: #ff130114;
+    padding: 1.5rem;
+    border-radius: 8px;
+    border: 1px solid #ed143d33;
+    margin-bottom: 2rem;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+header h2 {
+    margin-top: 0;
+    color: #c41230;
+    font-size: 1.3em;
+    border-bottom: 2px solid #ed143d66;
+    padding-bottom: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+header > ul {
+    margin: 0.5rem 0;
+    padding-left: 0;
+    list-style-type: none;
+}
+
+header ul ul {
+    margin-top: 0.25rem;
+    margin-bottom: 0.25rem;
+    padding-left: 2rem;
+    list-style-type: disc;
+}
+
+header ul ul ul {
+    list-style-type: circle;
+}
+
+header ul ul ul ul {
+    list-style-type: square;
+}
+
+header a {
+    color: #0066cc;
+    text-decoration: none;
+    transition: color 0.2s ease;
+}
+
+header a:hover {
+    color: #c41230;
+    text-decoration: underline;
 }
 
 h1 {
