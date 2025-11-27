@@ -5,10 +5,16 @@
 </head>
 <body>
 
-<input type="file" id="file-input" accept=".xml,.xhtml,.html,.txt">
+<div id="controls">
+    <div id="file-input-wrapper">
+        <input type="file" id="file-input" accept=".xml,.xhtml,.html,.txt">
+    </div>
+    <button id="validate-btn">Validate XML</button>
+    <span id="validation-result"></span>
+</div>
 
 <div id="tabs">
-    <button id="edit-tab">Edit</button>
+    <button id="edit-tab" class="active">Edit</button>
     <button id="preview-tab">Preview</button>
 </div>
 
