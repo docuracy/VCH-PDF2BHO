@@ -1,0 +1,90 @@
+/* Container for editor + preview */
+#workspace {
+    display: grid;
+    grid-template-columns: 1fr 1fr; /* editor | preview */
+    height: 100vh;
+    overflow: hidden;
+}
+
+/* Editor pane */
+#editor-pane {
+    height: 100%;
+    overflow: auto;
+    border-right: 1px solid #ccc;
+}
+
+/* Preview iframe */
+#preview-frame {
+    width: 100%;
+    height: 100%;
+    border: none;
+    background: white;
+    overflow: hidden;
+}
+
+
+/* Container and tabs layout */
+#tabs {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
+#tabs button {
+    padding: 0.4rem 0.8rem;
+    border: 1px solid #999;
+    background: #eee;
+    cursor: pointer;
+}
+
+#tabs button.active {
+    background: #ddd;
+    font-weight: bold;
+}
+
+/* Editor + preview areas */
+#edit-container,
+#preview-container {
+    width: 100%;
+    height: calc(100vh - 60px);
+    overflow: hidden;
+}
+
+#xhtml-editor {
+    height: 100%;
+}
+
+/* Make CodeMirror fill its container */
+.cm-editor {
+    height: 100%;
+    font-family: monospace;
+    font-size: 14px;
+    border: 1px solid #ddd;
+}
+
+/* Optional: nicer scrollbar for large XHTML */
+.cm-scroller::-webkit-scrollbar {
+    width: 10px;
+}
+
+.cm-scroller::-webkit-scrollbar-thumb {
+    background: #ccc;
+}
+
+.cm-scroller::-webkit-scrollbar-track {
+    background: #f0f0f0;
+}
+
+#editor {
+    width: 100%;
+    height: 100%;
+    padding: 1rem;
+    font-family: monospace;
+    font-size: 14px;
+    line-height: 1.4;
+    border: none;
+    outline: none;
+    resize: none;
+    background: #fafafa;
+}
+

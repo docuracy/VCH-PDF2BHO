@@ -1,5 +1,21 @@
-import { editor } from "./editor.js";
-import { generatePreview } from "./preview.js";
+import {editor} from "./editor.js";
+import {generatePreview} from "./preview.js";
+
+window.addEventListener("DOMContentLoaded", async () => {
+    const url = "./xhtml-view/160028.xhtml";
+
+    try {
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(resp.status);
+        const text = await resp.text();
+
+        editor.dispatch({
+            changes: {from: 0, to: editor.state.doc.length, insert: text}
+        });
+    } catch (e) {
+        console.error("Failed to load XHTML:", e);
+    }
+});
 
 document.getElementById("edit-tab").onclick = () => {
     document.getElementById("edit-container").style.display = "block";
@@ -19,6 +35,10 @@ document.getElementById("file-input").addEventListener("change", async (e) => {
 
     const text = await file.text();
     editor.dispatch({
-        changes: { from: 0, to: editor.state.doc.length, insert: text }
+        changes: {from: 0, to: editor.state.doc.length, insert: text}
     });
 });
+
+document.getElementById("edit-tab").classList.add("active");
+document.getElementById("preview-tab").classList.remove("active");
+

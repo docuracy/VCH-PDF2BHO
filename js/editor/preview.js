@@ -1,6 +1,6 @@
 export async function generatePreview(xhtml) {
     if (!window.bhoXSLT) {
-        const resp = await fetch("xsl/bho-transform.xsl");
+        const resp = await fetch("xhtml-view/xsl/xhtml.xsl");
         const txt = await resp.text();
         window.bhoXSLT = new DOMParser()
             .parseFromString(txt, "application/xml");
@@ -17,7 +17,15 @@ export async function generatePreview(xhtml) {
     const iframe = document.getElementById("preview-frame");
     const doc = iframe.contentDocument;
     doc.open();
-    doc.write("<!DOCTYPE html><html><head></head><body></body></html>");
+    doc.write(`
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <link rel="stylesheet" href="/xhtml-view/css/xhtml.css">
+    </head>
+    <body></body>
+    </html>
+    `);
     doc.body.appendChild(result);
     doc.close();
 }
