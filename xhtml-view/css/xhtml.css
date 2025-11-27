@@ -1,0 +1,182 @@
+body {
+    font-family: 'Times New Roman', serif;
+    max-width: 900px;
+    margin: 40px auto;
+    line-height: 1.6;
+    color: #333;
+    padding: 20px;
+}
+
+section {
+    margin-bottom: 2em;
+}
+
+h1 {
+    font-size: 2.5em;
+    border-bottom: 2px solid #333;
+}
+
+h2 {
+    font-size: 2em;
+    border-bottom: 2px solid #333;
+}
+
+h3 {
+    font-size: 1.5em;
+    font-weight: bold;
+    color: #444;
+    margin-top: 1.5em;
+    letter-spacing: 0.05em;
+}
+
+h4 {
+    font-size: 1.2em;
+    font-weight: bold;
+    font-style: italic;
+    color: #555;
+}
+
+u {
+    text-decoration: underline;
+}
+
+.title {
+    text-transform: uppercase;
+}
+
+p.subtitle {
+    font-style: italic;
+    color: #666;
+    font-size: 1.2em;
+}
+
+hr.vch-page {
+    border: 0;
+    border-top: 1px dashed #999;
+    margin: 30px 0;
+    position: relative;
+    height: 1px;
+    overflow: visible;
+}
+
+hr.vch-page::after {
+    content: " Page " attr(data-page) " ";
+    position: absolute;
+    top: -0.7em;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #fff;
+    padding: 0 10px;
+    color: #cc0000;
+    font-weight: bold;
+    font-size: 0.8em;
+    border: 1px solid #ddd;
+    border-radius: 10px;
+}
+
+span.vch-page {
+    border-bottom: 2px solid red;
+    margin: 0 2px;
+    position: relative;
+}
+
+span.vch-page::before {
+    content: "[p." attr(data-page) "]";
+    font-size: 0.7em;
+    color: red;
+    vertical-align: super;
+    font-weight: bold;
+}
+
+aside {
+    display: inline;
+    position: relative;
+    cursor: help;
+}
+
+aside::before {
+    content: "[" attr(data-preview-num) "]";
+    vertical-align: super;
+    font-size: 0.7em;
+    color: #0066cc;
+    font-weight: bold;
+    margin-left: 2px;
+}
+
+aside span.note-content {
+    display: none;
+    position: absolute;
+    bottom: 150%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 300px;
+    background-color: #333;
+    color: #fff;
+    text-align: left;
+    padding: 10px;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    line-height: 1.4;
+    z-index: 1000;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+}
+
+aside span.note-content::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    margin-left: -5px;
+    border-width: 5px;
+    border-style: solid;
+    border-color: #333 transparent transparent transparent;
+}
+
+aside:hover span.note-content {
+    display: block;
+}
+
+figure {
+    background: #f9f9f9;
+    padding: 10px;
+    border: 1px solid #ddd;
+    text-align: center;
+    margin: 20px 0;
+}
+
+figcaption {
+    font-size: 0.9em;
+    margin-top: 10px;
+    font-style: italic;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.5em 0;
+    font-size: 0.95em;
+}
+
+table caption {
+    caption-side: top;
+    font-weight: bold;
+    font-style: italic;
+    text-align: left;
+    margin-bottom: 0.5em;
+}
+
+table th,
+table td {
+    border: 1px solid #ccc;
+    padding: 6px 10px;
+    vertical-align: top;
+}
+
+table th {
+    background: #f0f0f0;
+    font-weight: bold;
+}
+
+table tbody tr:nth-child(even) {
+    background: #fafafa;
+}
