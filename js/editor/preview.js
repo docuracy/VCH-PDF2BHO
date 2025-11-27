@@ -21,7 +21,7 @@ export async function generatePreview(xhtml) {
     <!DOCTYPE html>
     <html>
     <head>
-      <link rel="stylesheet" href="/xhtml-view/css/xhtml.css">
+      <link rel="stylesheet" href="./xhtml-view/css/xhtml.css">
     </head>
     <body></body>
     </html>
