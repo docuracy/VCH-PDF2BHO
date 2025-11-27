@@ -8,7 +8,7 @@ on:
 permissions:
   contents: read
   pages: write
-  id-token: write  # required by configure-pages
+  id-token: write
 
 jobs:
   deploy-xhtml:
@@ -23,7 +23,7 @@ jobs:
       - name: Upload XHTML folder
         uses: actions/upload-pages-artifact@v3
         with:
-          path: 'xhtml-view'  # your folder containing index.html
+          path: 'xhtml-view'
 
       - name: Deploy Pages
         id: deployment
