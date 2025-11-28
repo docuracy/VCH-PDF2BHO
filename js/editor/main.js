@@ -18,14 +18,28 @@ window.addEventListener("DOMContentLoaded", async () => {
     }
 });
 
-document.getElementById("edit-tab").onclick = () => {
+document.getElementById("edit-tab").onclick = (e) => {
+    // Check if download icon was clicked
+    if (e.target.id === "download-xml-icon") {
+        e.stopPropagation();
+        downloadXML();
+        return;
+    }
+
     document.getElementById("edit-container").style.display = "block";
     document.getElementById("preview-container").style.display = "none";
     document.getElementById("edit-tab").classList.add("active");
     document.getElementById("preview-tab").classList.remove("active");
 };
 
-document.getElementById("preview-tab").onclick = async () => {
+document.getElementById("preview-tab").onclick = async (e) => {
+    // Check if download icon was clicked
+    if (e.target.id === "download-html-icon") {
+        e.stopPropagation();
+        await downloadHTML();
+        return;
+    }
+
     const xhtml = editor.state.doc.toString();
 
     // Validate first
@@ -41,7 +55,7 @@ document.getElementById("preview-tab").onclick = async () => {
     await generatePreview(xhtml);
 };
 
-document.getElementById("download-xml-btn").onclick = () => {
+function downloadXML() {
     const xhtml = editor.state.doc.toString();
     const blob = new Blob([xhtml], { type: 'application/xml' });
     const url = URL.createObjectURL(blob);
@@ -52,9 +66,9 @@ document.getElementById("download-xml-btn").onclick = () => {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-};
+}
 
-document.getElementById("download-html-btn").onclick = async () => {
+async function downloadHTML() {
     const xhtml = editor.state.doc.toString();
 
     // Validate first
@@ -76,7 +90,7 @@ document.getElementById("download-html-btn").onclick = async () => {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-};
+}
 
 document.getElementById("file-input").addEventListener("change", async (e) => {
     const file = e.target.files[0];

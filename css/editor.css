@@ -26,7 +26,7 @@
 #edit-container,
 #preview-container {
     width: 100%;
-    height: calc(100vh - 60px);
+    height: calc(100vh - 120px);
     overflow: hidden;
 }
 
@@ -65,22 +65,17 @@
     align-items: center;
 }
 
-/* Base button styles */
-#controls button,
+/* File input */
 #file-input {
     padding: 0.6rem 1.2rem;
     color: white;
+    background: #007bff;
+    border: 1px solid #007bff;
     border-radius: 4px;
     cursor: pointer;
     font-size: 14px;
     font-weight: 500;
     transition: background 0.2s;
-}
-
-/* File input */
-#file-input {
-    background: #007bff;
-    border: 1px solid #007bff;
 }
 
 #file-input:hover {
@@ -105,26 +100,6 @@
     color: white;
 }
 
-/* Download XML button - purple */
-#download-xml-btn {
-    background: #6f42c1;
-    border: 1px solid #6f42c1;
-}
-
-#download-xml-btn:hover {
-    background: #5a32a3;
-}
-
-/* Download HTML button - orange */
-#download-html-btn {
-    background: #fd7e14;
-    border: 1px solid #fd7e14;
-}
-
-#download-html-btn:hover {
-    background: #e8590c;
-}
-
 /* Tabs */
 #tabs {
     display: flex;
@@ -146,6 +121,9 @@
     transition: all 0.2s;
     border-bottom: 3px solid transparent;
     margin-bottom: -2px;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
 }
 
 #tabs button:hover {
@@ -157,6 +135,33 @@
     color: #007bff;
     border-bottom: 3px solid #007bff;
     background: white;
+}
+
+.download-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    background: #6c757d;
+    color: white;
+    font-size: 12px;
+    transition: background 0.2s;
+    margin-left: 0.5rem;
+}
+
+.download-icon:hover {
+    background: #495057;
+    transform: scale(1.1);
+}
+
+#tabs button.active .download-icon {
+    background: #007bff;
+}
+
+#tabs button.active .download-icon:hover {
+    background: #0056b3;
 }
 
 /* Validation result */
