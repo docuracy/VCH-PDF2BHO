@@ -311,7 +311,19 @@
                     <xsl:value-of select="@data-idstart"/>
                 </xsl:when>
                 <xsl:otherwise>
-                    <xsl:value-of select="count(preceding::xhtml:hr[@class='vch-page']) + 1"/>
+                    <!-- Find the most recent preceding page break with data-idstart -->
+                    <xsl:variable name="last-reset" select="preceding::xhtml:hr[@class='vch-page'][@data-idstart][1]/@data-idstart"/>
+                    <xsl:choose>
+                        <xsl:when test="$last-reset">
+                            <!-- Count pages since the last reset and add to the reset value -->
+                            <xsl:variable name="pages-since-reset" select="count(preceding::xhtml:hr[@class='vch-page'][preceding::xhtml:hr[@class='vch-page'][@data-idstart][1]/@data-idstart = $last-reset])"/>
+                            <xsl:value-of select="number($last-reset) + $pages-since-reset"/>
+                        </xsl:when>
+                        <xsl:otherwise>
+                            <!-- No reset found, use sequential numbering from 1 -->
+                            <xsl:value-of select="count(preceding::xhtml:hr[@class='vch-page']) + 1"/>
+                        </xsl:otherwise>
+                    </xsl:choose>
                 </xsl:otherwise>
             </xsl:choose>
         </xsl:variable>
