@@ -22,26 +22,6 @@
     overflow: hidden;
 }
 
-
-/* Container and tabs layout */
-#tabs {
-    display: flex;
-    gap: 0.5rem;
-    margin-bottom: 0.75rem;
-}
-
-#tabs button {
-    padding: 0.4rem 0.8rem;
-    border: 1px solid #999;
-    background: #eee;
-    cursor: pointer;
-}
-
-#tabs button.active {
-    background: #ddd;
-    font-weight: bold;
-}
-
 /* Editor + preview areas */
 #edit-container,
 #preview-container {
@@ -75,20 +55,7 @@
     background: #f0f0f0;
 }
 
-#editor {
-    width: 100%;
-    height: 100%;
-    padding: 1rem;
-    font-family: monospace;
-    font-size: 14px;
-    line-height: 1.4;
-    border: none;
-    outline: none;
-    resize: none;
-    background: #fafafa;
-}
-
-/* Better button styling */
+/* Controls bar */
 #controls {
     padding: 1rem;
     background: #f5f5f5;
@@ -98,16 +65,22 @@
     align-items: center;
 }
 
+/* Base button styles */
+#controls button,
 #file-input {
     padding: 0.6rem 1.2rem;
-    background: #007bff;
     color: white;
-    border: 1px solid #007bff;
     border-radius: 4px;
     cursor: pointer;
     font-size: 14px;
     font-weight: 500;
     transition: background 0.2s;
+}
+
+/* File input */
+#file-input {
+    background: #007bff;
+    border: 1px solid #007bff;
 }
 
 #file-input:hover {
@@ -132,22 +105,27 @@
     color: white;
 }
 
-#validate-btn {
-    padding: 0.6rem 1.2rem;
-    background: #28a745;
-    color: white;
-    border: 1px solid #28a745;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 14px;
-    font-weight: 500;
-    transition: background 0.2s;
+/* Download XML button - purple */
+#download-xml-btn {
+    background: #6f42c1;
+    border: 1px solid #6f42c1;
 }
 
-#validate-btn:hover {
-    background: #218838;
+#download-xml-btn:hover {
+    background: #5a32a3;
 }
 
+/* Download HTML button - orange */
+#download-html-btn {
+    background: #fd7e14;
+    border: 1px solid #fd7e14;
+}
+
+#download-html-btn:hover {
+    background: #e8590c;
+}
+
+/* Tabs */
 #tabs {
     display: flex;
     gap: 0;
@@ -181,8 +159,9 @@
     background: white;
 }
 
+/* Validation result */
 #validation-result {
-    margin-left: 1rem;
+    margin-left: auto;
     padding: 0.5rem 1rem;
     border-radius: 4px;
     font-size: 14px;

@@ -28,4 +28,6 @@ export async function generatePreview(xhtml) {
     `);
     doc.body.appendChild(result);
     doc.close();
+
+    window.transformedHTML = doc.documentElement.outerHTML;
 }
