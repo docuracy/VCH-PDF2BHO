@@ -1,5 +1,5 @@
 import {editor, formatDocument} from "./editor.js";
-import {generatePreview} from "./preview.js";
+import {generatePreview, convertToBHO} from "./preview.js";
 import {validateXML} from "./validator.js";
 
 // Expose formatDocument globally for the button
@@ -63,6 +63,32 @@ document.getElementById("preview-tab").onclick = async (e) => {
     if (e.target.id === "download-html-icon" || e.target.closest('#download-html-icon')) {
         e.stopPropagation();
         await downloadHTML();
+        return;
+    }
+
+    if (e.target.id === "convert-to-bho-btn" || e.target.closest('#convert-to-bho-btn')) {
+        e.stopPropagation();
+        console.log("Convert to BHO button clicked");
+
+        const bhoXml = await convertToBHO();
+
+        if (bhoXml) {
+            // Load the BHO XML into the editor
+            editor.dispatch({
+                changes: {from: 0, to: editor.state.doc.length, insert: bhoXml}
+            });
+
+            // Switch to Edit tab
+            document.getElementById("edit-container").style.display = "block";
+            document.getElementById("preview-container").style.display = "none";
+            document.getElementById("edit-tab").classList.add("active");
+            document.getElementById("preview-tab").classList.remove("active");
+
+            // Update file display to indicate BHO XML
+            updateFileDisplay("converted-to-bho.xml");
+
+            console.log("BHO XML loaded into editor");
+        }
         return;
     }
 
@@ -244,6 +270,7 @@ async function extractPDFToXHTML(file) {
     // Build HTML
     let docHTML = '';
     let maxEndnote = 0;
+    let lastPageNumeral = null;
 
     for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
         const progress = 50 + (pageNum / totalPages * 40);
@@ -253,9 +280,14 @@ async function extractPDFToXHTML(file) {
             `Page ${pageNum}: Extracting text and structures`
         );
 
+        const currentPageNumeral = pageNumerals[pageNum - 1];
+        // Only add data-idstart on first page or when numbering is non-consecutive
+        const isNewPageNumeral = (pageNum === 1) || (currentPageNumeral !== lastPageNumeral + 1);
+
         let pageHTML;
-        [maxEndnote, pageHTML] = await processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pageNumerals[pageNum - 1], false);
-        docHTML += `${pageHTML}<hr class="vch-page" />`;
+        [maxEndnote, pageHTML] = await processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, currentPageNumeral, false, isNewPageNumeral);
+        docHTML += pageHTML;
+        lastPageNumeral = currentPageNumeral;
     }
 
     updateExtractionUI(90, "Processing footnotes...", "Inserting inline footnotes");
@@ -284,7 +316,8 @@ async function extractPDFToXHTML(file) {
         footnotes.forEach(footnote => {
             if (footnote.footNumber) {
                 const placeholder = `___FOOTNOTE_${footnote.footNumber}___`;
-                const asideContent = `<aside>${footnote.str}</aside>`;
+                // Add spaces before and after the aside element for proper spacing
+                const asideContent = ` <aside>${footnote.str}</aside> `;
                 docHTML = docHTML.replace(placeholder, asideContent);
             }
         });

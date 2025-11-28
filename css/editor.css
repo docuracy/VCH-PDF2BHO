@@ -146,7 +146,7 @@
     background: white;
 }
 
-.download-icon, .institution-icon {
+.download-icon, .convert-icon, .institution-icon {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -160,7 +160,7 @@
     margin-left: 0.5rem;
 }
 
-.download-icon:hover {
+.download-icon:hover, .convert-icon:hover {
     background: #495057;
     transform: scale(1.1);
 }

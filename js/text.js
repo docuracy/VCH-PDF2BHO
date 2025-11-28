@@ -2,7 +2,7 @@
 // Description: Contains functions for extracting text from PDFs.
 
 
-async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pageNumeral, isIndex) {
+async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pageNumeral, isIndex, isNewPageNumeral = true) {
 
     console.info(`Processing page ${pageNum}...`);
 
@@ -259,16 +259,40 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
 
     console.debug(`Page ${pageNum} - pre-HTML: ${items.length}:`, structuredClone(items));
 
+    // Log header levels found
+    const headerLevels = items.filter(item => item.header).map(item => ({
+        level: item.header,
+        text: item.str.substring(0, 50)
+    }));
+    if (headerLevels.length > 0) {
+        console.log(`Page ${pageNum} - Header levels found:`, headerLevels);
+    }
+
     // Construct page XHTML
-    let pageHTML = `<hr class="vch-page" data-idstart="${pageNumeral}"/>`;
+    let pageHTML = isNewPageNumeral
+        ? `<hr class="vch-page" data-idstart="${pageNumeral}"/>`
+        : `<hr class="vch-page" />`;
     let indexFlush = false;
     let indexBuffer = '';
+    let paragraphBuffer = ''; // Buffer to accumulate paragraph content
+    let inParagraph = false;
+
+    // Helper function to close paragraph if open
+    const closeParagraph = () => {
+        if (inParagraph) {
+            pageHTML += `<p>${paragraphBuffer}</p>`;
+            paragraphBuffer = '';
+            inParagraph = false;
+        }
+    };
 
     for (let i = 0; i < items.length; i++) {
         const item = items[i];
         const nextItem = items[i + 1];
 
         if (item?.index) {
+            closeParagraph();
+
             if (item.entryStart) {
                 if (indexBuffer) {
                     pageHTML += `<div class="entry">${indexBuffer}</div>`;
@@ -279,6 +303,8 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
                 indexBuffer += `<div class="index-sub">${normaliseIndexEntry(item.str)}</div>`;
             }
         } else if (item.fontName === 'drawing') {
+            closeParagraph();
+
             // Start figure element - check if next item is a caption
             pageHTML += `<figure>${item.str}`;
             if (nextItem?.drawingNumber) {
@@ -288,34 +314,58 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
             }
             pageHTML += `</figure>`;
         } else if (item?.drawingNumber && items[i - 1]?.fontName !== 'drawing') {
+            closeParagraph();
+
             // Standalone caption (previous item wasn't a drawing)
             // Wrap in a figure element to make it valid HTML
             pageHTML += `<figure><figcaption>${item.str}</figcaption></figure>`;
         } else if (item?.paragraph === 'table') {
+            closeParagraph();
+
             // Tables are already in <table> format from buildTableHTML
             pageHTML += item.str;
         } else if (item?.tableHead) {
             // This will be handled by moveTableCaptions - skip here
             // (caption gets inserted into the table)
         } else if (item?.header) {
+            closeParagraph();
+
             if (item.header === 1) {
                 pageHTML += `<h2 id="title">${item.str}</h2>`;
             } else if (item.header === 2) {
                 pageHTML += `<p id="subtitle">${item.str}</p>`;
             } else {
-                // Map header levels 3-5 to h3-h5 (XSLT doesn't handle h6)
-                const level = Math.min(item.header + 1, 5);
+                // Map header levels 3+ to h3-h5 (cap at h5 since XSLT doesn't handle h6)
+                const level = Math.min(item.header, 5);
                 pageHTML += `<h${level}>${item.str}</h${level}>`;
             }
-        } else if (item.isFootnoteMarker) {
-            // Don't wrap footnote markers in <p> - they need to stay inline
-            // They will be replaced with <aside> elements later
-            pageHTML += item.str;
+        } else if (item.isFootnoteMarker || !item.header && !item.index && !item.paragraph) {
+            // Regular text or footnote marker - add to paragraph buffer
+            if (!inParagraph) {
+                inParagraph = true;
+                paragraphBuffer = item.str;
+            } else {
+                paragraphBuffer += item.str;
+            }
+
+            // Only close paragraph if next item is NOT regular text or footnote marker
+            if (!nextItem ||
+                nextItem.header ||
+                nextItem.index ||
+                nextItem.paragraph === 'table' ||
+                nextItem.fontName === 'drawing' ||
+                nextItem.drawingNumber) {
+                closeParagraph();
+            }
         } else {
-            // Regular paragraph
+            // Fallback for any other item types
+            closeParagraph();
             pageHTML += `<p>${item.str}</p>`;
         }
     }
+
+    // Close any remaining open paragraph
+    closeParagraph();
 
     if (indexBuffer) {
         pageHTML += `<div class="entry">${indexBuffer}</div>`;

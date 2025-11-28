@@ -316,7 +316,7 @@
                     <xsl:choose>
                         <xsl:when test="$last-reset">
                             <!-- Count pages since the last reset and add to the reset value -->
-                            <xsl:variable name="pages-since-reset" select="count(preceding::xhtml:hr[@class='vch-page'][preceding::xhtml:hr[@class='vch-page'][@data-idstart][1]/@data-idstart = $last-reset])"/>
+                            <xsl:variable name="pages-since-reset" select="count(preceding::xhtml:hr[@class='vch-page'][preceding::xhtml:hr[@class='vch-page'][@data-idstart][1]/@data-idstart = $last-reset]) + 1"/>
                             <xsl:value-of select="number($last-reset) + $pages-since-reset"/>
                         </xsl:when>
                         <xsl:otherwise>
