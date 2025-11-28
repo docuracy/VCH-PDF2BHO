@@ -33,7 +33,7 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
             items.splice(i, 1);
         }
     }
-    
+
     // Identify rows for each item and tally font types in the bottom row
     const bottomRow = segmentation.length - 1;
     let defaultFontArea = 0;
@@ -194,10 +194,12 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
         }
     });
 
-    // Wrap footnote indices in superscript tags
+    // Mark footnote indices for later replacement with <aside> elements
     items.filter(item => item.footIndex).forEach(item => {
-        const endnoteNumber = item.footIndex + maxEndnote;
-        item.str = `<sup><a id="endnoteIndex${endnoteNumber}" href="#endnote${endnoteNumber}" data-footnote="${item.footIndex}" data-endnote="${endnoteNumber}">${endnoteNumber}</a></sup>`;
+        const footnoteIndex = item.footIndex;
+        // Use a placeholder that will be replaced with the actual aside content
+        item.str = `___FOOTNOTE_${footnoteIndex}___`;
+        item.isFootnoteMarker = true;
     });
     console.debug(`Page ${pageNum} - items pre-merge: ${items.length}:`, structuredClone(items));
 
@@ -233,6 +235,19 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
 
     await mergeItems(items, ['row']);
 
+    // Merge consecutive headers of the same level (e.g., split titles)
+    for (let i = items.length - 1; i > 0; i--) {
+        const currentItem = items[i];
+        const previousItem = items[i - 1];
+
+        if (currentItem.header && previousItem.header &&
+            currentItem.header === previousItem.header) {
+            // Merge headers of the same level
+            previousItem.str += ' ' + currentItem.str;
+            items.splice(i, 1);
+        }
+    }
+
     await moveTableCaptions(items);
 
     trimStrings(items);
@@ -244,11 +259,15 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
 
     console.debug(`Page ${pageNum} - pre-HTML: ${items.length}:`, structuredClone(items));
 
-    // Construct page HTML
-    let pageHTML = `<p class="pageNum" start="${pageNumeral}">--- Page ${pageNumeral} (PDF ${pageNum}) ---</p>`;
+    // Construct page XHTML
+    let pageHTML = `<hr class="vch-page" data-idstart="${pageNumeral}"/>`;
     let indexFlush = false;
     let indexBuffer = '';
-    items.forEach(item => {
+
+    for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        const nextItem = items[i + 1];
+
         if (item?.index) {
             if (item.entryStart) {
                 if (indexBuffer) {
@@ -260,33 +279,44 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
                 indexBuffer += `<div class="index-sub">${normaliseIndexEntry(item.str)}</div>`;
             }
         } else if (item.fontName === 'drawing') {
-            pageHTML += `<div class="drawing">${item.str}</div>`;
+            // Start figure element - check if next item is a caption
+            pageHTML += `<figure>${item.str}`;
+            if (nextItem?.drawingNumber) {
+                // Include the caption and skip next item
+                pageHTML += `<figcaption>${nextItem.str}</figcaption>`;
+                i++; // Skip the caption item since we've already processed it
+            }
+            pageHTML += `</figure>`;
+        } else if (item?.drawingNumber && items[i - 1]?.fontName !== 'drawing') {
+            // Standalone caption (previous item wasn't a drawing)
+            // Wrap in a figure element to make it valid HTML
+            pageHTML += `<figure><figcaption>${item.str}</figcaption></figure>`;
         } else if (item?.paragraph === 'table') {
-            pageHTML += `<div class="table">${item.str}</div>`;
+            // Tables are already in <table> format from buildTableHTML
+            pageHTML += item.str;
         } else if (item?.tableHead) {
-            pageHTML += `<div class="tableCaption">${item.str}</div>`;
+            // This will be handled by moveTableCaptions - skip here
+            // (caption gets inserted into the table)
         } else if (item?.header) {
             if (item.header === 1) {
-                pageHTML += `<div class="title">${item.str}</div>`;
+                pageHTML += `<h2 id="title">${item.str}</h2>`;
             } else if (item.header === 2) {
-                pageHTML += `<div class="subtitle">${item.str}</div>`;
+                pageHTML += `<p id="subtitle">${item.str}</p>`;
             } else {
-                pageHTML += `<div class="header">${item.str}</div>`;
+                // Map header levels 3-5 to h3-h5 (XSLT doesn't handle h6)
+                const level = Math.min(item.header + 1, 5);
+                pageHTML += `<h${level}>${item.str}</h${level}>`;
             }
-        } else if (item?.drawingNumber) {
-            pageHTML += `<div class="caption" data-number="${item.drawingNumber}">${item.str}</div>`;
+        } else if (item.isFootnoteMarker) {
+            // Don't wrap footnote markers in <p> - they need to stay inline
+            // They will be replaced with <aside> elements later
+            pageHTML += item.str;
         } else {
-            const classes = ['paragraph'];
-
-            // Create an HTML string for the tooltip content
-            // const tooltipContent = Object.entries(item).filter(([key]) => key !== 'str')
-            //     .map(([key, value]) => `<strong>${escapeXML(key)}:</strong> ${escapeXML(value)}`)
-            //     .join('<br>');
-            // pageHTML += `<div class="${classes.join(' ')}" data-bs-title="${tooltipContent}" data-bs-toggle="tooltip">${item.str}</div>`;
-
-            pageHTML += `<div class="${classes.join(' ')}">${item.str}</div>`;
+            // Regular paragraph
+            pageHTML += `<p>${item.str}</p>`;
         }
-    });
+    }
+
     if (indexBuffer) {
         pageHTML += `<div class="entry">${indexBuffer}</div>`;
     }
@@ -319,20 +349,9 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
 
 async function dehyphenate(item, nextItem) {
     if (item.str.endsWith('-') && ((item.right + 1 > nextItem.left) || (item.column < nextItem.column))) {
-        // let keepHyphen = true;
+        // Remove the hyphen entirely - no markup needed
         const truncated = item.str.slice(0, -1);
-        const lastWord = truncated.trim().split(' ').pop();
-        const nextItemFirstWord = nextItem.str.trim().split(' ').shift();
-        const doCheck = $('#checkHyphenation').is(':checked');
-        let keepHyphen = doCheck ? await checkHyphenation(lastWord, nextItemFirstWord) : 'unchecked';
-        if (keepHyphen === null) {
-            console.error(`Error checking hyphenation between "${lastWord}" and "${nextItemFirstWord}"`);
-            keepHyphen = 'unchecked check-failed';
-        }
-        else {
-            console.debug(`Hyphenation: "${lastWord}-${nextItemFirstWord}"${keepHyphen ? '*' : ''}`);
-        }
-        item.str = `${truncated}<span class="line-end-hyphen${keepHyphen === false ? ' remove' : typeof keepHyphen === 'string' ? ` ${keepHyphen}` : ''}" data-bs-title="Hyphen found at the end of a line." data-bs-toggle="tooltip">-</span>`;
+        item.str = truncated;
     } else if ((!nextItem.footIndex) && (!nextItem.str.startsWith(')'))) {
         item.str += ' ';
     }
@@ -390,11 +409,17 @@ async function mergeItems(items, properties) {
     for (let i = items.length - 1; i > 0; i--) { // Start from the end and move to the beginning
         const currentItem = items[i];
         const previousItem = items[i - 1];
+
+        // Don't merge footnote markers
+        if (currentItem.isFootnoteMarker || previousItem.isFootnoteMarker) {
+            continue;
+        }
+
         if ((!currentItem.index && !previousItem.paragraph && !previousItem.tableLine) || (currentItem.index && !currentItem.entryStart && !currentItem.subStart)) {
             // Merge if all properties match
             if (properties.every(prop => (
                 ((prop in currentItem && prop in previousItem) &&
-                currentItem[prop] === previousItem[prop]) || // Check that property values match if present in both items
+                    currentItem[prop] === previousItem[prop]) || // Check that property values match if present in both items
                 (!(prop in currentItem) && !(prop in previousItem)) // or that the property is missing in both items
             ))) {
                 await dehyphenate(previousItem, currentItem);
@@ -486,13 +511,12 @@ async function processFootnotes(segmentation, footnotes, pageNum, pageNumeral, m
         }
     }
 
-    // Replace footnote numbers with endnote numbers
+    // Store endnote numbers but don't add links (XSLT will handle linking)
     footnotes.forEach((item, index) => {
         item.endnoteNumber = maxEndnote + item.footNumber;
-        const regex = new RegExp(`^${item.footNumber}`);
-        if (regex.test(item.str)) {
-            item.str = item.str.replace(regex, `<a id="endnote${item.endnoteNumber}" href="#endnoteIndex${item.endnoteNumber}" data-footnote="${item.footNumber}" data-endnote="${item.endnoteNumber}" title="p.${pageNumeral} fn.${item.footNumber}">${item.endnoteNumber}</a>`);
-        }
+        // Remove the footnote number from the start of the text
+        const regex = new RegExp(`^${item.footNumber}\\s*`);
+        item.str = item.str.replace(regex, '');
     });
 
     trimStrings(footnotes);
@@ -601,11 +625,9 @@ async function buildTableHTML(tableItems) {
     });
 
     // Generate HTML table
-    let tableHTML = '<table class="generated-table"><tbody>';
+    let tableHTML = '<table><caption>@@@CAPTION@@@</caption><tbody>';
     // Find maximum number of columns
     const maxColumns = Math.max(...Object.values(rows).map(row => Object.keys(row).length));
-    // Add full-width row for table caption
-    tableHTML += `<tr class="table-caption-row"><td colspan="${maxColumns}" class="table-caption">@@@CAPTION@@@</td></tr>`;
     for (const rowKey of Object.keys(rows)) {
         const row = rows[rowKey];
         // Include colspan if the row has fewer columns than the maximum
@@ -621,4 +643,3 @@ async function buildTableHTML(tableItems) {
 
     return tableHTML;
 }
-

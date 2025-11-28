@@ -1,0 +1,182 @@
+// Standalone utilities for PDF processing (no jQuery dependencies)
+// These functions are extracted from utilities.js and made independent
+
+function normaliseIndexEntry(input, addKey = false) {
+    let result = input;
+
+    // Step 1: Move numbers out of <h*> tag
+    result = result.replace(/^<h(\d+)>([^<]*?)([ ,;\d–npl.]+)<\/h\1>/i, (match, level, label, nums) => {
+        return `<h${level}>${label}</h${level}>, ${nums.trim()}`;
+    });
+
+    // Step 2: Spacing fixes
+    result = result.replace(/([,;])(?=\S)/g, '$1 ');      // Ensure space after , ;
+    result = result.replace(/\s{2,}/g, ' ');              // Collapse multiple spaces
+    result = result.replace(/\s+([,;])/g, '$1');          // Remove space before , ;
+    result = result.replace(/([^>\s])pl\./g, '$1 pl.');   // Ensure space before 'pl.'
+    result = result.replace(/h6>/g, 'b>');                // Replace <h6> with <b>
+    result = result.replace(/(\s+)<em>n<\/em>/g, '<em>n</em>'); // Remove space before <em>n</em>
+
+    if (addKey) {
+        // Step 3: Add <key> around label before index numbers
+        const keyMatch = result.match(
+            /^(.*?)(?=(,\s*(<em>see<\/em>|m\.\s+\d+|pl\.\s+\d+|<em>\d+|<b>\d+|\d+)|:$))/i
+        );
+        if (keyMatch) {
+            const key = keyMatch[1].trimEnd();
+            result = result.replace(key, `<key>${key}</key>`);
+        }
+    }
+
+    return result;
+}
+
+function closeOverlaps(items) {
+    // Reverse loop to merge overlapping items
+    for (let i = items.length - 1; i > 0; i--) {
+        const item = items[i];
+        const prevItem = items[i - 1];
+        if (item.row === prevItem.row && item.column === prevItem.column && item.line === prevItem.line && item.height === prevItem.height && item.left < prevItem.right) {
+            // Merge the items if they overlap
+            prevItem.str += item.str;
+            prevItem.right = item.right;
+            prevItem.width = prevItem.right - prevItem.left;
+            prevItem.area += item.area;
+            items.splice(i, 1);
+        }
+    }
+}
+
+function titleCase(str) {
+    const skipWords = ['and', 'the', 'of', 'in', 'on', 'at', 'with', 'to'];
+    return str
+        .replace(/\s+/g, ' ')
+        .split(' ')
+        .map((word, index) => {
+            const lowerWord = word.toLowerCase();
+            if (index === 0 || !skipWords.includes(lowerWord)) {
+                const hyphenatedParts = lowerWord.split('-');
+                hyphenatedParts[0] = hyphenatedParts[0].charAt(0).toUpperCase() + hyphenatedParts[0].slice(1);
+                for (let i = 1; i < hyphenatedParts.length; i++) {
+                    if (!skipWords.includes(hyphenatedParts[i])) {
+                        hyphenatedParts[i] = hyphenatedParts[i].charAt(0).toUpperCase() + hyphenatedParts[i].slice(1);
+                    }
+                }
+                return hyphenatedParts.join('-');
+            }
+            return lowerWord;
+        })
+        .join(' ');
+}
+
+function wrapStrings(items) {
+    items.forEach(item => {
+        // DON'T wrap headers here - they're handled in the HTML generation phase
+        // where they're output as proper semantic elements (<h2 id="title">, <h3>, etc.)
+        if (item?.header) {
+            // Just delete fontName, don't wrap
+            delete item.fontName;
+        } else if (item.bold) {
+            item.str = `<strong>${item.str}</strong>`;
+            delete item.bold;
+            delete item.fontName
+        } else if (item.italic) {
+            item.str = `<em>${item.str}</em>`;
+            delete item.italic;
+            delete item.fontName
+        }
+        // Wrap any URLs found in the string
+        const urlRegex = /(https?:\/\/[^\s]+)/g;
+        item.str = item.str.replace(urlRegex, (url) => {
+            return `<emph type="i"><a href="${url}">${url}</a></emph>`;
+        });
+    });
+}
+
+function trimStrings(items) {
+    items.forEach(item => {
+        item.str = item.str
+            .replace(/\s+/g, ' ')
+            .replace(/\s([,.])/g, '$1')
+            .replace(/(\()\s+/g, '$1');
+    });
+}
+
+function escapeStrings(items) {
+    items.forEach(item => {
+        item.str = item.str
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&apos;');
+    });
+}
+
+function showAlert(message, type) {
+    console.log(`[${type}] ${message}`);
+}
+
+function appendLogMessage(message) {
+    const logEl = document.getElementById('extraction-log');
+    if (logEl) {
+        const p = document.createElement('p');
+        p.textContent = message;
+        logEl.appendChild(p);
+        logEl.scrollTop = logEl.scrollHeight;
+    } else {
+        console.log(message);
+    }
+}
+
+function transformXml(html, xslt) {
+    const xsltProcessor = new XSLTProcessor();
+    const parser = new DOMParser();
+    const xsltDoc = parser.parseFromString(xslt, 'application/xml');
+    xsltProcessor.importStylesheet(xsltDoc);
+    const xmlDoc = parser.parseFromString(html, 'application/xml');
+    const transformedDoc = xsltProcessor.transformToFragment(xmlDoc, document);
+    const serializer = new XMLSerializer();
+    return serializer.serializeToString(transformedDoc);
+}
+
+function fillMissingPageNumerals(pageNumerals) {
+    let startValue = pageNumerals.find(value => value !== null);
+    if (startValue !== undefined) {
+        startValue = parseInt(startValue) - pageNumerals.indexOf(startValue);
+    } else {
+        return;
+    }
+
+    for (let i = 0; i < pageNumerals.length; i++) {
+        if (pageNumerals[i] === null) {
+            pageNumerals[i] = (startValue + i).toString();
+        }
+    }
+}
+
+function processXML(file, fileName, zip) {
+    return new Promise((resolve, reject) => {
+        const fileReader = new FileReader();
+        fileReader.onload = function (event) {
+            const xmlContent = event.target.result;
+            sessionStorage.setItem('XMLPreview', xmlContent);
+            zip.file(fileName, xmlContent);
+            resolve();
+        };
+        fileReader.readAsText(file);
+    });
+}
+
+// Make functions globally available
+window.normaliseIndexEntry = normaliseIndexEntry;
+window.closeOverlaps = closeOverlaps;
+window.titleCase = titleCase;
+window.wrapStrings = wrapStrings;
+window.trimStrings = trimStrings;
+window.escapeStrings = escapeStrings;
+window.showAlert = showAlert;
+window.appendLogMessage = appendLogMessage;
+window.transformXml = transformXml;
+window.fillMissingPageNumerals = fillMissingPageNumerals;
+window.processXML = processXML;

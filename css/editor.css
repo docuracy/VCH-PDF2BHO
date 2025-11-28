@@ -146,7 +146,7 @@
     background: white;
 }
 
-.download-icon {
+.download-icon, .institution-icon {
     display: inline-flex;
     align-items: center;
     justify-content: center;

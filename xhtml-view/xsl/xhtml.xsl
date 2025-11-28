@@ -22,7 +22,7 @@
     <xsl:template match="xhtml:html">
         <html>
             <head>
-                <xsl:copy-of select="xhtml:head/*[not(@data-xsl-ignore='true')]"/>
+                <xsl:apply-templates select="xhtml:head/*[not(@data-xsl-ignore='true')]"/>
             </head>
             <body class="vch-report" data-pubid="{$pubid}">
                 <!-- Header section with "In this section" links -->
@@ -373,31 +373,37 @@
             </xsl:choose>
         </xsl:variable>
 
-        <!-- Get the text content of figcaption for alt text (without any formatting) -->
         <xsl:variable name="alt-text">
             <xsl:value-of select="xhtml:figcaption"/>
         </xsl:variable>
 
         <figure>
             <xsl:apply-templates select="@*"/>
-            <!-- Process img and add alt attribute from figcaption, rewrite src with pubid -->
             <xsl:for-each select="xhtml:img">
                 <xsl:variable name="original-src" select="@src"/>
-                <xsl:variable name="filename">
-                    <xsl:call-template name="get-filename">
-                        <xsl:with-param name="path" select="$original-src"/>
-                    </xsl:call-template>
-                </xsl:variable>
 
                 <img>
-                    <!-- Set src attribute first -->
-                    <xsl:attribute name="src">
-                        <xsl:text>/sites/default/files/publications/pubid-</xsl:text>
-                        <xsl:value-of select="$pubid"/>
-                        <xsl:text>/images/</xsl:text>
-                        <xsl:value-of select="$filename"/>
-                    </xsl:attribute>
-                    <!-- Set alt attribute -->
+                    <xsl:choose>
+                        <xsl:when test="starts-with($original-src, 'data:')">
+                            <xsl:attribute name="src">
+                                <xsl:value-of select="$original-src"/>
+                            </xsl:attribute>
+                        </xsl:when>
+                        <xsl:otherwise>
+                            <xsl:variable name="filename">
+                                <xsl:call-template name="get-filename">
+                                    <xsl:with-param name="path" select="$original-src"/>
+                                </xsl:call-template>
+                            </xsl:variable>
+                            <xsl:attribute name="src">
+                                <xsl:text>/sites/default/files/publications/pubid-</xsl:text>
+                                <xsl:value-of select="$pubid"/>
+                                <xsl:text>/images/</xsl:text>
+                                <xsl:value-of select="$filename"/>
+                            </xsl:attribute>
+                        </xsl:otherwise>
+                    </xsl:choose>
+
                     <xsl:attribute name="alt">
                         <xsl:choose>
                             <xsl:when test="@alt">
@@ -408,7 +414,6 @@
                             </xsl:otherwise>
                         </xsl:choose>
                     </xsl:attribute>
-                    <!-- Then copy other attributes -->
                     <xsl:apply-templates select="@*[name() != 'src' and name() != 'alt']"/>
                 </img>
             </xsl:for-each>
