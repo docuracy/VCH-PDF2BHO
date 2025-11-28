@@ -13,14 +13,26 @@ window.addEventListener("DOMContentLoaded", async () => {
         editor.dispatch({
             changes: {from: 0, to: editor.state.doc.length, insert: text}
         });
+
+        // Set the preloaded filename
+        const filename = url.split('/').pop();
+        updateFileDisplay(filename);
     } catch (e) {
         console.error("Failed to load XHTML:", e);
     }
 });
 
+function updateFileDisplay(filename) {
+    document.getElementById('file-name').textContent = filename;
+}
+
+function getCurrentFilename() {
+    return document.getElementById('file-name').textContent || 'document.xhtml';
+}
+
 document.getElementById("edit-tab").onclick = (e) => {
     // Check if download icon was clicked
-    if (e.target.id === "download-xml-icon") {
+    if (e.target.id === "download-xml-icon" || e.target.closest('#download-xml-icon')) {
         e.stopPropagation();
         downloadXML();
         return;
@@ -34,7 +46,7 @@ document.getElementById("edit-tab").onclick = (e) => {
 
 document.getElementById("preview-tab").onclick = async (e) => {
     // Check if download icon was clicked
-    if (e.target.id === "download-html-icon") {
+    if (e.target.id === "download-html-icon" || e.target.closest('#download-html-icon')) {
         e.stopPropagation();
         await downloadHTML();
         return;
@@ -57,11 +69,13 @@ document.getElementById("preview-tab").onclick = async (e) => {
 
 function downloadXML() {
     const xhtml = editor.state.doc.toString();
+    const filename = getCurrentFilename();
+
     const blob = new Blob([xhtml], { type: 'application/xml' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'document.xhtml';
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -81,11 +95,14 @@ async function downloadHTML() {
         await generatePreview(xhtml);
     }
 
+    const xmlFilename = getCurrentFilename();
+    const htmlFilename = xmlFilename.replace(/\.(xhtml|xml)$/i, '.html');
+
     const blob = new Blob([window.transformedHTML], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'document.html';
+    a.download = htmlFilename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -100,4 +117,6 @@ document.getElementById("file-input").addEventListener("change", async (e) => {
     editor.dispatch({
         changes: {from: 0, to: editor.state.doc.length, insert: text}
     });
+
+    updateFileDisplay(file.name);
 });

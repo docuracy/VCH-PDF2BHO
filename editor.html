@@ -5,30 +5,35 @@
 </head>
 <body>
 
-<div id="controls">
-    <input type="file" id="file-input" accept=".xml,.xhtml,.html,.txt">
+<div id="top-bar">
+    <div id="file-input-container">
+        <input type="file" id="file-input" accept=".xml,.xhtml,.html,.txt" style="display: none;">
+        <label for="file-input" id="file-input-label">
+            <span class="file-button">Choose File</span>
+            <span id="file-name">160028.xhtml</span>
+        </label>
+    </div>
+    <div id="tabs">
+        <button id="edit-tab" class="active">
+            Edit
+            <span class="download-icon" id="download-xml-icon" title="Download XML">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M8 12L3 7h3V1h4v6h3L8 12z"/>
+                    <path d="M14 13v2H2v-2H0v2a2 2 0 002 2h12a2 2 0 002-2v-2h-2z"/>
+                </svg>
+            </span>
+        </button>
+        <button id="preview-tab">
+            Validate & Preview
+            <span class="download-icon" id="download-html-icon" title="Download HTML">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M8 12L3 7h3V1h4v6h3L8 12z"/>
+                    <path d="M14 13v2H2v-2H0v2a2 2 0 002 2h12a2 2 0 002-2v-2h-2z"/>
+                </svg>
+            </span>
+        </button>
+    </div>
     <span id="validation-result"></span>
-</div>
-
-<div id="tabs">
-    <button id="edit-tab" class="active">
-        Edit
-        <span class="download-icon" id="download-xml-icon" title="Download XHTML">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M8 12L3 7h3V1h4v6h3L8 12z"/>
-                <path d="M14 13v2H2v-2H0v2a2 2 0 002 2h12a2 2 0 002-2v-2h-2z"/>
-            </svg>
-        </span>
-    </button>
-    <button id="preview-tab">
-        Preview
-        <span class="download-icon" id="download-html-icon" title="Download HTML">
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M8 12L3 7h3V1h4v6h3L8 12z"/>
-                <path d="M14 13v2H2v-2H0v2a2 2 0 002 2h12a2 2 0 002-2v-2h-2z"/>
-            </svg>
-        </span>
-    </button>
 </div>
 
 <div id="edit-container">
