@@ -4,14 +4,23 @@
 <head>
     <meta charset="UTF-8"/>
     <meta content="application/xhtml+xml"/>
+    <!-- Adjust the meta data-pubid value below to set the BHO publication ID for image and page URLs -->
     <meta data-pubid="2001"/>
 </head>
 <body>
-<hr class="vch-page" data-idstart="249"/>
+
+<!-- Adjust the data-idstart attribute value below to set the starting page number -->
+<hr class="vch-page" data-idstart="5"/>
+
+<!-- Adjust the title and subtitle -->
 <h2 id="title">Preparing VCH Content in XHTML for BHO</h2>
+<!-- The subtitle is optional: simply omit the <p> element if not needed -->
 <p id="subtitle">Author: Stephen Gadd</p>
 
+<!-- The first heading below the title should be an <h3> -->
 <h3>Overview</h3>
+
+<!-- EVERYTHING BELOW HERE SHOULD BE REPLACED WITH YOUR OWN CONTENT -->
 
 <p>This document demonstrates the simplicity of preparing VCH content in standard XHTML for use in BHO. <i>It uses
     JavaScript to replicate the functionality of the BHO XSLT stylesheet: a prototype of that can be seen <a
@@ -132,7 +141,10 @@ The remainder of this document is a selection of VCH content prepared in XHTML f
 </p>
 
 <table>
-    <caption>Acreage of Principal Crops 1916–19</caption>
+    <!-- Table caption should be inside the <table> element -->
+    <!-- Use a `data-idstart` attribute to set the table number -->
+    <!-- Table numbering continues automatically unless reset with another data-idstart -->
+    <caption data-idstart="42">Acreage of Principal Crops 1916–19</caption>
     <thead>
     <tr>
         <th>Year</th>
@@ -193,7 +205,8 @@ The remainder of this document is a selection of VCH content prepared in XHTML f
     <aside>Below (dairying).</aside>
 </p>
 
-<hr class="vch-page"/>
+<!-- If you need a page-number jump, include a `data-idstart` attribute -->
+<hr class="vch-page" data-idstart="180"/>
 
 <p>The intensification of dairying was accompanied by a change of emphasis from cheese production to liquid-milk sales.
     The change was precipitated by large-scale imports of American cheese in 1879, which reduced cheese prices
@@ -214,8 +227,11 @@ The remainder of this document is a selection of VCH content prepared in XHTML f
 </p>
 
 <figure>
+    <!-- Images will not load properly in the preview, but will work correctly in BHO if the `data-pubid` meta element is set -->
     <img src="../images/fig12.jpg"/>
-    <figcaption>Friesian dairy cattle at Tittensor, 1925</figcaption>
+    <!-- Use a `data-idstart` attribute to set the figure number -->
+    <!-- Figure numbering continues automatically unless reset with another data-idstart -->
+    <figcaption data-idstart="12">Friesian dairy cattle at Tittensor, 1925</figcaption>
 </figure>
 
 <h4>Sheep</h4>
@@ -368,7 +384,11 @@ The remainder of this document is a selection of VCH content prepared in XHTML f
     <aside>Inf. from Mr. M. Stone, principal of Rodbaston Coll. (1977).</aside>
 </p>
 
+<!-- Any element with a `data-xsl-ignore="true"` attribute will be ignored by the XSLT stylesheet -->
+<!-- The following two lines are for demonstration purposes only and should be removed -->
 <link data-xsl-ignore="true" rel="stylesheet" href="./css/xhtml.css"/>
 <script data-xsl-ignore="true" type="text/javascript" src="./js/xhtml.js"/>
+
+<!-- EVERYTHING ABOVE HERE (below the first <h3> heading) SHOULD BE REPLACED WITH YOUR OWN CONTENT -->
 </body>
 </html>
