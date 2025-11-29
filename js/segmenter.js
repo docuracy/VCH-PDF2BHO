@@ -330,10 +330,18 @@ function checkSolidBorders(src, binary, originalBlocks, width = 3, tolerance = 0
 
             // Check each border for the current column
             for (const [side, { positions, rect, tolerance }] of Object.entries(edges)) {
-                const hasBorder = positions.some(pos => {
-                    const edge = side === 'top' || side === 'bottom'
-                        ? binary.roi(rect(pos)) // For top and bottom, y varies
-                        : binary.roi(rect(pos)); // For left and right, x varies
+                const hasBorder = positions.some(pos => {const r = rect(pos);
+
+                    // FIX: Ensure the ROI is strictly within the image bounds
+                    if (r.x < 0 || r.y < 0 || r.x + r.width > binary.cols || r.y + r.height > binary.rows) {
+                        return false; // Treat out-of-bounds as "no border found"
+                    }
+
+                    // Now safe to call .roi()
+                    const edge = (side === 'top' || side === 'bottom')
+                        ? binary.roi(r)
+                        : binary.roi(r);
+
                     const result = cv.countNonZero(edge) >= tolerance;
                     edge.delete(); // Free memory
                     return result;

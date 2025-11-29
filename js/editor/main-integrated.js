@@ -307,7 +307,7 @@ async function extractPDFToXHTML(file) {
         );
 
         const currentPageNumeral = pageNumerals[pageNum - 1];
-        // Only add data-idstart on first page or when numbering is non-consecutive
+        // Only add data-start on first page or when numbering is non-consecutive
         const isNewPageNumeral = (pageNum === 1) || (currentPageNumeral !== lastPageNumeral + 1);
 
         let pageHTML;
@@ -372,7 +372,7 @@ async function extractPDFToXHTML(file) {
 
 function convertHTMLToXHTML(html, filename) {
     // Convert flat HTML to nested section structure
-    const xhtml = convertToNestedSections(html, "2001");
+    const xhtml = convertToNestedSections(html, "xxxxxx");
 
     return xhtml;
 }

@@ -76,8 +76,7 @@ function listOperators(operatorList) {
                     origin = [origin[0] + coords[0], origin[1] + coords[1]];
                 }
             });
-        }
-        else {
+        } else {
             // Log other operations in their basic form
             console.log(`Operation ${index}: ${operatorName}, Arguments: ${JSON.stringify(args)}`);
         }
@@ -100,7 +99,7 @@ function identifyCropMarks(page, viewport, operatorList) {
         if (operatorName === "setStrokeRGBColor" &&
             typeof args === "object" &&
             args !== null &&
-            ((args["0"] === 0 && args["1"] === 0 && args["2"] === 0)||(args["0"] === 6 && args["1"] === 6 && args["2"] === 12))
+            ((args["0"] === 0 && args["1"] === 0 && args["2"] === 0) || (args["0"] === 6 && args["1"] === 6 && args["2"] === 12))
         ) {
             let foundMarks = [];
 
@@ -180,8 +179,7 @@ function identifyCropMarks(page, viewport, operatorList) {
                     ]
                 }
                 cropMarks.push(...foundMarks);
-            }
-            else {
+            } else {
                 let operator = operatorNames[operatorList.fnArray[index + 4]] || `Unknown (${pathIndex})`;
                 if (operator === 'constructPath') {
                     let pathArgs = operatorList.argsArray[index + 4];
@@ -224,9 +222,8 @@ function identifyCropMarks(page, viewport, operatorList) {
                             const pathArgs = operatorList.argsArray[pathIndex][1];
                             if (pathIndex - index === 7) {
                                 cropRange['y'] = [pathArgs[1], pathArgs[5]];
-                            }
-                            else if (pathIndex - index === 11) {
-                                cropRange['x']= [pathArgs[0], pathArgs[4]];
+                            } else if (pathIndex - index === 11) {
+                                cropRange['x'] = [pathArgs[0], pathArgs[4]];
                             }
                         }
                     }
@@ -238,8 +235,7 @@ function identifyCropMarks(page, viewport, operatorList) {
     if (!!cropRange.y) {
         // Convert ranges to top-down reading order
         cropRange.y = [viewport.height - cropRange.y[0], viewport.height - cropRange.y[1]];
-    }
-    else {
+    } else {
         console.warn('Crop Range not found: using defaults.');
         // Use default crop range based on printed page size 595.276 x 864.567
         const gutterX = (viewport.width - 595.276) / 2;
@@ -267,13 +263,17 @@ async function renderPageToCanvas(page, viewport) {
     canvas.height = viewport.height;
 
     // Render the page to the canvas
-    await page.render({ canvasContext: context, viewport }).promise;
+    await page.render({canvasContext: context, viewport}).promise;
 
     return canvas;
 }
 
 
 function eraseOutsideCropRange(data, cropRange, canvasWidth, canvasHeight) {
+    if (!cropRange || !cropRange.x || !cropRange.y) {
+        console.warn("Skipping eraseOutsideCropRange: Valid crop bounds not found.");
+        return;
+    }
     const [xMin, xMax] = cropRange.x;
     const [yMin, yMax] = cropRange.y;
     const whitePixel = new Uint8ClampedArray([255, 255, 255, 255]);
@@ -336,6 +336,7 @@ function getEmbeddedImages(operatorList, viewport) {
 
 
 const worker = new Worker("js/segmenter.js");
+
 function segmentPage(page, viewport, operatorList, chartItems) {
     return new Promise(async (resolve, reject) => {
         const cropRange = identifyCropMarks(page, viewport, operatorList);
@@ -427,7 +428,7 @@ function segmentPage(page, viewport, operatorList, chartItems) {
         };
 
         // Send ImageData to worker for OpenCV processing
-        worker.postMessage({ action: "processPage", imageData, chartItems });
+        worker.postMessage({action: "processPage", imageData, chartItems});
     });
 }
 
@@ -436,8 +437,8 @@ async function extractDrawingsAsBase64(page, viewport, drawingBorders) {
     const canvas = await renderPageToCanvas(page, viewport);
 
     return Promise.all(
-        drawingBorders.map(async ({ left, top, width, height }) => {
-            const tempCanvas = Object.assign(document.createElement("canvas"), { width, height });
+        drawingBorders.map(async ({left, top, width, height}) => {
+            const tempCanvas = Object.assign(document.createElement("canvas"), {width, height});
             tempCanvas.getContext("2d").drawImage(canvas, left, top, width, height, 0, 0, width, height);
             return tempCanvas.toDataURL("image/png");
         })

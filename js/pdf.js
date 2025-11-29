@@ -207,7 +207,23 @@ async function storePageData(pdf, pageNum) {
     localStorage.setItem(`page-${pageNum}-segments`, JSON.stringify(segments));
     console.debug(`Segments for page ${pageNum}:`, segments);
 
-    const cropRange = segments.cropRange;
+    // Ensure cropRange exists and has valid X/Y dimensions
+    const cropRange = segments.cropRange || {};
+
+    // Fallback if X is missing
+    if (!cropRange.x) {
+        console.warn(`Page ${pageNum}: Missing Crop X, applying default.`);
+        const gutterX = Math.max(0, (viewport.width - 595.276) / 2);
+        cropRange.x = [gutterX, viewport.width - gutterX];
+    }
+
+    // Fallback if Y is missing
+    if (!cropRange.y) {
+        console.warn(`Page ${pageNum}: Missing Crop Y, applying default.`);
+        const gutterY = Math.max(0, (viewport.height - 864.567) / 2);
+        cropRange.y = [gutterY, viewport.height - gutterY];
+    }
+
     localStorage.setItem(`page-${pageNum}-cropRange`, JSON.stringify(cropRange));
     appendLogMessage(`Crop Range: x: ${cropRange.x[0].toFixed(2)} to ${cropRange.x[1].toFixed(2)}; y: ${cropRange.y[0].toFixed(2)} to ${cropRange.y[1].toFixed(2)}`);
     appendLogMessage(`Cropped size: ${cropRange.x[1].toFixed(2) - cropRange.x[0].toFixed(2)} x ${cropRange.y[1].toFixed(2) - cropRange.y[0].toFixed(2)}`);

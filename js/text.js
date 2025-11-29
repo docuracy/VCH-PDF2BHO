@@ -338,7 +338,7 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
 
     // 3. RENDER: Iterate blocks to generate HTML
     let pageHTML = isNewPageNumeral
-        ? `<hr class="vch-page" data-idstart="${pageNumeral}"/>`
+        ? `<hr class="vch-page" data-start="${pageNumeral}"/>`
         : `<hr class="vch-page" />`;
 
     let indexBuffer = '';
