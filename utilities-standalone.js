@@ -72,23 +72,47 @@ function titleCase(str) {
 function wrapStrings(items) {
     items.forEach(item => {
         // DON'T wrap headers here - they're handled in the HTML generation phase
-        // where they're output as proper semantic elements (<h2 id="title">, <h3>, etc.)
         if (item?.header) {
-            // Just delete fontName, don't wrap
             delete item.fontName;
-        } else if (item.bold) {
-            item.str = `<strong>${item.str}</strong>`;
-            delete item.bold;
-            delete item.fontName
-        } else if (item.italic) {
-            item.str = `<em>${item.str}</em>`;
-            delete item.italic;
-            delete item.fontName
+            return;
         }
-        // Wrap any URLs found in the string
+
+        // 1. Handle Bold
+        if (item.bold) {
+            item.str = `<b>${item.str}</b>`;
+            // Clean up: move trailing spaces outside the tag
+            item.str = item.str.replace(/(\s+)<\/b>/, '</b>$1');
+            // Clean up: move leading spaces outside the tag
+            item.str = item.str.replace(/<b>(\s+)/, '$1<b>');
+
+            delete item.bold;
+            delete item.fontName;
+        }
+
+        // 2. Handle Italic (Independent 'if' allows for Bold + Italic nesting)
+        if (item.italic) {
+            item.str = `<i>${item.str}</i>`;
+            item.str = item.str.replace(/(\s+)<\/i>/, '</i>$1');
+            item.str = item.str.replace(/<i>(\s+)/, '$1<i>');
+
+            delete item.italic;
+            delete item.fontName;
+        }
+
+        // 3. Handle Underline
+        if (item.underline) {
+            item.str = `<u>${item.str}</u>`;
+            item.str = item.str.replace(/(\s+)<\/u>/, '</u>$1');
+            item.str = item.str.replace(/<u>(\s+)/, '$1<u>');
+
+            delete item.underline;
+        }
+
+        // 4. Wrap any URLs found in the string
+        // Changed wrapper from <emph> to <i>
         const urlRegex = /(https?:\/\/[^\s]+)/g;
         item.str = item.str.replace(urlRegex, (url) => {
-            return `<emph type="i"><a href="${url}">${url}</a></emph>`;
+            return `<i><a href="${url}">${url}</a></i>`;
         });
     });
 }
