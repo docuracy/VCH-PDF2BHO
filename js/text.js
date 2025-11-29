@@ -350,10 +350,14 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
             indexBuffer = '';
         }
 
-        const blockText = block.items.map(i => i.str).join(' '); // Join content within block
+        let blockText = block.items.map(i => i.str).join(' '); // Join content within block
 
         switch (block.type) {
             case 'HEADER':
+                if (blockText && blockText === blockText.toUpperCase() && /[A-Z]/.test(blockText)) {
+                    blockText = toTitleCase(blockText);
+                }
+
                 if (block.level === 1) pageHTML += `<h2 id="title">${blockText}</h2>`;
                 else if (block.level === 2) pageHTML += `<p id="subtitle">${blockText}</p>`;
                 else pageHTML += `<h${block.level}>${blockText}</h${block.level}>`;
@@ -428,15 +432,59 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
     return [maxEndnote, pageHTML];
 }
 
+// Title Case Helper
+// Handles small words, hyphens, and start-of-sentence logic
+function toTitleCase(str) {
+    const smallWords = /^(a|an|and|as|at|but|by|en|for|if|in|nor|of|on|or|per|the|to|v.?|vs.?|via)$/i;
+    const wordSeparators = /([^\W_]+[^\s-]*) */g;
+
+    return str.toLowerCase().replace(wordSeparators, function (match, index, title) {
+        // Always capitalize the first word
+        // Ignore small words (unless they are the first word)
+        if (index > 0 && index + match.length !== title.length &&
+            match.match(smallWords) && title.charAt(index - 2) !== ":" &&
+            (title.charAt(index + 1).search(/[^\s-]/) < 0 || title.charAt(index - 1).search(/[^\s-]/) < 0) &&
+            title.charAt(index - 1) !== "-"
+        ) {
+            return match.toLowerCase();
+        }
+
+        // Ignore intentional mixed-case words (e.g. "iPhone", "LaTeX")
+        if (match.substr(1).search(/[A-Z]|\../) > -1) {
+            return match;
+        }
+
+        // Capitalize the first letter
+        return match.charAt(0).toUpperCase() + match.substr(1);
+    });
+}
+
 
 async function dehyphenate(item, nextItem) {
-    if (item.str.endsWith('-') && ((item.right + 1 > nextItem.left) || (item.column < nextItem.column))) {
-        // Remove the hyphen entirely - no markup needed
-        const truncated = item.str.slice(0, -1);
-        item.str = truncated;
+    // 1. Define prefixes that usually RETAIN the hyphen
+    // \b ensures we match the start of the word (avoiding things like "pyramid-")
+    // The 'i' flag makes it case-insensitive (Matches "Mid-" and "mid-")
+    const prefixesToKeep = /\b(mid|early|late|pre|post|non|ex|self|all|quasi|cross|counter|neo|semi|multi)-$/i;
+
+    const isLineBreak = (item.right + 1 > nextItem.left) || (item.column < nextItem.column);
+
+    if (item.str.endsWith('-') && isLineBreak) {
+        // Check if this is a special prefix
+        if (prefixesToKeep.test(item.str)) {
+            // It is a prefix (e.g. "mid-").
+            // Do NOT remove the hyphen.
+            // Just let the function append nextItem.str at the end.
+        } else {
+            // It is a standard broken word (e.g. "yell- ow").
+            // Remove the hyphen.
+            item.str = item.str.slice(0, -1);
+        }
     } else if ((!nextItem.footIndex) && (!nextItem.str.startsWith(')'))) {
+        // Standard word separation (no hyphen involved) -> Add space
         item.str += ' ';
     }
+
+    // Append the next chunk of text
     item.str += nextItem.str;
 }
 
