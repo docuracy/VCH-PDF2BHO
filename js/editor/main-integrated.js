@@ -212,10 +212,14 @@ async function extractPDFToXHTML(file) {
     const typedArray = new Uint8Array(arrayBuffer);
     const pdf = await pdfjsLib.getDocument(typedArray).promise;
 
-    const totalPages = pdf.numPages;
+    let totalPages = pdf.numPages;
+
+    const earlyStop = 1; // Set to >0 to limit pages for testing
+    totalPages = earlyStop > 0 ? Math.min(earlyStop, totalPages) : totalPages;
+
     updateExtractionUI(10, `Analyzing ${totalPages} pages...`, `PDF loaded: ${totalPages} pages`);
 
-    // Pre-process pages (your existing logic from pdf.js)
+    // Pre-process pages
     let masterFontMap = {};
     const pageNumerals = [];
 

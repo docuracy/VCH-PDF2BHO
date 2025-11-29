@@ -21,7 +21,7 @@ function processPDF(file, fileName, zip) {  // Accept zip as a parameter
 
                 // Discard all except the first `n` pages (set to `Infinity` to process all pages)
                 let maxPages = Infinity;
-                // maxPages = 15; // DEBUG: Limit to first 2 pages for testing
+                maxPages = 2; // DEBUG: Limit to first 2 pages for testing
 
                 const maxPage = Math.min(pdf.numPages, startPage + maxPages - 1);
 

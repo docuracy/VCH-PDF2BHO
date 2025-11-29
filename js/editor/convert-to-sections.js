@@ -4,6 +4,7 @@ export function convertToNestedSections(htmlString, pubid = "") {
     const parser = new DOMParser();
     const doc = parser.parseFromString(htmlString, 'text/html');
     const body = doc.body;
+    console.debug(doc)
 
     // Create article element
     const article = doc.createElement('article');
@@ -68,7 +69,7 @@ export function convertToNestedSections(htmlString, pubid = "") {
             currentSection = newSection;
         } else {
             // Regular content - add to current section
-            if (node.nodeType === Node.ELEMENT_NODE) {
+            if (node.nodeType === Node.ELEMENT_NODE || node.nodeType === Node.TEXT_NODE) {
                 currentSection.appendChild(node.cloneNode(true));
             }
         }
@@ -90,5 +91,6 @@ ${articleHTML}
 </body>
 </html>`;
 
+    console.debug(xhtml)
     return xhtml;
 }

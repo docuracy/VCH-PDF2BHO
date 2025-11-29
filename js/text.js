@@ -49,7 +49,7 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
         }
     })
 
-    escapeStrings(items);
+    escapeStrings(items); // Assumed global function
 
     // Split off bottom row if it contains footnotes
     let footnotes = [];
@@ -229,7 +229,7 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
 
     console.debug(`Page ${pageNum} - remaining items: ${items.length}:`, structuredClone(items));
 
-    wrapStrings(items);
+    wrapStrings(items); // Assumed global function
 
     await buildTables(items);
 
@@ -250,7 +250,7 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
 
     await moveTableCaptions(items);
 
-    trimStrings(items);
+    trimStrings(items); // Assumed global function
 
     // Add drawing images to items
     items.filter(item => item.fontName === 'drawing').forEach((item, index) => {
@@ -268,105 +268,139 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
         console.log(`Page ${pageNum} - Header levels found:`, headerLevels);
     }
 
-    // Construct page XHTML
-    let pageHTML = isNewPageNumeral
-        ? `<hr class="page-break" data-start="${pageNumeral}"/>`
-        : `<hr class="page-break" />`;
-    let indexFlush = false;
-    let indexBuffer = '';
-    let paragraphBuffer = ''; // Buffer to accumulate paragraph content
-    let inParagraph = false;
+    // =========================================================================
+    // BLOCK BUILDER PIPELINE
+    // =========================================================================
 
-    // Helper function to close paragraph if open
-    const closeParagraph = () => {
-        if (inParagraph) {
-            pageHTML += `<p>${paragraphBuffer}</p>`;
-            paragraphBuffer = '';
-            inParagraph = false;
+    // 1. CLASSIFY: Ensure every item has a distinct 'type'
+    const classifiedItems = items.map(item => {
+        if (item.fontName === 'drawing' || item.drawingNumber) return { ...item, type: 'FIGURE' };
+        if (item.paragraph === 'table') return { ...item, type: 'TABLE' };
+        if (item.index) return { ...item, type: 'INDEX' };
+        if (item.header) return { ...item, type: 'HEADER', level: Math.min(item.header, 5) };
+        if (item.tableHead || item.orphanCaption) return { ...item, type: 'CAPTION' };
+        // Default to text
+        return { ...item, type: 'TEXT' };
+    });
+
+    // 2. GROUP: Aggregate continuous items into semantic Blocks
+    const blocks = [];
+    let currentBlock = null;
+    let pendingParagraphBreak = false;
+
+    for (const item of classifiedItems) {
+        let startNew = false;
+
+        // Check if we need to execute a pending paragraph break from the PREVIOUS item
+        // But delay the break if the current item is a footnote marker (it belongs to previous sentence)
+        if (pendingParagraphBreak && !item.isFootnoteMarker) {
+            startNew = true;
+            pendingParagraphBreak = false; // Break executed
         }
-    };
 
-    for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        const nextItem = items[i + 1];
+        // Standard Block type switching
+        if (!currentBlock) {
+            startNew = true;
+            pendingParagraphBreak = false;
+        } else if (currentBlock.type !== item.type) {
+            startNew = true;
+            pendingParagraphBreak = false;
+        }
 
-        if (item?.index) {
-            closeParagraph();
+        // Forced breaks for structural elements (Headers/Figures always start new blocks)
+        if (!startNew && (item.type === 'HEADER' || item.type === 'FIGURE' || item.type === 'TABLE' || item.type === 'CAPTION')) {
+            startNew = true;
+            // Note: We do NOT reset pendingParagraphBreak here if we are breaking due to structure
+            // effectively consuming the break.
+            pendingParagraphBreak = false;
+        }
 
-            if (item.entryStart) {
-                if (indexBuffer) {
-                    pageHTML += `<div class="entry">${indexBuffer}</div>`;
-                    indexBuffer = '';
-                }
-                indexBuffer += `<div class="index-head">${normaliseIndexEntry(item.str, true)}</div>`;
-            } else if (item.subStart) {
-                indexBuffer += `<div class="index-sub">${normaliseIndexEntry(item.str)}</div>`;
-            }
-        } else if (item.fontName === 'drawing') {
-            closeParagraph();
-
-            // Start figure element - check if next item is a caption
-            pageHTML += `<figure>${item.str}`;
-            if (nextItem?.drawingNumber) {
-                // Include the caption and skip next item
-                pageHTML += `<figcaption>${nextItem.str}</figcaption>`;
-                i++; // Skip the caption item since we've already processed it
-            }
-            pageHTML += `</figure>`;
-        } else if (item?.drawingNumber && items[i - 1]?.fontName !== 'drawing') {
-            closeParagraph();
-
-            // Standalone caption (previous item wasn't a drawing)
-            // Wrap in a figure element to make it valid HTML
-            pageHTML += `<figure><figcaption>${item.str}</figcaption></figure>`;
-        } else if (item?.paragraph === 'table') {
-            closeParagraph();
-
-            // Tables are already in <table> format from buildTableHTML
-            pageHTML += item.str;
-        } else if (item?.tableHead) {
-            // This will be handled by moveTableCaptions - skip here
-            // (caption gets inserted into the table)
-        } else if (item?.header) {
-            closeParagraph();
-
-            if (item.header === 1) {
-                pageHTML += `<h2 id="title">${item.str}</h2>`;
-            } else if (item.header === 2) {
-                pageHTML += `<p id="subtitle">${item.str}</p>`;
-            } else {
-                // Map header levels 3+ to h3-h5 (cap at h5 since XSLT doesn't handle h6)
-                const level = Math.min(item.header, 5);
-                pageHTML += `<h${level}>${item.str}</h${level}>`;
-            }
-        } else if (item.isFootnoteMarker || !item.header && !item.index && !item.paragraph) {
-            // Regular text or footnote marker - add to paragraph buffer
-            if (!inParagraph) {
-                inParagraph = true;
-                paragraphBuffer = item.str;
-            } else {
-                paragraphBuffer += item.str;
-            }
-
-            // Only close paragraph if next item is NOT regular text or footnote marker
-            if (!nextItem ||
-                nextItem.header ||
-                nextItem.index ||
-                nextItem.paragraph === 'table' ||
-                nextItem.fontName === 'drawing' ||
-                nextItem.drawingNumber) {
-                closeParagraph();
-            }
+        if (startNew) {
+            if (currentBlock) blocks.push(currentBlock);
+            currentBlock = {
+                type: item.type,
+                items: [item],
+                // Carry over specific metadata from the first item
+                level: item.level,
+                entryStart: item.entryStart,
+                subStart: item.subStart
+            };
         } else {
-            // Fallback for any other item types
-            closeParagraph();
-            pageHTML += `<p>${item.str}</p>`;
+            currentBlock.items.push(item);
+        }
+
+        // Set pending break if this item ENDS a paragraph (e.g. ends in a period)
+        if (item.type === 'TEXT' && item.paragraph) {
+            pendingParagraphBreak = true;
+        }
+    }
+    if (currentBlock) blocks.push(currentBlock);
+
+    // 3. RENDER: Iterate blocks to generate HTML
+    let pageHTML = isNewPageNumeral
+        ? `<hr class="vch-page" data-idstart="${pageNumeral}"/>`
+        : `<hr class="vch-page" />`;
+
+    let indexBuffer = '';
+
+    for (const block of blocks) {
+        // Flush index buffer if we are no longer processing index items
+        if (block.type !== 'INDEX' && indexBuffer) {
+            pageHTML += `<div class="entry">${indexBuffer}</div>`;
+            indexBuffer = '';
+        }
+
+        const blockText = block.items.map(i => i.str).join(' '); // Join content within block
+
+        switch (block.type) {
+            case 'HEADER':
+                if (block.level === 1) pageHTML += `<h2 id="title">${blockText}</h2>`;
+                else if (block.level === 2) pageHTML += `<p id="subtitle">${blockText}</p>`;
+                else pageHTML += `<h${block.level}>${blockText}</h${block.level}>`;
+                break;
+
+            case 'TABLE':
+                // Tables are already pre-formatted HTML in .str
+                pageHTML += blockText;
+                break;
+
+            case 'FIGURE':
+                // Handle complex figure/caption logic
+                pageHTML += `<figure>`;
+                block.items.forEach(itm => {
+                    if (itm.fontName === 'drawing') pageHTML += itm.str; // The <img> tag
+                    else pageHTML += `<figcaption>${itm.str}</figcaption>`;
+                });
+                pageHTML += `</figure>`;
+                break;
+
+            case 'CAPTION':
+                pageHTML += `<p class="caption">${blockText}</p>`;
+                break;
+
+            case 'INDEX':
+                // Replicate specific index logic
+                block.items.forEach(itm => {
+                    if (itm.entryStart) {
+                        if (indexBuffer) pageHTML += `<div class="entry">${indexBuffer}</div>`;
+                        indexBuffer = `<div class="index-head">${normaliseIndexEntry(itm.str, true)}</div>`;
+                    } else if (itm.subStart) {
+                        indexBuffer += `<div class="index-sub">${normaliseIndexEntry(itm.str)}</div>`;
+                    } else {
+                        // Fallback or continuation
+                        indexBuffer += ` ${itm.str}`;
+                    }
+                });
+                break;
+
+            case 'TEXT':
+            default:
+                pageHTML += `<p>${blockText}</p>`;
+                break;
         }
     }
 
-    // Close any remaining open paragraph
-    closeParagraph();
-
+    // Final flush
     if (indexBuffer) {
         pageHTML += `<div class="entry">${indexBuffer}</div>`;
     }
@@ -375,9 +409,9 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
     // FINALISE
     /////////////////////////////
 
-    // Remove drawing images from items to avoid bloating localStorage: they can be re-extracted at higher resolution and added to zip file when needed
+    // Remove drawing images from items to avoid bloating localStorage
     items.filter(item => item.fontName === 'drawing').forEach(item => {
-        items.str = '';
+        item.str = ''; // Fixed typo: items.str to item.str
     });
 
     try {
@@ -390,8 +424,6 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
     appendLogMessage(`Row Ranges: ${JSON.stringify(segmentation.map(row => row.range))}`);
 
     maxEndnote += Math.max(...(foundFootnoteIndices.size ? foundFootnoteIndices : [0]));
-
-    // console.log(`Page ${pageNum}: maxEndnote is ${maxEndnote}`);
 
     return [maxEndnote, pageHTML];
 }
@@ -515,10 +547,6 @@ async function processFootnotes(segmentation, footnotes, pageNum, pageNumeral, m
     // Sort foundFootnoteIndices in ascending order
     foundFootnoteIndices = Array.from(foundFootnoteIndices).sort((a, b) => a - b);
 
-    // console.log(`Page ${pageNumeral} (PDF ${pageNum}) segmentation:`, structuredClone(segmentation));
-    // console.log(structuredClone(footnotes));
-    // console.log(foundFootnoteIndices);
-
     // Iterate through foundFootnoteIndices and match them in footnotes array
     let footnoteCursor = 0;
     foundFootnoteIndices.forEach(footnoteIndex => {
@@ -527,8 +555,6 @@ async function processFootnotes(segmentation, footnotes, pageNum, pageNumeral, m
 
         while (footnoteCursor < footnotes.length) {
             const footnoteText = footnotes[footnoteCursor].str;
-
-            // console.log(`Looking for ${footnoteIndex} in "${footnoteText}"`);
 
             // Check for footnoteIndex at the start of the string
             if (footnoteText.match(indexPattern)) {
@@ -549,7 +575,7 @@ async function processFootnotes(segmentation, footnotes, pageNum, pageNumeral, m
         console.error(`Page ${pageNumeral} (PDF ${pageNum}): missing footnotes ${missingFootnoteNumbers.join(', ')}`);
     }
 
-    wrapStrings(footnotes);
+    wrapStrings(footnotes); // Assumed global function
 
     // Merge footnotes with the previous item if they don't have a footNumber
     for (let i = footnotes.length - 1; i > 0; i--) { // Start from the end and move to the beginning
@@ -569,7 +595,7 @@ async function processFootnotes(segmentation, footnotes, pageNum, pageNumeral, m
         item.str = item.str.replace(regex, '');
     });
 
-    trimStrings(footnotes);
+    trimStrings(footnotes); // Assumed global function
 
     localStorage.setItem(`page-${pageNum}-footnotes`, LZString.compressToUTF16(JSON.stringify(footnotes)));
 
@@ -580,10 +606,25 @@ async function moveTableCaptions(items) {
     for (let i = items.length - 1; i >= 0; i--) {
         const item = items[i];
         if (item?.tableHead) {
-            const associatedTable = items[i - 1];
-            // Insert tableHead into the table using regex search for "@@@CAPTION@@@"
-            associatedTable.str = associatedTable.str.replace('@@@CAPTION@@@', item.str);
-            items.splice(i, 1); // Remove the tableHead item after merging
+            let tableIndex = -1;
+            // Search backwards 5 items
+            for (let j = i - 1; j >= Math.max(0, i - 5); j--) {
+                // The item must be a table
+                if (items[j].paragraph === 'table') {
+                    tableIndex = j;
+                    break;
+                }
+            }
+
+            if (tableIndex !== -1 && items[tableIndex].str.includes('@@@CAPTION@@@')) {
+                const associatedTable = items[tableIndex];
+                associatedTable.str = associatedTable.str.replace('@@@CAPTION@@@', item.str);
+                items.splice(i, 1); // Remove the tableHead item after merging
+            } else {
+                // Flag this caption so the Block Builder knows to render it standalone
+                item.orphanCaption = true;
+                delete item.tableHead;
+            }
         }
     }
 }
