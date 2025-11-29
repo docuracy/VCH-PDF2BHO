@@ -214,7 +214,7 @@ async function extractPDFToXHTML(file) {
 
     let totalPages = pdf.numPages;
 
-    const earlyStop = 1; // Set to >0 to limit pages for testing
+    const earlyStop = Infinity; // Set to >0 to limit pages for testing, or Infinity for all pages
     totalPages = earlyStop > 0 ? Math.min(earlyStop, totalPages) : totalPages;
 
     updateExtractionUI(10, `Analyzing ${totalPages} pages...`, `PDF loaded: ${totalPages} pages`);
