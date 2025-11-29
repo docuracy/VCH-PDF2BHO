@@ -1,12 +1,13 @@
-import { EditorView, basicSetup } from "https://esm.sh/codemirror";
-import { xml } from "https://esm.sh/@codemirror/lang-xml";
-import { keymap } from "https://esm.sh/@codemirror/view";
-import { Prec } from "https://esm.sh/@codemirror/state";
+import {EditorView, basicSetup} from "https://esm.sh/codemirror";
+import {xml} from "https://esm.sh/@codemirror/lang-xml";
+import {keymap} from "https://esm.sh/@codemirror/view";
+import {Prec} from "https://esm.sh/@codemirror/state";
+import {indentWithTab} from "https://esm.sh/@codemirror/commands";
 
 // Smart toggle function: Wraps if clean, Unwraps if formatted
 function toggleFormatting(view, openTag, closeTag) {
-    const { state } = view;
-    const { from, to } = state.selection.main;
+    const {state} = view;
+    const {from, to} = state.selection.main;
     const doc = state.doc;
 
     // Don't act on empty selections
@@ -24,11 +25,11 @@ function toggleFormatting(view, openTag, closeTag) {
         // UNWRAP: Remove the tags surrounding the selection
         view.dispatch({
             changes: [
-                { from: from - openLen, to: from, insert: "" }, // Remove opening tag
-                { from: to, to: to + closeLen, insert: "" }     // Remove closing tag
+                {from: from - openLen, to: from, insert: ""}, // Remove opening tag
+                {from: to, to: to + closeLen, insert: ""}     // Remove closing tag
             ],
             // Keep the text selected
-            selection: { anchor: from - openLen, head: to - openLen }
+            selection: {anchor: from - openLen, head: to - openLen}
         });
         return true;
     }
@@ -40,9 +41,9 @@ function toggleFormatting(view, openTag, closeTag) {
         // UNWRAP: Replace the whole selection with just the inner text
         const innerText = selectedText.slice(openLen, -closeLen);
         view.dispatch({
-            changes: { from, to, insert: innerText },
+            changes: {from, to, insert: innerText},
             // Select the inner text
-            selection: { anchor: from, head: from + innerText.length }
+            selection: {anchor: from, head: from + innerText.length}
         });
         return true;
     }
@@ -54,7 +55,7 @@ function toggleFormatting(view, openTag, closeTag) {
             to,
             insert: `${openTag}${selectedText}${closeTag}`
         },
-        selection: { anchor: from + openLen, head: from + openLen + selectedText.length }
+        selection: {anchor: from + openLen, head: from + openLen + selectedText.length}
     });
     return true;
 }
@@ -80,7 +81,7 @@ const formattingKeymap = keymap.of([
 
 export const editor = new EditorView({
     doc: "<!DOCTYPE html>\n<html>\n...</html>",
-    extensions: [basicSetup, xml(), Prec.highest(formattingKeymap)],
+    extensions: [basicSetup, xml(), keymap.of([indentWithTab]), Prec.highest(formattingKeymap)],
     parent: document.getElementById("xhtml-editor")
 });
 
