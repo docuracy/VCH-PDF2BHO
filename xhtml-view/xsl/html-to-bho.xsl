@@ -13,17 +13,20 @@
 
     <!-- Root template -->
     <xsl:template match="/">
-        <xsl:apply-templates select="//body"/>
+        <xsl:apply-templates select="//article"/>
     </xsl:template>
 
-    <!-- Body becomes report -->
-    <xsl:template match="body">
+    <!-- Article becomes report -->
+    <xsl:template match="article">
         <report id="" publish="false">
             <xsl:attribute name="pubid">
-                <xsl:value-of select="//meta[@data-pubid]/@data-pubid"/>
+                <xsl:value-of select="@data-pubid"/>
             </xsl:attribute>
 
-            <xsl:apply-templates select="h2[@id='title'] | h1[@id='title']" mode="title"/>
+            <!-- Title from first header/h1 -->
+            <xsl:apply-templates select="header[@id='title']/h1" mode="title"/>
+
+            <!-- Subtitle if present -->
             <xsl:apply-templates select="p[@id='subtitle']" mode="subtitle"/>
 
             <!-- Get first page number from first page break -->
@@ -32,16 +35,16 @@
                 <page start="{$first-page}"/>
             </xsl:if>
 
-            <!-- Process h3 sections and footnotes section -->
-            <xsl:apply-templates select="h3" mode="create-section"/>
+            <!-- Process top-level sections -->
+            <xsl:apply-templates select="section[not(@class='footnotes')]"/>
 
             <!-- Process footnotes section if it exists -->
-            <xsl:apply-templates select="section[@class='footnotes']" mode="footnotes-section"/>
+            <xsl:apply-templates select="//footer//section[@class='footnotes']" mode="footnotes-section"/>
         </report>
     </xsl:template>
 
     <!-- Title and subtitle -->
-    <xsl:template match="h2[@id='title'] | h1[@id='title']" mode="title">
+    <xsl:template match="h1" mode="title">
         <title><xsl:apply-templates/></title>
     </xsl:template>
 
@@ -49,27 +52,37 @@
         <subtitle><xsl:apply-templates/></subtitle>
     </xsl:template>
 
-    <!-- Create section for each h3 -->
-    <xsl:template match="h3" mode="create-section">
-        <xsl:variable name="next-h3" select="following-sibling::h3[1]"/>
-
+    <!-- Process section elements recursively -->
+    <xsl:template match="section[not(@class='footnotes')]">
         <section>
             <xsl:attribute name="id">
                 <xsl:text>s</xsl:text>
-                <xsl:number count="h3[not(ancestor::section[@class='footnotes'])]" level="any"/>
+                <xsl:call-template name="section-number"/>
             </xsl:attribute>
 
-            <head><xsl:apply-templates/></head>
+            <!-- Section heading from h2, h3, h4, h5, etc. -->
+            <xsl:if test="h2 | h3 | h4 | h5 | h6">
+                <head>
+                    <xsl:apply-templates select="(h2 | h3 | h4 | h5 | h6)[1]/node()"/>
+                </head>
+            </xsl:if>
 
-            <!-- Get all content between this h3 and the next h3 (or end) -->
-            <xsl:variable name="section-content" select="following-sibling::*[
-                not(self::h3) and
-                not(self::section[@class='footnotes']) and
-                (not($next-h3) or (following-sibling::h3[1] and generate-id(following-sibling::h3[1]) = generate-id($next-h3)))
-            ]"/>
+            <!-- Process content, excluding headings and nested sections -->
+            <xsl:apply-templates select="*[not(self::h2 or self::h3 or self::h4 or self::h5 or self::h6 or self::section)]" mode="section-content"/>
 
-            <xsl:apply-templates select="$section-content" mode="section-content"/>
+            <!-- Process nested sections -->
+            <xsl:apply-templates select="section[not(@class='footnotes')]"/>
         </section>
+    </xsl:template>
+
+    <!-- Generate hierarchical section numbering -->
+    <xsl:template name="section-number">
+        <xsl:for-each select="ancestor-or-self::section[not(@class='footnotes')]">
+            <xsl:value-of select="count(preceding-sibling::section[not(@class='footnotes')]) + 1"/>
+            <xsl:if test="position() != last()">
+                <xsl:text>-</xsl:text>
+            </xsl:if>
+        </xsl:for-each>
     </xsl:template>
 
     <!-- Section content processing -->
@@ -79,39 +92,6 @@
             <xsl:when test="self::p[@class='page-break']">
                 <xsl:variable name="page-num" select="normalize-space(substring-before(substring-after(., '[Page '), ']'))"/>
                 <page start="{$page-num}"/>
-            </xsl:when>
-
-            <!-- H4 and H5 create nested sections -->
-            <xsl:when test="self::h4 or self::h5">
-                <xsl:variable name="current-level" select="local-name()"/>
-                <xsl:variable name="next-same-or-higher" select="following-sibling::*[
-                    (self::h4 and $current-level = 'h4') or
-                    (self::h5 and $current-level = 'h5') or
-                    self::h3
-                ][1]"/>
-
-                <section>
-                    <xsl:attribute name="id">
-                        <xsl:text>s</xsl:text>
-                        <xsl:number count="h3[not(ancestor::section[@class='footnotes'])] | h4 | h5" level="any"/>
-                    </xsl:attribute>
-
-                    <head><xsl:apply-templates/></head>
-
-                    <!-- Get content until next same-or-higher heading -->
-                    <xsl:apply-templates select="following-sibling::*[
-                        not(self::h3 or self::h4 or self::h5) and
-                        (not($next-same-or-higher) or (following-sibling::*[
-                            (self::h4 and $current-level = 'h4') or
-                            (self::h5 and $current-level = 'h5') or
-                            self::h3
-                        ][1] and generate-id(following-sibling::*[
-                            (self::h4 and $current-level = 'h4') or
-                            (self::h5 and $current-level = 'h5') or
-                            self::h3
-                        ][1]) = generate-id($next-same-or-higher)))
-                    ]" mode="section-content"/>
-                </section>
             </xsl:when>
 
             <!-- Regular paragraphs -->
@@ -125,20 +105,30 @@
                 </para>
             </xsl:when>
 
-            <!-- Tables wrapped in div.table-wrap -->
-            <xsl:when test="self::div[@class='table-wrap']">
-                <xsl:apply-templates select="table"/>
-            </xsl:when>
-
-            <!-- Tables -->
+            <!-- Tables: wrap in div.table-wrap and extract caption -->
             <xsl:when test="self::table">
-                <table>
-                    <xsl:attribute name="id">
-                        <xsl:text>t</xsl:text>
-                        <xsl:number count="table" level="any"/>
-                    </xsl:attribute>
-                    <xsl:apply-templates/>
-                </table>
+                <xsl:variable name="table-num">
+                    <xsl:number count="table" level="any"/>
+                </xsl:variable>
+
+                <div class="table-wrap">
+                    <!-- Extract caption and put it in a p.table-caption before the table -->
+                    <xsl:if test="caption">
+                        <p class="table-caption">
+                            <strong>Table <xsl:value-of select="$table-num"/>: </strong>
+                            <xsl:apply-templates select="caption/node()"/>
+                        </p>
+                    </xsl:if>
+
+                    <table>
+                        <xsl:attribute name="id">
+                            <xsl:text>t</xsl:text>
+                            <xsl:value-of select="$table-num"/>
+                        </xsl:attribute>
+                        <!-- Process table content except caption -->
+                        <xsl:apply-templates select="*[not(self::caption)]"/>
+                    </table>
+                </div>
             </xsl:when>
 
             <!-- Figures -->
@@ -166,7 +156,7 @@
         </xsl:choose>
     </xsl:template>
 
-    <!-- Table rows -->
+    <!-- Table structure -->
     <xsl:template match="thead">
         <xsl:apply-templates/>
     </xsl:template>
@@ -235,35 +225,27 @@
         <section>
             <xsl:attribute name="id">
                 <xsl:text>s</xsl:text>
-                <xsl:number count="h3[not(ancestor::section[@class='footnotes'])]" level="any"/>
+                <xsl:number count="section[not(@class='footnotes')]" level="any"/>
                 <xsl:text>notes</xsl:text>
             </xsl:attribute>
 
-            <xsl:apply-templates select="p[@class='footnote']" mode="footnote"/>
+            <!-- Process footnotes from ul/li structure -->
+            <xsl:apply-templates select=".//li[@class='footnote']" mode="footnote"/>
         </section>
     </xsl:template>
 
-    <xsl:template match="p[@class='footnote']" mode="footnote">
-        <xsl:variable name="note-num" select="normalize-space(substring-before(substring-after(a[1], '. '), ' '))"/>
-        <xsl:variable name="note-num-clean">
-            <xsl:choose>
-                <xsl:when test="$note-num != ''">
-                    <xsl:value-of select="$note-num"/>
-                </xsl:when>
-                <xsl:otherwise>
-                    <xsl:value-of select="substring-after(@id, 'fnn')"/>
-                </xsl:otherwise>
-            </xsl:choose>
-        </xsl:variable>
+    <!-- Process individual footnotes from li elements -->
+    <xsl:template match="li[@class='footnote']" mode="footnote">
+        <xsl:variable name="note-num" select="substring-after(@id, 'fnn')"/>
 
-        <note id="n{$note-num-clean}" number="{$note-num-clean}">
-            <!-- Get text after the first anchor's closing tag -->
+        <note id="n{$note-num}" number="{$note-num}">
+            <!-- Get text after the first anchor (the back-reference link) -->
             <xsl:apply-templates select="a[1]/following-sibling::node()"/>
         </note>
     </xsl:template>
 
     <!-- Skip elements that shouldn't appear in output -->
-    <xsl:template match="header | ul | code | div[@class='table-wrap']/p"/>
+    <xsl:template match="nav | header[@class='header'] | ul | code | hr"/>
 
     <!-- Skip links unless they're footnote references -->
     <xsl:template match="a[not(@class='footnote')]">

@@ -270,8 +270,8 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
 
     // Construct page XHTML
     let pageHTML = isNewPageNumeral
-        ? `<hr class="vch-page" data-idstart="${pageNumeral}"/>`
-        : `<hr class="vch-page" />`;
+        ? `<hr class="page-break" data-start="${pageNumeral}"/>`
+        : `<hr class="page-break" />`;
     let indexFlush = false;
     let indexBuffer = '';
     let paragraphBuffer = ''; // Buffer to accumulate paragraph content

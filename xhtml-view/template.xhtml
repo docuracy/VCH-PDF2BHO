@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- This is a template for creating XHTML documents compatible with the BHO platform.
+     Please follow the structure and comments to ensure proper formatting and functionality. -->
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta content="application/xhtml+xml"/>
+</head>
+<body>
+
+<!-- Adjust the meta data-pubid value below to set the BHO publication ID (used for image and page URLs) -->
+<article data-pubid="xxxxxx">
+    <!-- Insert the page title in the following header -->
+    <header></header>
+    <!-- The subtitle is optional: simply omit the <p> element if not needed -->
+    <p id="subtitle"></p>
+    <!-- Page breaks are indicated using <hr> elements with class "page-break" -->
+    <!-- Use a data-start attribute to set the page number (not required for subsequent page breaks) -->
+    <hr class="page-break" data-start="1"/>
+    <!-- Example of a basic section structure -->
+    <section>
+        <header></header>
+        <p></p>
+        <!-- Example of a figure with caption -->
+        <figure>
+            <!-- Ensure that the `data-pubid` is set in the `article` tag above -->
+            <img src=""/>
+            <!-- Use a `data-start` attribute to set the initial figure number -->
+            <figcaption data-start="1"></figcaption>
+        </figure>
+        <hr class="page-break"/>
+        <!-- Example of a table with caption -->
+        <table>
+            <!-- Use a `data-start` attribute to set the initial table number -->
+            <caption data-start="1"></caption>
+            <thead>
+            <tr>
+                <th></th>
+                <th></th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr>
+                <td></td>
+                <td></td>
+            </tr>
+            </tbody>
+        </table>
+    </section>
+    <!-- Section nesting can be as deep as required -->
+    <section>
+        <header></header>
+        <p></p>
+        <section>
+            <header></header>
+            <p></p>
+            <section>
+                <header></header>
+                <p></p>
+                <section>
+                    <header></header>
+                    <p></p>
+                </section>
+            </section>
+        </section>
+    </section>
+</article>
+</body>
+</html>

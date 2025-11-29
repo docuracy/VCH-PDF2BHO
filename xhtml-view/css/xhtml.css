@@ -7,7 +7,7 @@ body {
     padding: 20px;
 }
 
-header {
+nav, footer {
     background-color: #ff130114;
     padding: 1.5rem;
     border-radius: 8px;
@@ -25,40 +25,26 @@ header h2 {
     margin-bottom: 1rem;
 }
 
-header > ul {
+footer ul {
     margin: 0.5rem 0;
     padding-left: 0;
     list-style-type: none;
 }
 
-header ul ul {
-    margin-top: 0.25rem;
-    margin-bottom: 0.25rem;
-    padding-left: 2rem;
-    list-style-type: disc;
-}
-
-header ul ul ul {
-    list-style-type: circle;
-}
-
-header ul ul ul ul {
-    list-style-type: square;
-}
-
-header a {
+nav a, footer a {
     color: #0066cc;
     text-decoration: none;
     transition: color 0.2s ease;
 }
 
-header a:hover {
+nav a:hover, footer a:hover {
     color: #c41230;
     text-decoration: underline;
 }
 
 h1 {
     font-size: 2.5em;
+    text-transform: uppercase;
     border-bottom: 2px solid #333;
 }
 
@@ -80,58 +66,17 @@ h4 {
     font-weight: bold;
     font-style: italic;
     color: #555;
+    margin-bottom: 0;
 }
 
 u {
     text-decoration: underline;
 }
 
-.title {
-    text-transform: uppercase;
-}
-
 p.subtitle {
     font-style: italic;
     color: #666;
     font-size: 1.2em;
-}
-
-hr.vch-page {
-    border: 0;
-    border-top: 1px dashed #999;
-    margin: 30px 0;
-    position: relative;
-    height: 1px;
-    overflow: visible;
-}
-
-hr.vch-page::after {
-    content: " Page " attr(data-page) " ";
-    position: absolute;
-    top: -0.7em;
-    left: 50%;
-    transform: translateX(-50%);
-    background: #fff;
-    padding: 0 10px;
-    color: #cc0000;
-    font-weight: bold;
-    font-size: 0.8em;
-    border: 1px solid #ddd;
-    border-radius: 10px;
-}
-
-span.vch-page {
-    border-bottom: 2px solid red;
-    margin: 0 2px;
-    position: relative;
-}
-
-span.vch-page::before {
-    content: "[p." attr(data-page) "]";
-    font-size: 0.7em;
-    color: red;
-    vertical-align: super;
-    font-weight: bold;
 }
 
 p.page-break {
@@ -251,4 +196,8 @@ table th {
 
 table tbody tr:nth-child(even) {
     background: #fafafa;
+}
+
+li.footnote a {
+    margin-right: 0.3em;
 }

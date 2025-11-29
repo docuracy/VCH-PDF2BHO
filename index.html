@@ -138,10 +138,14 @@
 
 <div id="top-bar">
     <div id="file-input-container">
+        <select id="template-selector" title="Select from Template or Example, or choose your own file">
+            <option value="template.xhtml">Template</option>
+            <option value="example.xhtml">Example</option>
+        </select>
         <input type="file" id="file-input" accept=".xml,.xhtml,.html,.txt,.pdf" style="display: none;">
-        <label for="file-input" id="file-input-label">
+        <label for="file-input" id="file-input-label" title="Upload your own XHTML or PDF file">
             <span class="file-button">Choose File</span>
-            <span id="file-name">160028.xhtml</span>
+            <span id="file-name">template.xhtml</span>
         </label>
     </div>
     <div id="tabs">
@@ -164,7 +168,7 @@
                     <path d="M14 13v2H2v-2H0v2a2 2 0 002 2h12a2 2 0 002-2v-2h-2z"/>
                 </svg>
             </span>
-            <span class="convert-icon" id="convert-to-bho-btn" title="Convert to BHO XML and load into editor">
+            <span class="convert-icon" id="convert-to-bho-btn" title="Download as BHO XML">
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <polyline points="5,2 2,8 5,14"/>
                     <polyline points="11,2 14,8 11,14"/>

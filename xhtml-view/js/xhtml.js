@@ -1,7 +1,7 @@
 //<![CDATA[
 document.addEventListener("DOMContentLoaded", function () {
     var root = document.querySelector('body');
-    var startVal = parseInt(root.getAttribute('data-idstart')) || 1;
+    var startVal = parseInt(root.getAttribute('data-start')) || 1;
     var allNotes = document.querySelectorAll('aside');
 
     var sourceNotes = [];
@@ -165,7 +165,7 @@ document.addEventListener("DOMContentLoaded", function () {
     var allFigcaptions = document.querySelectorAll('figcaption');
     var figCounter = 1;
     allFigcaptions.forEach(function (figcap) {
-        var startAttr = figcap.getAttribute('data-idstart');
+        var startAttr = figcap.getAttribute('data-start');
         if (startAttr) {
             figCounter = parseInt(startAttr);
         }
@@ -177,7 +177,7 @@ document.addEventListener("DOMContentLoaded", function () {
     var allTablecaptions = document.querySelectorAll('table caption');
     var tableCounter = 1;
     allTablecaptions.forEach(function (tabcap) {
-        var startAttr = tabcap.getAttribute('data-idstart');
+        var startAttr = tabcap.getAttribute('data-start');
         if (startAttr) {
             tableCounter = parseInt(startAttr);
         }
@@ -185,10 +185,10 @@ document.addEventListener("DOMContentLoaded", function () {
         tableCounter++;
     });
 
-    // Add page numbers to hr.vch-page elements
-    var pageMarkers = document.querySelectorAll('hr.vch-page');
+    // Add page numbers to hr.page-break elements
+    var pageMarkers = document.querySelectorAll('hr.page-break');
     if (pageMarkers.length > 0) {
-        var currentPageNum = parseInt(pageMarkers[0].getAttribute('data-idstart')) || 1;
+        var currentPageNum = parseInt(pageMarkers[0].getAttribute('data-start')) || 1;
         pageMarkers.forEach(function (marker, index) {
             marker.setAttribute('data-page', currentPageNum + index);
         });
@@ -198,7 +198,7 @@ document.addEventListener("DOMContentLoaded", function () {
     var allParagraphs = root.querySelectorAll('p:not(#subtitle)');
     var pCounter = 1;
     allParagraphs.forEach(function(p) {
-        var startAttr = p.getAttribute('data-idstart');
+        var startAttr = p.getAttribute('data-start');
         if (startAttr) {
             pCounter = parseInt(startAttr);
         }

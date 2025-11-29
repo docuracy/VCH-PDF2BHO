@@ -1,6 +1,7 @@
 import {editor, formatDocument} from "./editor.js";
 import {generatePreview, convertToBHO} from "./preview.js";
 import {validateXML} from "./validator.js";
+import {convertToNestedSections} from "./convert-to-sections.js";
 
 // Expose formatDocument globally for the button
 window.formatDocument = formatDocument;
@@ -19,7 +20,7 @@ window.addEventListener("DOMContentLoaded", async () => {
 
     // Try to load default XHTML file
     try {
-        const url = "./xhtml-view/160028.xhtml";
+        const url = "./xhtml-view/template.xhtml";
         const resp = await fetch(url);
         if (resp.ok) {
             const text = await resp.text();
@@ -35,6 +36,25 @@ window.addEventListener("DOMContentLoaded", async () => {
     // Set up extraction modal button handlers
     document.getElementById("extraction-load").onclick = loadExtractedXHTML;
     document.getElementById("extraction-close").onclick = () => extractionModal.hide();
+
+    // Template selector handler (add in DOMContentLoaded)
+    document.getElementById('template-selector').addEventListener('change', async (e) => {
+        const filename = e.target.value;
+        const url = `./xhtml-view/${filename}`;
+        try {
+            const resp = await fetch(url);
+            if (resp.ok) {
+                const text = await resp.text();
+                editor.dispatch({
+                    changes: {from: 0, to: editor.state.doc.length, insert: text}
+                });
+                updateFileDisplay(filename);
+            }
+        } catch (error) {
+            console.error("Failed to load template:", error);
+            alert("Failed to load " + filename);
+        }
+    });
 });
 
 function updateFileDisplay(filename) {
@@ -73,21 +93,23 @@ document.getElementById("preview-tab").onclick = async (e) => {
         const bhoXml = await convertToBHO();
 
         if (bhoXml) {
-            // Load the BHO XML into the editor
-            editor.dispatch({
-                changes: {from: 0, to: editor.state.doc.length, insert: bhoXml}
-            });
+            // Download BHO XML with filename based on current file
+            const currentFilename = getCurrentFilename();
+            const bhoFilename = currentFilename.replace(/\.(xhtml|xml|html)$/i, '.xml');
 
-            // Switch to Edit tab
-            document.getElementById("edit-container").style.display = "block";
-            document.getElementById("preview-container").style.display = "none";
-            document.getElementById("edit-tab").classList.add("active");
-            document.getElementById("preview-tab").classList.remove("active");
+            const blob = new Blob([bhoXml], { type: 'application/xml' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = bhoFilename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
 
-            // Update file display to indicate BHO XML
-            updateFileDisplay("converted-to-bho.xml");
+            // Clean up the URL after a delay
+            setTimeout(() => URL.revokeObjectURL(url), 100);
 
-            console.log("BHO XML loaded into editor");
+            console.log("BHO XML downloaded as:", bhoFilename);
         }
         return;
     }
@@ -345,25 +367,9 @@ async function extractPDFToXHTML(file) {
 }
 
 function convertHTMLToXHTML(html, filename) {
-    // Clean up the filename for use as a title
-    const cleanFilename = filename.replace(/\.pdf$/i, '').replace(/[_-]/g, ' ');
+    // Convert flat HTML to nested section structure
+    const xhtml = convertToNestedSections(html, "2001");
 
-    // Create the full XHTML document with proper namespace
-    const xhtml = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml" lang="en">
-<head>
-    <meta charset="UTF-8"/>
-    <meta content="application/xhtml+xml"/>
-    <!-- Adjust the meta data-pubid value below to set the BHO publication ID for image and page URLs -->
-    <meta data-pubid="2001"/>
-</head>
-<body>
-${html}
-</body>
-</html>`;
-
-    // Return directly - parsing and re-serializing can cause namespace issues
     return xhtml;
 }
 
