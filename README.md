@@ -17,10 +17,10 @@ updated while ensuring that users always have access to the latest version.
 
 ![img_1.png](img_1.png)
 
-On opening, the application loads this basic XHTML template, which is annotated with basic instructions. Users can
+On first-opening, the application loads this basic XHTML template, which is annotated with basic instructions. Users can
 alternatively switch to an example file using the switcher in the top-left corner.
 
-> 💡 Tip: The application automatically saves the user's work in the browser's LocalStorage, and this will be reloaded on
+> 💡 The application automatically saves the user's work in the browser's LocalStorage, and this will be reloaded on
 > returning to the page, overriding display of the default or example file.
 
 ![img_2.png](img_2.png)
@@ -85,7 +85,7 @@ The following are some of the main challenges:
 - Rows and columns need to be detected dynamically in rendered images of each page, and running headers and footnote
   blocks identified.
 - Paragraphs may be split across multiple text blocks, requiring reassembly.
-- End-of-line hyphenation is not easily rectified.
+- End-of-line hyphenation is not easily rectified reliably.
 - Fonts and their rendered sizes are not explicitly declared as heading, body, or footnote text.
 - Page-based footnotes have to be converted to endnotes with sequential numbering across the entire document.
 - Certain types of chart and map are rendered as vectors, which need to be identified, masked from text extraction, and
@@ -100,8 +100,6 @@ The following are some of the main challenges:
 - **JavaScript**: Core language for the application logic.
 - **HTML/CSS**: Markup and styling for the user interface.
 - **OpenCV.js**: Library for image processing.
-- **Web Workers**: Background threads for OpenCV operations and fetching hyphenation data from
-  the [Datamuse API](https://www.datamuse.com/api/) (currently disabled).
 - **XSLT**: Transformation language for converting XHTML to BHO formats.
 - **GitHub Pages**: Hosting platform for the application.
 - **GitHub Actions**: Continuous deployment workflow for the application.
@@ -112,6 +110,8 @@ The following are some of the main challenges:
 - **Simple Statistics**: Library for statistical calculations.
 - **LZ-String**: Library for string compression.
 - **LocalStorage**: Browser storage for saving page data, optimising memory usage.
+- **Saxon-JS**: High-performance XSLT 3.0 processor used for generating previews and BHO XML.
+- **Web Workers**: Background threads for OpenCV operations.
 - **CodeMirror**: In-browser code editor for XHTML editing with syntax highlighting and line numbering.
 
 ## Deployment
