@@ -79,6 +79,12 @@ export function convertToNestedSections(htmlString, pubid = "") {
     const serializer = new XMLSerializer();
     let articleHTML = serializer.serializeToString(article);
 
+    // Reduce multiple consecutive spaces to single spaces
+    articleHTML = articleHTML.replace(/ {2,}/g, ' ');
+
+    // 2. Remove empty <p> tags (handling attributes and &nbsp;)
+    articleHTML = articleHTML.replace(/<p[^>]*>(?:\s|&nbsp;)*<\/p>/gi, '');
+
     const xhtml = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE html>
 <html xmlns="http://www.w3.org/1999/xhtml" lang="en">
