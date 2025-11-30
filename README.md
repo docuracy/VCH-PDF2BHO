@@ -18,16 +18,18 @@ The application provides a preview of this HTML, which can also be converted int
 >
 > Think of this tool not as a standard website, but as **software that runs inside your browser**.
 >
-> When you open the link, your browser "installs" the application code into its temporary memory. From that moment on, the
+> When you open the link, your browser "installs" the application code into its temporary memory. From that moment on,
+> the
 > software runs entirely on your own computer. The browser simply provides the window and user interface for you to
 > interact with the software.
 >
 > This approach offers the best of both worlds:
 >
-> 1. **Like Installed Software:** It works offline, uses your computer's processing power (not a remote server), and keeps
-    your documents private on your hard drive.
+> 1. **Like Installed Software:** It works offline, uses your computer's processing power (not a remote server), and
+     keeps
+     your documents private on your hard drive.
 > 2. **Like a Website:** You do not need to run complex installers, manage updates, or worry about compatibility. You
-    always have the latest version instantly.
+     always have the latest version instantly.
 
 **It can be loaded by visiting GitHub Pages [HERE](https://docuracy.github.io/VCH-PDF2BHO/).**
 
@@ -40,6 +42,7 @@ Users can alternatively switch to an example file using the switcher in the top-
 ![img_2.png](img_2.png)
 
 These files can also be inspected in the GitHub repository:
+
 - [Template](https://raw.githubusercontent.com/docuracy/VCH-PDF2BHO/refs/heads/master/xhtml-view/template.xhtml)
 - [Example](https://raw.githubusercontent.com/docuracy/VCH-PDF2BHO/refs/heads/master/xhtml-view/example.xhtml)
 
@@ -122,6 +125,12 @@ The following are some of the main challenges:
 - Large PDFs require careful management of available browser memory.
 - PDFs produced at different times and with differing software have inconsistent formatting.
 
+## XHTML - HTML - BHO XML Transformation
+
+The application uses [Saxon-JS](https://www.saxonica.com/saxon-js/index.xml) to perform XSLT 3.0 transformations of the
+XHTML into HTML for previewing, and into BHO's legacy XML format for saving. The formats are discussed in a separate
+document [here](https://github.com/docuracy/VCH-PDF2BHO/blob/master/SCHEMAS.md).
+
 ## Technologies Used
 
 - **JavaScript**: Core language for the application logic.
@@ -154,4 +163,5 @@ the [LICENSE](LICENSE.md) file for more details.
 **Copyright © Docuracy Ltd & Stephen Gadd.**
 
 If you use or adapt this software in your research or project, please cite it as:
-> Gadd, S. (2025). *VCH Publisher for BHO*. Docuracy Ltd. [https://github.com/docuracy/VCH-PDF2BHO](https://github.com/docuracy/VCH-PDF2BHO)
+> Gadd, S. (2025). *VCH Publisher for BHO*. Docuracy
+> Ltd. [https://github.com/docuracy/VCH-PDF2BHO](https://github.com/docuracy/VCH-PDF2BHO)
