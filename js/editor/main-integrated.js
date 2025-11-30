@@ -55,7 +55,7 @@ window.addEventListener("DOMContentLoaded", async () => {
         updateFileDisplay("Restored from Backup");
 
         // Notify user
-        showTempModal("Session Restored", "We found unsaved work from your previous session.", 3000);
+        showTempModal("Session Restored", "We have reloaded work from your previous session.", 3000);
     } else {
         // 2. No saved work: Load default template
         try {
