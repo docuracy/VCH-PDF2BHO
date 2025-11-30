@@ -1,10 +1,10 @@
-# BHO XML SCHEMA
+# SCHEMAS AND XSLT STYLESHEETS USED IN BHO
+
+## BHO XML SCHEMA
 
 Part of the difficulty in implementing this project has been the lack of adequate documentation on the BHO XML schema.
 It appears to follow a hierarchical structure rooted in a `<report>` element, relying heavily on recursive `<section>`
 tags for structure, and a linked reference/note system for citations.
-
-## XML SCHEMA EXAMPLE
 
 For example, a minimal valid BHO XML document might look like this:
 
@@ -75,7 +75,7 @@ For example, a minimal valid BHO XML document might look like this:
 </report>
 ```
 
-## XSLT STYLESHEET EXAMPLE
+## BHO XSLT STYLESHEET EXAMPLE
 
 This is a cleaned-up version of the XSLT stylesheet (named "Report 2") used by BHO to transform XML into HTML for web
 presentation:
@@ -628,3 +628,19 @@ presentation:
 
 </xsl:stylesheet>
 ```
+
+## VCH XHTML SCHEMA
+
+The schema for the VCH XHTML format used in this application is relatively simple, designed to capture the essential
+structure and formatting of VCH content while remaining easy to edit and convert. It uses standard XHTML5 elements with
+a few custom attributes for specific needs. See
+the [template.xhtml](https://raw.githubusercontent.com/docuracy/VCH-PDF2BHO/refs/heads/master/xhtml-view/template.xhtml)
+and [example.xhtml](https://raw.githubusercontent.com/docuracy/VCH-PDF2BHO/refs/heads/master/xhtml-view/example.xhtml)
+files in the repository for reference.
+
+## VCH XHTML TO BHO XML XSLT STYLESHEET
+
+The XSLT stylesheet used in this
+project [here](https://raw.githubusercontent.com/docuracy/VCH-PDF2BHO/refs/heads/master/xhtml-view/xsl/xhtml.xsl) could
+be used on the BHO platform to convert VCH XHTML directly into the HTML required for display, bypassing the need for
+intermediate BHO XML generation.
