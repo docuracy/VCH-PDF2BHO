@@ -39,6 +39,34 @@ export function clearAutoSave() {
     localStorage.removeItem(AUTOSAVE_KEY);
 }
 
+const stripNewlinesOnPaste = EditorView.domEventHandlers({
+    paste(event, view) {
+        event.preventDefault();
+
+        const text = event.clipboardData.getData("text/plain");
+        if (!text) return;
+
+        // Remove ALL newline characters
+        let cleaned = text.replace(/[\r\n]+/g, " ");
+
+        // Close any multiple spaces into a single space
+        cleaned = cleaned.replace(/\s+/g, " ");
+
+        // Insert cleaned text at cursor or selection
+        const {from, to} = view.state.selection.main;
+
+        view.dispatch({
+            changes: {
+                from,
+                to,
+                insert: cleaned
+            }
+        });
+
+        return true;
+    }
+});
+
 // Smart toggle function: Wraps if clean, Unwraps if formatted
 function toggleFormatting(view, openTag, closeTag) {
     const {state} = view;
@@ -95,6 +123,105 @@ function toggleFormatting(view, openTag, closeTag) {
     return true;
 }
 
+// Insert simple or complex XML structures.
+// If no text is selected, we insert a full template and place the cursor
+// inside the first editable sub-element.
+function insertElementTemplate(view, tagName) {
+    const { state } = view;
+    const { from, to } = state.selection.main;
+    const selectedText = state.sliceDoc(from, to);
+
+    // 1. Define your structured templates here
+    const complexTemplates = {
+        "section": {
+            text:
+`<section>
+    <header></header>
+    <p></p>
+</section>`,
+            cursorMarker: "<header>"
+        },
+        "page-break": {
+            text: `<hr class="page-break" />`,
+            cursorMarker: null
+        },
+        "table": {
+            text:
+`<table>
+    <caption></caption>
+    <thead>
+        <tr>
+            <th></th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td></td>
+            <td></td>
+        </tr>
+    </tbody>
+</table>`,
+            cursorMarker: "<caption>"
+        },
+        "figure": {
+            text:
+`<figure>
+    <img src="" alt="" />
+    <figcaption></figcaption>
+</figure>`,
+            cursorMarker: "<figcaption>"
+        }
+    };
+
+    // 2. If a selection exists, wrap it in <tag>selection</tag>
+    if (selectedText.length > 0) {
+        const insertText = `<${tagName}>${selectedText}</${tagName}>`;
+
+        view.dispatch({
+            changes: { from, to, insert: insertText },
+            selection: {
+                anchor: from + tagName.length + 2,
+                head: from + tagName.length + 2
+            }
+        });
+        return true;
+    }
+
+    // 3. No selection → insert complex template OR fallback simple element
+    let template;
+    let cursorOffset = 0;
+
+    if (complexTemplates[tagName]) {
+        template = complexTemplates[tagName].text;
+
+        const marker = complexTemplates[tagName].cursorMarker;
+        const markerIndex = template.indexOf(marker);
+
+        if (markerIndex !== -1) {
+            cursorOffset = markerIndex + marker.length;
+        } else {
+            cursorOffset = template.length;
+        }
+    } else {
+        // Simple <tag></tag>
+        template = `<${tagName}></${tagName}>`;
+        cursorOffset = tagName.length + 2;
+    }
+
+    // Insert template and position cursor
+    view.dispatch({
+        changes: { from, to, insert: template },
+        selection: {
+            anchor: from + cursorOffset,
+            head: from + cursorOffset
+        }
+    });
+
+    return true;
+}
+
+
 // Define custom keybindings
 const formattingKeymap = keymap.of([
     {
@@ -110,6 +237,41 @@ const formattingKeymap = keymap.of([
     {
         key: "Mod-u", // Ctrl+U or Cmd+U
         run: (view) => toggleFormatting(view, '<u>', '</u>'),
+        preventDefault: true
+    },
+    {
+        key: "Mod-Shift-a", // Ctrl+Shift+A / Cmd+Shift+A - aside
+        run: (view) => insertElementTemplate(view, 'aside'),
+        preventDefault: true
+    },
+    {
+        key: "Mod-Shift-b", // Ctrl+Shift+B / Cmd+Shift+B - page break
+        run: (view) => insertElementTemplate(view, 'page-break'),
+        preventDefault: true
+    },
+    {
+        key: "Mod-Shift-f", // Ctrl+Shift+F / Cmd+Shift+F - figure
+        run: (view) => insertElementTemplate(view, 'figure'),
+        preventDefault: true
+    },
+    {
+        key: "Mod-Shift-h", // Ctrl+Shift+H / Cmd+Shift+H - header
+        run: (view) => insertElementTemplate(view, 'header'),
+        preventDefault: true
+    },
+    {
+        key: "Mod-Shift-p", // Ctrl+Shift+P / Cmd+Shift+P - paragraph
+        run: (view) => insertElementTemplate(view, 'p'),
+        preventDefault: true
+    },
+    {
+        key: "Mod-Shift-s", // Ctrl+Shift+S / Cmd+Shift+S - section
+        run: (view) => insertElementTemplate(view, 'section'),
+        preventDefault: true
+    },
+    {
+        key: "Mod-Shift-t", // Ctrl+Shift+T / Cmd+Shift+T - table
+        run: (view) => insertElementTemplate(view, 'table'),
         preventDefault: true
     },
     {
@@ -142,6 +304,7 @@ export const editor = new EditorView({
         basicSetup,
         xml(),
         keymap.of([indentWithTab]),
+        stripNewlinesOnPaste,
         EditorView.lineWrapping,
         Prec.highest(formattingKeymap),
         autoSaveExtension

@@ -81,14 +81,12 @@ the challenges described [below](#technical-challenges).
 >
 > **Users must save their work regularly!**
 
+#### Basic Editor Features
+
 The editor has been configured with a number of potentially-useful features:
 
 - Save current work:
     - **Ctrl+S** (or use the "Save XHTML" button)
-- Toggle formatting of selected text:
-    - **Ctrl+B**: Bold
-    - **Ctrl+I**: Italic
-    - **Ctrl+U**: Underline
 - Indentation of current line:
     - **Tab**: Indent
     - **Shift+Tab**: Outdent
@@ -103,6 +101,43 @@ The editor has been configured with a number of potentially-useful features:
       loss of unsaved work. Be absolutely sure that the editor window has focus before using this shortcut, or use the
       button instead._
     - **Ctrl+R** (or use the "Format" button)
+
+#### Normalised Pasting (Ctrl+V)
+
+When pasting text into the editor, all newline characters are automatically removed and replaced with a single space.
+The paste handler also collapses multiple consecutive whitespace characters into a single space before insertion.
+
+This ensures that material pasted from PDFs, websites, or formatted documents does not introduce hard line breaks or
+irregular spacing into the XHTML.
+
+#### Smart Formatting Toggle
+
+The formatting shortcuts (Ctrl+B, Ctrl+I, Ctrl+U) operate as intelligent toggles:
+
+* If the selected text is **clean**, it is wrapped in the chosen tag (`<b>…</b>`, `<i>…</i>`, or `<u>…</u>`).
+* If the selection is **already surrounded** by the tag, the tags are removed (“unwrap outside”).
+* If the selection **includes** the tags as part of the selection, the tags are removed (“unwrap inside”).
+* The editor always maintains the selection around the transformed text.
+
+This provides predictable behaviour whether formatting is applied repeatedly or reversed.
+
+#### Structured Element Insertion
+
+Several shortcuts insert complete XHTML structural blocks when no text is selected.
+These templates are multi-line fragments with an internal cursor placement point, allowing the user to begin typing
+immediately in the correct location.
+
+Examples:
+
+* **Ctrl+Shift+A** inserts an `<aside>`. 
+* **Ctrl+Shift+B** inserts an XHTML-safe page break (`<hr class="page-break" />`).
+* **Ctrl+Shift+F** inserts a properly-structured `<figure>` with `<img>` and `<figcaption>`.
+* **Ctrl+Shift+H** inserts a `<header>`.
+* **Ctrl+Shift+P** inserts a `<p>`.
+* **Ctrl+Shift+S** inserts a `<section>` with `<header>` and `<p>` elements, placing the cursor inside `<header>`.
+* **Ctrl+Shift+T** inserts a full table skeleton (`<table><caption>…</caption>…`).
+
+If text *is* selected, the behaviour falls back to wrapping the selection in `<tag>…</tag>`.
 
 ### Technical Challenges
 
