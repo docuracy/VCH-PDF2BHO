@@ -4,16 +4,29 @@
 
 ## Overview
 
-This browser-based application converts [Victoria County History](https://www.history.ac.uk/research/victoria-county-history) (VCH) PDF files into a simple XHTML format. The
+This is a **browser-hosted software application** designed to
+convert [Victoria County History](https://www.history.ac.uk/research/victoria-county-history) (VCH) PDF files into a
+simple XHTML format. The
 software provides an editing window for making manual corrections or adjustments, and then validates and converts the
 XHTML into HTML suitable for display on the [British History Online](https://www.british-history.ac.uk/) (BHO) platform.
 The application provides a preview of this HTML, which can also be converted into BHO's legacy XML format.
 
-Once opened in a web browser, the application runs entirely locally on the user's machine. This avoids the need to
-download and install any software, sidestepping potential compatibility issues. It also allows the software to be
-updated while ensuring that users always have access to the latest version.
+### How it Works
 
-**It is running on GitHub Pages [HERE](https://docuracy.github.io/VCH-PDF2BHO/).**
+Think of this tool not as a standard website, but as **software that runs inside your browser**.
+
+When you open the link, your browser "installs" the application code into its temporary memory. From that moment on, the
+software runs entirely on your own computer. The browser simply provides the window and user interface for you to
+interact with the software.
+
+This approach offers the best of both worlds:
+
+1. **Like Installed Software:** It works offline, uses your computer's processing power (not a remote server), and keeps
+   your documents private on your hard drive.
+2. **Like a Website:** You do not need to run complex installers, manage updates, or worry about compatibility. You
+   always have the latest version instantly.
+
+**It is hosted on GitHub Pages [HERE](https://docuracy.github.io/VCH-PDF2BHO/).**
 
 ![img_1.png](img_1.png)
 
@@ -33,45 +46,51 @@ Files can be saved to the user's machine as XHTML, HTML, or BHO-XML using the bu
 
 ## PDF Conversion
 
-The core rationale for development of this application was to automate the preparation of legacy VCH PDFs for digital 
+The core rationale for development of this application was to automate the preparation of legacy VCH PDFs for digital
 publishing. This is done by using the "Choose File" button to select a PDF from the user's local file system. This
 button can also be used to load previously-saved XHTML files.
 
 ![img_4.png](img_4.png)
 
 When conversion is complete, the resulting XHTML is loaded into the editing window. The "Format" button (top-right) will
-arrange the XHTML into a readily-legible, structured format. **The XHTML will always require some manual correction** due to
+arrange the XHTML into a readily-legible, structured format. **The XHTML will always require some manual correction**
+due to
 the challenges described [below](#technical-challenges).
 
 ### Editing
 
-> ⚠️ **IMPORTANT:** Although the application attempts to autosave the user's work in the browser's LocalStorage, this is not
-> a substitute for regular manual saving of work to the user's local file system. LocalStorage can be cleared by the user or the
-> browser at any time, and there are limits on how much data can be stored. Additionally, LocalStorage is specific to the
+> ⚠️ **IMPORTANT:** Although the application attempts to autosave the user's work in the browser's LocalStorage, this is
+> not
+> a substitute for regular manual saving of work to the user's local file system. LocalStorage can be cleared by the
+> user or the
+> browser at any time, and there are limits on how much data can be stored. Additionally, LocalStorage is specific to
+> the
 > browser and device being used, so work saved in one environment will not be accessible from another.
-> 
+>
 > **Users must save their work regularly!**
 
 The editor has been configured with a number of potentially-useful features:
+
 - Save current work:
-  - **Ctrl+S** (or use the "Save XHTML" button)
+    - **Ctrl+S** (or use the "Save XHTML" button)
 - Toggle formatting of selected text:
-  - **Ctrl+B**: Bold
-  - **Ctrl+I**: Italic
-  - **Ctrl+U**: Underline
+    - **Ctrl+B**: Bold
+    - **Ctrl+I**: Italic
+    - **Ctrl+U**: Underline
 - Indentation of current line:
-  - **Tab**: Indent
-  - **Shift+Tab**: Outdent
+    - **Tab**: Indent
+    - **Shift+Tab**: Outdent
 - Undo/Redo:
-  - **Ctrl+Z**: Undo
-  - **Ctrl+Y**: Redo
+    - **Ctrl+Z**: Undo
+    - **Ctrl+Y**: Redo
 - Search (and optionally Replace):
-  - **Ctrl+F**
+    - **Ctrl+F**
 - Reformat XHTML:
-  - ⚠️ _CAUTION: The following keystroke would normally trigger the browser's "Reload Page" function, which might result in
-    loss of unsaved work. Be absolutely sure that the editor window has focus before using this shortcut, or use the
-    button instead._
-  - **Ctrl+R** (or use the "Format" button)
+    - ⚠️ _CAUTION: The following keystroke would normally trigger the browser's "Reload Page" function, which might
+      result in
+      loss of unsaved work. Be absolutely sure that the editor window has focus before using this shortcut, or use the
+      button instead._
+    - **Ctrl+R** (or use the "Format" button)
 
 ### Technical Challenges
 
