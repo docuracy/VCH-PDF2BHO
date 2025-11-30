@@ -144,9 +144,14 @@ The following are some of the main challenges:
 ## Deployment
 
 The project uses GitHub Actions for continuous deployment to GitHub Pages. The `build.yml` workflow handles the
-deployment process, including cache busting for static assets.
+deployment process, including cache-busting for static assets.
 
 ## License
 
 This project is licensed under the Creative Commons Attribution-NonCommercial 4.0 International License. See
 the [LICENSE](LICENSE.md) file for more details.
+
+**Copyright © Docuracy Ltd & Stephen Gadd.**
+
+If you use or adapt this software in your research or project, please cite it as:
+> Gadd, S. (2025). *VCH Publisher for BHO*. Docuracy Ltd. [https://github.com/docuracy/VCH-PDF2BHO](https://github.com/docuracy/VCH-PDF2BHO)
