@@ -20,6 +20,9 @@ updated while ensuring that users always have access to the latest version.
 On opening, the application loads this basic XHTML template, which is annotated with basic instructions. Users can
 alternatively switch to an example file using the switcher in the top-left corner.
 
+> 💡 Tip: The application automatically saves the user's work in the browser's LocalStorage, and this will be reloaded on
+> returning to the page, overriding display of the default or example file.
+
 ![img_2.png](img_2.png)
 
 This can be tested by switching to the "Validate & Preview" tab.
@@ -42,7 +45,12 @@ the challenges described [below](#technical-challenges).
 
 ### Editing
 
-> ⚠️ **IMPORTANT:** Users must save their work regularly!
+> ⚠️ **IMPORTANT:** Although the application attempts to autosave the user's work in the browser's LocalStorage, this is not
+> a substitute for regular manual saving of work to the user's local file system. LocalStorage can be cleared by the user or the
+> browser at any time, and there are limits on how much data can be stored. Additionally, LocalStorage is specific to the
+> browser and device being used, so work saved in one environment will not be accessible from another.
+> 
+> **Users must save their work regularly!**
 
 The editor has been configured with a number of potentially-useful features:
 - Save current work:
@@ -60,7 +68,7 @@ The editor has been configured with a number of potentially-useful features:
 - Search (and optionally Replace):
   - **Ctrl+F**
 - Reformat XHTML:
-  - _CAUTION: The following keystroke would normally trigger the browser's "Reload Page" function, which would result in
+  - ⚠️ _CAUTION: The following keystroke would normally trigger the browser's "Reload Page" function, which might result in
     loss of unsaved work. Be absolutely sure that the editor window has focus before using this shortcut, or use the
     button instead._
   - **Ctrl+R** (or use the "Format" button)

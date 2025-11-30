@@ -4,6 +4,41 @@ import {keymap} from "https://esm.sh/@codemirror/view";
 import {Prec} from "https://esm.sh/@codemirror/state";
 import {indentWithTab} from "https://esm.sh/@codemirror/commands";
 
+// CONSTANTS
+const AUTOSAVE_KEY = "vch_editor_content";
+const AUTOSAVE_DELAY = 1000; // 1 second
+
+// DEBOUNCE HELPER (Prevents saving on every single keystroke)
+let saveTimeout;
+function debouncedSave(content) {
+    clearTimeout(saveTimeout);
+    saveTimeout = setTimeout(() => {
+        try {
+            localStorage.setItem(AUTOSAVE_KEY, content);
+            // Optional: Update a UI element to say "Saved"
+            const statusEl = document.getElementById("extraction-status"); // Reusing existing status element
+            if (statusEl) {
+                const originalText = statusEl.textContent;
+                statusEl.textContent = "Auto-saved to browser storage";
+                setTimeout(() => statusEl.textContent = originalText, 2000);
+            }
+        } catch (e) {
+            console.warn("Auto-save failed (likely storage limit reached):", e);
+        }
+    }, AUTOSAVE_DELAY);
+}
+
+const autoSaveExtension = EditorView.updateListener.of((update) => {
+    if (update.docChanged) {
+        debouncedSave(update.state.doc.toString());
+    }
+});
+
+// Helper to manually clear save (useful when loading a fresh file)
+export function clearAutoSave() {
+    localStorage.removeItem(AUTOSAVE_KEY);
+}
+
 // Smart toggle function: Wraps if clean, Unwraps if formatted
 function toggleFormatting(view, openTag, closeTag) {
     const {state} = view;
@@ -103,7 +138,13 @@ const formattingKeymap = keymap.of([
 
 export const editor = new EditorView({
     doc: "<!DOCTYPE html>\n<html>\n...</html>",
-    extensions: [basicSetup, xml(), keymap.of([indentWithTab]), Prec.highest(formattingKeymap)],
+    extensions: [
+        basicSetup,
+        xml(),
+        keymap.of([indentWithTab]),
+        Prec.highest(formattingKeymap),
+        autoSaveExtension
+    ],
     parent: document.getElementById("xhtml-editor")
 });
 
