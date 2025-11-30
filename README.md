@@ -1,6 +1,9 @@
-# VCH Publisher for BHO
+<p>
+  <img src="images/VCH.jpeg" alt="VCH" height="64" style="vertical-align:middle; margin-right:12px;" />
+  <img src="images/BHO.png" alt="BHO" height="64" style="vertical-align:middle;" />
+</p>
 
-![VCH.jpeg](images/VCH.jpeg)  ![BHO.png](images/BHO.png)
+# VCH Publisher for BHO
 
 ## Overview
 
@@ -11,34 +14,39 @@ software provides an editing window for making manual corrections or adjustments
 XHTML into HTML suitable for display on the [British History Online](https://www.british-history.ac.uk/) (BHO) platform.
 The application provides a preview of this HTML, which can also be converted into BHO's legacy XML format.
 
-### How it Works
+> ⚙️ How it Works
+>
+> Think of this tool not as a standard website, but as **software that runs inside your browser**.
+>
+> When you open the link, your browser "installs" the application code into its temporary memory. From that moment on, the
+> software runs entirely on your own computer. The browser simply provides the window and user interface for you to
+> interact with the software.
+>
+> This approach offers the best of both worlds:
+>
+> 1. **Like Installed Software:** It works offline, uses your computer's processing power (not a remote server), and keeps
+     >    your documents private on your hard drive.
+> 2. **Like a Website:** You do not need to run complex installers, manage updates, or worry about compatibility. You
+     >    always have the latest version instantly.
 
-Think of this tool not as a standard website, but as **software that runs inside your browser**.
+**It can be loaded by visiting GitHub Pages [HERE](https://docuracy.github.io/VCH-PDF2BHO/).**
 
-When you open the link, your browser "installs" the application code into its temporary memory. From that moment on, the
-software runs entirely on your own computer. The browser simply provides the window and user interface for you to
-interact with the software.
-
-This approach offers the best of both worlds:
-
-1. **Like Installed Software:** It works offline, uses your computer's processing power (not a remote server), and keeps
-   your documents private on your hard drive.
-2. **Like a Website:** You do not need to run complex installers, manage updates, or worry about compatibility. You
-   always have the latest version instantly.
-
-**It is hosted on GitHub Pages [HERE](https://docuracy.github.io/VCH-PDF2BHO/).**
+On first-opening, the application opens this basic XHTML template, which is annotated with basic instructions:
 
 ![img_1.png](img_1.png)
 
-On first-opening, the application loads this basic XHTML template, which is annotated with basic instructions. Users can
-alternatively switch to an example file using the switcher in the top-left corner.
+Users can alternatively switch to an example file using the switcher in the top-left corner:
+
+![img_2.png](img_2.png)
+
+These files can also be inspected in the GitHub repository:
+- [Template](https://raw.githubusercontent.com/docuracy/VCH-PDF2BHO/refs/heads/master/xhtml-view/template.xhtml)
+- [Example](https://raw.githubusercontent.com/docuracy/VCH-PDF2BHO/refs/heads/master/xhtml-view/example.xhtml)
 
 > 💡 The application automatically saves the user's work in the browser's LocalStorage, and this will be reloaded on
 > returning to the page, overriding display of the default or example file.
 
-![img_2.png](img_2.png)
-
-This can be tested by switching to the "Validate & Preview" tab.
+The rendering of the XHTML can be tested by switching to the "Validate & Preview" tab:
 
 ![img_3.png](img_3.png)
 
