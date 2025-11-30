@@ -6,7 +6,7 @@ import {indentWithTab} from "https://esm.sh/@codemirror/commands";
 
 // CONSTANTS
 const AUTOSAVE_KEY = "vch_editor_content";
-const AUTOSAVE_DELAY = 1000; // 1 second
+const AUTOSAVE_DELAY = 10000; // 10 seconds
 
 // DEBOUNCE HELPER (Prevents saving on every single keystroke)
 let saveTimeout;
@@ -142,6 +142,7 @@ export const editor = new EditorView({
         basicSetup,
         xml(),
         keymap.of([indentWithTab]),
+        EditorView.lineWrapping,
         Prec.highest(formattingKeymap),
         autoSaveExtension
     ],
