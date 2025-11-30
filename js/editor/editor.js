@@ -76,6 +76,28 @@ const formattingKeymap = keymap.of([
         key: "Mod-u", // Ctrl+U or Cmd+U
         run: (view) => toggleFormatting(view, '<u>', '</u>'),
         preventDefault: true
+    },
+    {
+        key: "Mod-r", // Ctrl+R or Cmd+R
+        run: (view) => {
+            console.log("Ctrl+R detected: Reformatting...");
+            // Simulate click on the format button
+            const btn = document.getElementById("format-btn");
+            if (btn) btn.click();
+            return true; // Return true to indicate we handled it
+        },
+        preventDefault: true // CRITICAL: Stops browser reload
+    },
+    {
+        key: "Mod-s", // Ctrl+S or Cmd+S
+        run: (view) => {
+            console.log("Ctrl+S detected: Saving XML...");
+            // Simulate click on the download XML icon
+            const btn = document.getElementById("download-xml-icon");
+            if (btn) btn.click();
+            return true;
+        },
+        preventDefault: true // CRITICAL: Stops browser save dialog
     }
 ]);
 

@@ -1,24 +1,76 @@
-# Victoria County History PDF to British History Online XML Converter
+# VCH Publisher for BHO
 
-![img.png](images/screenshot_1.png)
+![VCH.jpeg](images/VCH.jpeg)  ![BHO.png](images/BHO.png)
 
 ## Overview
 
-This browser-based application
-converts [Victoria County History](https://www.history.ac.uk/research/victoria-county-history) (VCH) PDF files to
-HTML, ready for further conversion to
-the [British History Online](https://www.british-history.ac.uk/catalogue/source_type/Secondary%20texts) (BHO) custom XML
-format. It provides a user-friendly interface for selecting PDF files, configuring options, and
-viewing the conversion results.
+This browser-based application converts [Victoria County History](https://www.history.ac.uk/research/victoria-county-history) (VCH) PDF files into a simple XHTML format. The
+software provides an editing window for making manual corrections or adjustments, and then validates and converts the
+XHTML into HTML suitable for display on the [British History Online](https://www.british-history.ac.uk/) (BHO) platform.
+The application provides a preview of this HTML, which can also be converted into BHO's legacy XML format.
+
+Once opened in a web browser, the application runs entirely locally on the user's machine. This avoids the need to
+download and install any software, sidestepping potential compatibility issues. It also allows the software to be
+updated while ensuring that users always have access to the latest version.
 
 **It is running on GitHub Pages [HERE](https://docuracy.github.io/VCH-PDF2BHO/).**
 
-*NOTE: The final conversion from HTML to BHO-XML format is currently disabled.*
+![img_1.png](img_1.png)
 
-## Challenges
+On opening, the application loads this basic XHTML template, which is annotated with basic instructions. Users can
+alternatively switch to an example file using the switcher in the top-left corner.
 
-Conversion of PDFs to HTML (and XML) is not nearly as straightforward as it might seem. The following are some of the
-main challenges:
+![img_2.png](img_2.png)
+
+This can be tested by switching to the "Validate & Preview" tab.
+
+![img_3.png](img_3.png)
+
+Files can be saved to the user's machine as XHTML, HTML, or BHO-XML using the buttons in the respective tabs.
+
+## PDF Conversion
+
+The core rationale for development of this application was to automate the preparation of legacy VCH PDFs for digital 
+publishing. This is done by using the "Choose File" button to select a PDF from the user's local file system. This
+button can also be used to load previously-saved XHTML files.
+
+![img_4.png](img_4.png)
+
+When conversion is complete, the resulting XHTML is loaded into the editing window. The "Format" button (top-right) will
+arrange the XHTML into a readily-legible, structured format. **The XHTML will always require some manual correction** due to
+the challenges described [below](#technical-challenges).
+
+### Editing
+
+> ⚠️ **IMPORTANT:** Users must save their work regularly!
+
+The editor has been configured with a number of potentially-useful features:
+- Save current work:
+  - **Ctrl+S** (or use the "Save XHTML" button)
+- Toggle formatting of selected text:
+  - **Ctrl+B**: Bold
+  - **Ctrl+I**: Italic
+  - **Ctrl+U**: Underline
+- Indentation of current line:
+  - **Tab**: Indent
+  - **Shift+Tab**: Outdent
+- Undo/Redo:
+  - **Ctrl+Z**: Undo
+  - **Ctrl+Y**: Redo
+- Search (and optionally Replace):
+  - **Ctrl+F**
+- Reformat XHTML:
+  - _CAUTION: The following keystroke would normally trigger the browser's "Reload Page" function, which would result in
+    loss of unsaved work. Be absolutely sure that the editor window has focus before using this shortcut, or use the
+    button instead._
+  - **Ctrl+R** (or use the "Format" button)
+
+### Technical Challenges
+
+Extraction of text from PDFs is not nearly as straightforward as might be hoped, and none of the pre-existing
+PDF-to-text tools comes anywhere close to handling the complexities of VCH PDFs.
+
+The following are some of the main challenges:
 
 - The PDF viewport is not aligned with the crop box, which needs to be detected in the PDF commands.
 - Text blocks in the PDF commands are rarely in the correct reading order, and can include hidden (white-rendered) text.
@@ -33,18 +85,7 @@ main challenges:
 - Tables are inconsistently formatted *and so will usually require manual correction*. Coding of an effective table
   parser is feasible but not financially viable.
 - Large PDFs require careful management of available browser memory.
-- PDFs produced at different times and with differing software have inconsistent formatting. *NOTE: This means that the
-  software needs to be "tuned" for each distinct set of PDFs. It is currently tuned for Staffordshire 2012.*
-
-![img.png](images/screenshot_2.png)
-
-## Features
-
-- **PDF to XML Conversion**: Convert PDF files to BHO-XML format.
-- **Batch Processing**: Select and process multiple PDF files at once.
-- **Hyphenation Check**: Option to check and correct hyphenation in words broken at the ends of lines.
-- **HTML Preview**: View the converted XML content in an HTML preview modal.
-- **Cache Busting**: Automatically update CSS and JS links with a cache-busting timestamp.
+- PDFs produced at different times and with differing software have inconsistent formatting.
 
 ## Technologies Used
 
@@ -52,37 +93,18 @@ main challenges:
 - **HTML/CSS**: Markup and styling for the user interface.
 - **OpenCV.js**: Library for image processing.
 - **Web Workers**: Background threads for OpenCV operations and fetching hyphenation data from
-  the [Datamuse API](https://www.datamuse.com/api/).
-- **XSLT**: Transformation language for converting HTML to BHO-XML format.
+  the [Datamuse API](https://www.datamuse.com/api/) (currently disabled).
+- **XSLT**: Transformation language for converting XHTML to BHO formats.
 - **GitHub Pages**: Hosting platform for the application.
 - **GitHub Actions**: Continuous deployment workflow for the application.
 - **Bootstrap**: Framework for responsive design and UI components.
-- **jQuery**: Simplified DOM manipulation and event handling.
 - **PDF.js**: Library for parsing and rendering PDF files.
 - **JSZip**: Library for handling ZIP files.
 - **FileSaver.js**: Library for saving files on the client-side.
 - **Simple Statistics**: Library for statistical calculations.
 - **LZ-String**: Library for string compression.
 - **LocalStorage**: Browser storage for saving page data, optimising memory usage.
-
-## Project Structure
-
-- `index.html`: Main HTML file for the application interface.
-- `css/styles.css`: Custom styles for the application.
-- `js/app.js`: Main JavaScript file for application logic.
-- `js/utilities.js`: Utility functions used across the application.
-- `js/imaging.js`: Functions related to image processing.
-- `js/text.js`: Functions related to text processing.
-- `js/pdf.js`: Functions related to PDF processing.
-- `scripts/anti-cache.js`: Script for adding cache-busting timestamps to CSS and JS links.
-- `build.yml`: GitHub Actions workflow for deploying the application to GitHub Pages.
-
-## Usage
-
-1. **Select PDF Files**: Use the file input to select one or more PDF files.
-2. **Configure Options**: Check the "Check Hyphenation" option if needed.
-3. **Convert to XML**: Click the "Convert to XML" button to start the conversion process.
-4. **View Results**: The converted XML content will be displayed in the HTML preview modal.
+- **CodeMirror**: In-browser code editor for XHTML editing with syntax highlighting and line numbering.
 
 ## Deployment
 

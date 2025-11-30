@@ -17,44 +17,68 @@
          * Copyright (c) 2012 Vadim Kiryukhin
          * Dual licensed under the MIT and GPL licenses
          */
-        (function() {
+        (function () {
             function createShiftArr(step) {
                 var space = '    ';
                 if (isNaN(parseInt(step))) {
                     space = step;
                 } else {
-                    switch(step) {
-                        case 1: space = ' '; break;
-                        case 2: space = '  '; break;
-                        case 3: space = '   '; break;
-                        case 4: space = '    '; break;
-                        case 5: space = '     '; break;
-                        case 6: space = '      '; break;
-                        case 7: space = '       '; break;
-                        case 8: space = '        '; break;
-                        case 9: space = '         '; break;
-                        case 10: space = '          '; break;
-                        case 11: space = '           '; break;
-                        case 12: space = '            '; break;
+                    switch (step) {
+                        case 1:
+                            space = ' ';
+                            break;
+                        case 2:
+                            space = '  ';
+                            break;
+                        case 3:
+                            space = '   ';
+                            break;
+                        case 4:
+                            space = '    ';
+                            break;
+                        case 5:
+                            space = '     ';
+                            break;
+                        case 6:
+                            space = '      ';
+                            break;
+                        case 7:
+                            space = '       ';
+                            break;
+                        case 8:
+                            space = '        ';
+                            break;
+                        case 9:
+                            space = '         ';
+                            break;
+                        case 10:
+                            space = '          ';
+                            break;
+                        case 11:
+                            space = '           ';
+                            break;
+                        case 12:
+                            space = '            ';
+                            break;
                     }
                 }
                 var shift = ['\n'];
-                for(var ix=0;ix<100;ix++){
-                    shift.push(shift[ix]+space);
+                for (var ix = 0; ix < 100; ix++) {
+                    shift.push(shift[ix] + space);
                 }
                 return shift;
             }
 
-            function vkbeautify(){
+            function vkbeautify() {
                 this.step = '    ';
                 this.shift = createShiftArr(this.step);
             };
 
-            vkbeautify.prototype.xml = function(text,step) {
-                var ar = text.replace(/>\s{0,}</g,"><")
-                        .replace(/</g,"~::~<")
-                        .replace(/\s*xmlns\:/g,"~::~xmlns:")
-                        .replace(/\s*xmlns\=/g,"~::~xmlns=")
+            vkbeautify.prototype.xml = function (text, step) {
+                var ar = text.replace(/>\s{0,}</g, "><")
+                        .replace(/</g, "~::~<")
+                        .replace(/\s*xmlns\:/g, "~::~xmlns:")
+                        .replace(/\s*xmlns\=/g, "~::~xmlns=")
                         .split('~::~'),
                     len = ar.length,
                     inComment = false,
@@ -63,37 +87,37 @@
                     ix = 0,
                     shift = step ? createShiftArr(step) : this.shift;
 
-                for(ix=0;ix<len;ix++) {
-                    if(ar[ix].search(/<!/) > -1) {
-                        str += shift[deep]+ar[ix];
+                for (ix = 0; ix < len; ix++) {
+                    if (ar[ix].search(/<!/) > -1) {
+                        str += shift[deep] + ar[ix];
                         inComment = true;
-                        if(ar[ix].search(/-->/) > -1 || ar[ix].search(/\]>/) > -1 || ar[ix].search(/!DOCTYPE/) > -1 ) {
+                        if (ar[ix].search(/-->/) > -1 || ar[ix].search(/\]>/) > -1 || ar[ix].search(/!DOCTYPE/) > -1) {
                             inComment = false;
                         }
-                    } else if(ar[ix].search(/-->/) > -1 || ar[ix].search(/\]>/) > -1) {
+                    } else if (ar[ix].search(/-->/) > -1 || ar[ix].search(/\]>/) > -1) {
                         str += ar[ix];
                         inComment = false;
-                    } else if( /^<\w/.exec(ar[ix-1]) && /^<\/\w/.exec(ar[ix]) &&
-                        /^<[\w:\-\.\,]+/.exec(ar[ix-1]) == /^<\/[\w:\-\.\,]+/.exec(ar[ix])[0].replace('/','')) {
+                    } else if (/^<\w/.exec(ar[ix - 1]) && /^<\/\w/.exec(ar[ix]) &&
+                        /^<[\w:\-\.\,]+/.exec(ar[ix - 1]) == /^<\/[\w:\-\.\,]+/.exec(ar[ix])[0].replace('/', '')) {
                         str += ar[ix];
-                        if(!inComment) deep--;
-                    } else if(ar[ix].search(/<\w/) > -1 && ar[ix].search(/<\//) == -1 && ar[ix].search(/\/>/) == -1 ) {
-                        str = !inComment ? str += shift[deep++]+ar[ix] : str += ar[ix];
-                    } else if(ar[ix].search(/<\w/) > -1 && ar[ix].search(/<\//) > -1) {
-                        str = !inComment ? str += shift[deep]+ar[ix] : str += ar[ix];
-                    } else if(ar[ix].search(/<\//) > -1) {
-                        str = !inComment ? str += shift[--deep]+ar[ix] : str += ar[ix];
-                    } else if(ar[ix].search(/\/>/) > -1 ) {
-                        str = !inComment ? str += shift[deep]+ar[ix] : str += ar[ix];
-                    } else if(ar[ix].search(/<\?/) > -1) {
-                        str += shift[deep]+ar[ix];
-                    } else if( ar[ix].search(/xmlns\:/) > -1  || ar[ix].search(/xmlns\=/) > -1) {
-                        str += shift[deep]+ar[ix];
+                        if (!inComment) deep--;
+                    } else if (ar[ix].search(/<\w/) > -1 && ar[ix].search(/<\//) == -1 && ar[ix].search(/\/>/) == -1) {
+                        str = !inComment ? str += shift[deep++] + ar[ix] : str += ar[ix];
+                    } else if (ar[ix].search(/<\w/) > -1 && ar[ix].search(/<\//) > -1) {
+                        str = !inComment ? str += shift[deep] + ar[ix] : str += ar[ix];
+                    } else if (ar[ix].search(/<\//) > -1) {
+                        str = !inComment ? str += shift[--deep] + ar[ix] : str += ar[ix];
+                    } else if (ar[ix].search(/\/>/) > -1) {
+                        str = !inComment ? str += shift[deep] + ar[ix] : str += ar[ix];
+                    } else if (ar[ix].search(/<\?/) > -1) {
+                        str += shift[deep] + ar[ix];
+                    } else if (ar[ix].search(/xmlns\:/) > -1 || ar[ix].search(/xmlns\=/) > -1) {
+                        str += shift[deep] + ar[ix];
                     } else {
                         str += ar[ix];
                     }
                 }
-                return  (str[0] == '\n') ? str.slice(1) : str;
+                return (str[0] == '\n') ? str.slice(1) : str;
             }
 
             window.vkbeautify = new vkbeautify();
@@ -101,38 +125,6 @@
     </script>
     <!-- Editor styles -->
     <link rel="stylesheet" href="./css/editor.css">
-    <style>
-        /* Modal styles */
-        #pdf-extraction-modal .modal-dialog {
-            max-width: 800px;
-        }
-        #pdf-extraction-modal .modal-body {
-            max-height: 500px;
-            overflow-y: auto;
-        }
-        #extraction-log {
-            font-family: 'Courier New', monospace;
-            font-size: 0.85rem;
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 4px;
-            border: 1px solid #dee2e6;
-            max-height: 350px;
-            overflow-y: auto;
-        }
-        #extraction-log p {
-            margin: 2px 0;
-            line-height: 1.4;
-        }
-        .extraction-progress {
-            margin-bottom: 20px;
-        }
-        #extraction-status {
-            text-align: center;
-            margin-top: 10px;
-            font-weight: 500;
-        }
-    </style>
 </head>
 <body>
 
@@ -152,7 +144,7 @@
         <button id="edit-tab" class="active">
             <img src="./images/VCH.jpeg" class="institution-icon">
             Edit
-            <span class="download-icon" id="download-xml-icon" title="Download XHTML">
+            <span class="download-icon" id="download-xml-icon" title="Save as XHTML">
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
                     <path d="M8 12L3 7h3V1h4v6h3L8 12z"/>
                     <path d="M14 13v2H2v-2H0v2a2 2 0 002 2h12a2 2 0 002-2v-2h-2z"/>
@@ -162,22 +154,29 @@
         <button id="preview-tab">
             <img src="./images/BHO.png" class="institution-icon">
             Validate & Preview
-            <span class="download-icon" id="download-html-icon" title="Download HTML">
+            <span class="download-icon" id="download-html-icon" title="Save as HTML">
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
                     <path d="M8 12L3 7h3V1h4v6h3L8 12z"/>
                     <path d="M14 13v2H2v-2H0v2a2 2 0 002 2h12a2 2 0 002-2v-2h-2z"/>
                 </svg>
             </span>
-            <span class="convert-icon" id="convert-to-bho-btn" title="Download as BHO XML">
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <span class="convert-icon" id="convert-to-bho-btn" title="Save as BHO XML">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"
+                     stroke-linecap="round" stroke-linejoin="round">
                     <polyline points="5,2 2,8 5,14"/>
                     <polyline points="11,2 14,8 11,14"/>
                 </svg>
             </span>
         </button>
     </div>
-    <button id="format-btn" onclick="formatDocument()" title="Format Document (add indentation)" style="margin-left: 10px; padding: 6px 12px; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style="vertical-align: text-bottom; margin-right: 4px;">
+    <a id="doc-btn" href="https://github.com/docuracy/VCH-PDF2BHO?tab=readme-ov-file#vch-publisher-for-bho"
+       target="_blank">
+        Documentation
+    </a>
+    <button id="format-btn" onclick="formatDocument()" title="Format Document (add indentation)"
+            style="margin: 4px; padding: 6px 12px; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 14px;">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"
+             style="vertical-align: text-bottom; margin-right: 4px;">
             <path d="M0 3a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V3zm2-1a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V3a1 1 0 0 0-1-1H2z"/>
             <path d="M4 5h8v1H4V5zm0 2h8v1H4V7zm0 2h6v1H4V9z"/>
         </svg>
@@ -204,8 +203,10 @@
             <div class="modal-body">
                 <div class="extraction-progress">
                     <div class="progress">
-                        <div id="extraction-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated"
-                             role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+                        <div id="extraction-progress-bar"
+                             class="progress-bar progress-bar-striped progress-bar-animated"
+                             role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0"
+                             aria-valuemax="100"></div>
                     </div>
                     <div id="extraction-status">Initializing...</div>
                 </div>
@@ -214,8 +215,11 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" id="extraction-close" class="btn btn-secondary" data-bs-dismiss="modal" style="display:none">Close</button>
-                <button type="button" id="extraction-load" class="btn btn-primary" style="display:none">Load in Editor</button>
+                <button type="button" id="extraction-close" class="btn btn-secondary" data-bs-dismiss="modal"
+                        style="display:none">Close
+                </button>
+                <button type="button" id="extraction-load" class="btn btn-primary" style="display:none">Load in Editor
+                </button>
             </div>
         </div>
     </div>
