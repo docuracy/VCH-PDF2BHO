@@ -36,11 +36,11 @@ The application provides a preview of this HTML, which can also be converted int
 
 On first-opening, the application opens this basic XHTML template, which is annotated with basic instructions:
 
-![img_1.png](img_1.png)
+![img_6.png](img_6.png)
 
 Users can alternatively switch to an example file using the switcher in the top-left corner:
 
-![img_2.png](img_2.png)
+![img_7.png](img_7.png)
 
 These files can also be inspected in the GitHub repository:
 
@@ -52,7 +52,7 @@ These files can also be inspected in the GitHub repository:
 
 The rendering of the XHTML can be tested by switching to the "Validate & Preview" tab:
 
-![img_3.png](img_3.png)
+![img_8.png](img_8.png)
 
 Files can be saved to the user's machine as XHTML, HTML, or BHO-XML using the buttons in the respective tabs.
 
@@ -62,7 +62,7 @@ The core rationale for development of this application was to automate the prepa
 publishing. This is done by using the "Choose File" button to select a PDF from the user's local file system. This
 button can also be used to load previously-saved XHTML files.
 
-![img_4.png](img_4.png)
+![img_9.png](img_9.png)
 
 When conversion is complete, the resulting XHTML is loaded into the editing window. The "Format" button (top-right) will
 arrange the XHTML into a readily-legible, structured format. **The XHTML will always require some manual correction**
