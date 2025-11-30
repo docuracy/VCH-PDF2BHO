@@ -25,9 +25,9 @@ The application provides a preview of this HTML, which can also be converted int
 > This approach offers the best of both worlds:
 >
 > 1. **Like Installed Software:** It works offline, uses your computer's processing power (not a remote server), and keeps
-     >    your documents private on your hard drive.
+    your documents private on your hard drive.
 > 2. **Like a Website:** You do not need to run complex installers, manage updates, or worry about compatibility. You
-     >    always have the latest version instantly.
+    always have the latest version instantly.
 
 **It can be loaded by visiting GitHub Pages [HERE](https://docuracy.github.io/VCH-PDF2BHO/).**
 
