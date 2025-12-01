@@ -1,6 +1,6 @@
 import {EditorView, basicSetup} from "https://esm.sh/codemirror";
 import {xml} from "https://esm.sh/@codemirror/lang-xml";
-import {keymap} from "https://esm.sh/@codemirror/view";
+import {keymap, ViewPlugin, Decoration, MatchDecorator} from "https://esm.sh/@codemirror/view";
 import {Prec} from "https://esm.sh/@codemirror/state";
 import {indentWithTab} from "https://esm.sh/@codemirror/commands";
 
@@ -38,6 +38,32 @@ const autoSaveExtension = EditorView.updateListener.of((update) => {
 export function clearAutoSave() {
     localStorage.removeItem(AUTOSAVE_KEY);
 }
+
+const codeTagDecorator = new MatchDecorator({
+    regexp: /<data\b[^>]*>.*?<\/data>/g,
+    decoration: Decoration.mark({ class: "cm-data-color" }) // Changed class name
+});
+
+const dataColorPlugin = ViewPlugin.fromClass(class {
+    constructor(view) {
+        this.decorator = codeTagDecorator;
+        this.decorations = this.decorator.createDeco(view);
+    }
+    update(update) {
+        if (update.docChanged || update.viewportChanged) {
+            this.decorations = this.decorator.updateDeco(update, this.decorations);
+        }
+    }
+}, {
+    decorations: v => v.decorations
+});
+
+const customTheme = EditorView.theme({
+    ".cm-data-color": {
+        color: "#d63384", // Change this Hex code to your preferred color (e.g. #d63384 is Magenta)
+        // fontWeight: "bold" // Optional: makes the color pop more
+    }
+});
 
 const stripNewlinesOnPaste = EditorView.domEventHandlers({
     paste(event, view) {
@@ -307,7 +333,9 @@ export const editor = new EditorView({
         stripNewlinesOnPaste,
         EditorView.lineWrapping,
         Prec.highest(formattingKeymap),
-        autoSaveExtension
+        autoSaveExtension,
+        dataColorPlugin,
+        customTheme
     ],
     parent: document.getElementById("xhtml-editor")
 });
