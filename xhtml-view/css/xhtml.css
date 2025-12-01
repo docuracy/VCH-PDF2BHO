@@ -105,13 +105,13 @@ p.page-break::before {
     border-top: 2px dotted #999;
 }
 
-aside {
+data {
     display: inline;
     position: relative;
     cursor: help;
 }
 
-aside::before {
+data::before {
     content: "[" attr(data-preview-num) "]";
     vertical-align: super;
     font-size: 0.7em;
@@ -120,7 +120,7 @@ aside::before {
     margin-left: 2px;
 }
 
-aside span.note-content {
+data span.note-content {
     display: none;
     position: absolute;
     bottom: 150%;
@@ -138,7 +138,7 @@ aside span.note-content {
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
 }
 
-aside span.note-content::after {
+data span.note-content::after {
     content: "";
     position: absolute;
     top: 100%;
@@ -149,7 +149,7 @@ aside span.note-content::after {
     border-color: #333 transparent transparent transparent;
 }
 
-aside:hover span.note-content {
+data:hover span.note-content {
     display: block;
 }
 

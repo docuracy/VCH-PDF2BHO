@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>PDFium WASM text extraction</title>
+</head>
+<body>
+
+<input type="file" id="file" accept="application/pdf" />
+
+<pre id="out">TEST</pre>
+
+<script type="module">
+    import initPDFium from "https://unpkg.com/pdfium-wasm@latest/dist/pdfium.esm.js";
+
+    const out = document.getElementById("out");
+    const fileInput = document.getElementById("file");
+
+    fileInput.onchange = async () => {
+        const file = fileInput.files[0];
+        const buf = new Uint8Array(await file.arrayBuffer());
+
+        console.debug(buf);
+        const pdfium = await initPDFium();
+        const doc = pdfium.loadDocument(buf);
+        console.log(doc);
+
+        let fullText = "";
+
+        for (let pageIndex = 0; pageIndex < doc.pageCount; pageIndex++) {
+            const page = doc.loadPage(pageIndex);
+            const textPage = page.getTextPage();
+
+            const charCount = textPage.countChars();
+
+            // Collect characters + geometry
+            const chars = [];
+            for (let i = 0; i < charCount; i++) {
+                const c = textPage.getText(i);         // actual text (may be multiple unicode chars)
+                const box = textPage.getCharBox(i);    // {left, right, top, bottom}
+                chars.push({ c, ...box });
+            }
+
+            // Assemble lines in visual order
+            const lines = buildReadingOrder(chars);
+            fullText += lines.join("\n") + "\n\n";
+
+            textPage.destroy();
+            page.destroy();
+        }
+
+        doc.destroy();
+        out.textContent = fullText;
+    };
+
+
+    // --- reading-order builder (Chrome-style) ---
+    function buildReadingOrder(chars) {
+        const threshold = 2;   // tune per document
+        // Sort top-to-bottom (higher 'top' first), then left-to-right
+        chars.sort((a, b) => {
+            const dy = b.top - a.top;
+            if (Math.abs(dy) > threshold) return dy;
+            return a.left - b.left;
+        });
+
+        const lines = [];
+        let current = [];
+        let lastTop = null;
+
+        for (const ch of chars) {
+            if (lastTop === null || Math.abs(ch.top - lastTop) < threshold) {
+                current.push(ch.c);
+            } else {
+                lines.push(current.join(""));
+                current = [ch.c];
+            }
+            lastTop = ch.top;
+        }
+        if (current.length) lines.push(current.join(""));
+
+        return lines;
+    }
+</script>
+
+</body>
+</html>

@@ -240,13 +240,13 @@ const formattingKeymap = keymap.of([
         preventDefault: true
     },
     {
-        key: "Mod-Shift-a", // Ctrl+Shift+A / Cmd+Shift+A - aside
-        run: (view) => insertElementTemplate(view, 'aside'),
+        key: "Mod-Shift-b", // Ctrl+Shift+B / Cmd+Shift+B - page break
+        run: (view) => insertElementTemplate(view, 'page-break'),
         preventDefault: true
     },
     {
-        key: "Mod-Shift-b", // Ctrl+Shift+B / Cmd+Shift+B - page break
-        run: (view) => insertElementTemplate(view, 'page-break'),
+        key: "Mod-Shift-d", // Ctrl+Shift+D / Cmd+Shift+D - data (footnote)
+        run: (view) => insertElementTemplate(view, 'data'),
         preventDefault: true
     },
     {

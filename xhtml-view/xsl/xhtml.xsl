@@ -41,14 +41,14 @@
                 </main>
 
                 <!-- Footnotes section -->
-                <xsl:if test="//xhtml:aside">
+                <xsl:if test="//xhtml:data">
                     <footer role="contentinfo" aria-label="Footnotes">
                         <section class="footnotes" id="fns">
                             <header>
                                 <h2>Notes</h2>
                             </header>
                             <ul>
-                                <xsl:apply-templates select="//xhtml:aside" mode="footnotes"/>
+                                <xsl:apply-templates select="//xhtml:data" mode="footnotes"/>
                             </ul>
                         </section>
                     </footer>
@@ -82,7 +82,7 @@
                 </xsl:if>
 
                 <!-- Link to footnotes -->
-                <xsl:if test="//xhtml:aside">
+                <xsl:if test="//xhtml:data">
                     <li>
                         <a href="#fns">Footnotes</a>
                     </li>
@@ -186,9 +186,9 @@
         </xsl:choose>
     </xsl:template>
 
-    <!-- Convert <aside> in text to inline footnote link with title attribute -->
-    <xsl:template match="xhtml:aside">
-        <xsl:variable name="n" select="count(preceding::xhtml:aside) + 1"/>
+    <!-- Convert <data> in text to inline footnote link with title attribute -->
+    <xsl:template match="xhtml:data">
+        <xsl:variable name="n" select="count(preceding::xhtml:data) + 1"/>
         <xsl:variable name="footnote-text">
             <xsl:value-of select="."/>
         </xsl:variable>
@@ -200,8 +200,8 @@
     </xsl:template>
 
     <!-- Collect footnotes at bottom as ordered list items -->
-    <xsl:template match="xhtml:aside" mode="footnotes">
-        <xsl:variable name="n" select="count(preceding::xhtml:aside) + 1"/>
+    <xsl:template match="xhtml:data" mode="footnotes">
+        <xsl:variable name="n" select="count(preceding::xhtml:data) + 1"/>
         <li class="footnote" id="fnn{$n}" value="{$n}" role="doc-endnote">
             <a href="#fnr{$n}" role="doc-backlink" aria-label="Back to reference {$n}">
                 <xsl:value-of select="$n"/>

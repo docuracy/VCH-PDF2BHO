@@ -2,7 +2,7 @@
 document.addEventListener("DOMContentLoaded", function () {
     var root = document.querySelector('body');
     var startVal = parseInt(root.getAttribute('data-start')) || 1;
-    var allNotes = document.querySelectorAll('aside');
+    var allNotes = document.querySelectorAll('data');
 
     var sourceNotes = [];
     var counter = startVal;
@@ -208,19 +208,19 @@ document.addEventListener("DOMContentLoaded", function () {
         pCounter++;
     });
 
-    // Remove space from before aside elements
+    // Remove space from before data elements
     allNotes.forEach(function (note) {
         if (note.previousSibling && note.previousSibling.nodeType === Node.TEXT_NODE) {
             note.previousSibling.textContent = note.previousSibling.textContent.replace(/\s+$/, '');
         }
     });
 
-    // Process each aside element
+    // Process each data element
     for (var i = 0; i < allNotes.length; i++) {
         var note = allNotes[i];
         var noteNum = counter;
 
-        // Trim trailing whitespace before the aside
+        // Trim trailing whitespace before the data
         var prev = note.previousSibling;
         if (prev && prev.nodeType === Node.TEXT_NODE) {
             prev.textContent = prev.textContent.replace(/\s+$/, '');

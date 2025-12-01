@@ -129,8 +129,8 @@ immediately in the correct location.
 
 Examples:
 
-* **Ctrl+Shift+A** inserts an `<aside>`. 
 * **Ctrl+Shift+B** inserts an XHTML-safe page break (`<hr class="page-break" />`).
+* **Ctrl+Shift+D** inserts a `<data>` (used for footnotes).
 * **Ctrl+Shift+F** inserts a properly-structured `<figure>` with `<img>` and `<figcaption>`.
 * **Ctrl+Shift+H** inserts a `<header>`.
 * **Ctrl+Shift+P** inserts a `<p>`.

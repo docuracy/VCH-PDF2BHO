@@ -194,10 +194,10 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
         }
     });
 
-    // Mark footnote indices for later replacement with <aside> elements
+    // Mark footnote indices for later replacement with <data> elements
     items.filter(item => item.footIndex).forEach(item => {
         const footnoteIndex = item.footIndex;
-        // Use a placeholder that will be replaced with the actual aside content
+        // Use a placeholder that will be replaced with the actual data content
         item.str = `___FOOTNOTE_${footnoteIndex}___`;
         item.isFootnoteMarker = true;
     });

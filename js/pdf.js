@@ -189,6 +189,8 @@ async function storePageData(pdf, pageNum) {
     const viewport = await page.getViewport({scale: 1});
     const operatorList = await page.getOperatorList();
 
+    console.debug("Content", content);
+
     // Find item.str values starting with "Chart \d+." for use in density scan in segmentor
     const chartItems = content.items
         .map(item => item.str.match(/^Chart (\d+)\./) ? {

@@ -371,7 +371,7 @@ async function extractPDFToXHTML(file) {
 
     updateExtractionUI(90, "Processing footnotes...", "Inserting inline footnotes");
 
-    // Replace footnote placeholders with actual <aside> content
+    // Replace footnote placeholders with actual <data> content
     for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
         // Update progress for footnote processing
         const footnoteProgress = 90 + (pageNum / totalPages * 3);
@@ -395,9 +395,9 @@ async function extractPDFToXHTML(file) {
         footnotes.forEach(footnote => {
             if (footnote.footNumber) {
                 const placeholder = `___FOOTNOTE_${footnote.footNumber}___`;
-                // Add spaces before and after the aside element for proper spacing
-                const asideContent = ` <aside>${footnote.str}</aside> `;
-                docHTML = docHTML.replace(placeholder, asideContent);
+                // Add spaces before and after the data element for proper spacing
+                const dataContent = ` <data>${footnote.str}</data> `;
+                docHTML = docHTML.replace(placeholder, dataContent);
             }
         });
     }
@@ -408,7 +408,7 @@ async function extractPDFToXHTML(file) {
     updateExtractionUI(95, "Validating XHTML...", "Checking document structure");
     await new Promise(resolve => setTimeout(resolve, 0));
 
-    // Convert HTML to XHTML (footnotes are now inline as <aside> elements)
+    // Convert HTML to XHTML (footnotes are now inline as <data> elements)
     extractedXHTML = convertHTMLToXHTML(docHTML, file.name);
 
     updateExtractionUI(100, "Extraction complete!", `Successfully extracted ${totalPages} pages`);
