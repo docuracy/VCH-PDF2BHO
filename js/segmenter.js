@@ -1,444 +1,732 @@
-// Import OpenCV
+// segmenter.js
+// Description: Hybrid Layout Analysis - Multi-Line Title / Boxed-Figure / Expanded-Table / Split-Body (RLSA-Only) / Constrained-Footer
+
 self.importScripts('./opencv.js');
 
-// Ensure OpenCV is ready before processing
 cv.onRuntimeInitialized = () => {
-    console.debug('OpenCV loaded and ready');
-    self.onmessage = async (e) => {
-        const { action, imageData, chartItems } = e.data;
-
-        if (action === 'processPage') {
-            // Process the image data
-            const [blocks, lineItems, rectangles] = processPage(imageData, chartItems);
-
-            // Send the results back to the main script
-            self.postMessage({ action: 'result', segmentation: blocks, lineItems: lineItems, rectangles: rectangles });
-        }
-    };
+    console.debug('OpenCV (Worker) loaded and ready');
+    self.onmessage = handleMessage;
 };
 
-// Processing function
-function processPage(imageData, chartItems) {
+async function handleMessage(e) {
+    const { action, imageData, chartItems, pageNum } = e.data;
+
+    if (action === 'processPage') {
+        try {
+            const result = processPageHybrid(imageData, chartItems, pageNum);
+            self.postMessage({
+                action: 'result',
+                blocks: result.blocks,
+                pageStats: result.stats
+            });
+        } catch (err) {
+            console.error("Segmenter Worker Error:", err);
+            self.postMessage({ action: 'result', blocks: [], pageStats: {} });
+        }
+    }
+}
+
+function processPageHybrid(imageData, chartItems, pageNum) {
     const src = cv.matFromImageData(imageData);
     const gray = new cv.Mat();
     const binary = new cv.Mat();
-    const blocks = [];
 
-    // Convert to grayscale
+    // 1. Threshold
     cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+    cv.adaptiveThreshold(gray, binary, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, 31, 10);
 
-    // Apply binary thresholding to create a binary image (invert colors)
-    cv.threshold(gray, binary, 200, 255, cv.THRESH_BINARY_INV); // Invert to highlight non-white pixels
+    const width = src.cols;
+    const height = src.rows;
+    let blocks = [];
+    const rawData = binary.data;
 
-    // Detect row boundaries
-    let [rowBoundaries, lineItems] = detectRows(binary);
+    // === STEP 1: HEADER / TITLE DETECTION ===
+    let headerBottom = 0;
 
-    // Merge rows closer than 18 pixels if not the first or last row, and ignoring lines (height <= 5)
-    for (let i = rowBoundaries.length - 2; i > 1; i--) {
-        if (
-            rowBoundaries[i][0] - rowBoundaries[i - 1][1] < 18 &&
-            rowBoundaries[i][1] - rowBoundaries[i][0] > 5 &&
-            rowBoundaries[i - 1][1] - rowBoundaries[i - 1][0] > 5
-        ) {
-            rowBoundaries[i - 1][1] = rowBoundaries[i][1];
-            rowBoundaries.splice(i, 1);
-        }
-    }
+    // A. Helper to scan a single horizontal strip of ink
+    function scanLine(startY, endY) {
+        let firstY = -1;
+        let lastY = -1;
 
-    // Process each detected row to find column boundaries and inner rows
-    for (const [start, end] of rowBoundaries) {
-        let rowMat;
-        try {
-            rowMat = binary.roi(new cv.Rect(0, start, binary.cols, end - start));
-        }
-        catch (err) {
-            console.error(err);
-            throw err;
-        }
-        const colBoundaries = detectColumns(rowMat);
-
-        const columns = colBoundaries.map(([colStart, colEnd]) => {
-            // Extract column submatrix and detect rows within it
-            let colMat;
-            try {
-                colMat = rowMat.roi(new cv.Rect(colStart, 0, colEnd - colStart, rowMat.rows));
-            }
-            catch (err) {
-                console.error(err);
-                throw err;
-            }
-
-            let [lineBoundaries, lineBoundaryLineItems] = detectRows(colMat, start, colStart, 0);
-
-            if (colBoundaries.length > 1) lineItems.push(...lineBoundaryLineItems);
-
-            let [innerRowBoundaries, duplicateLineItems] = detectRows(colMat, start, colStart);
-            innerRowBoundaries = innerRowBoundaries.map(([innerStart, innerEnd], idx, arr) => {
-
-                const innerRowData = {
-                    range: [innerStart, innerEnd],
-                    separation: (idx > 0) ? innerStart - (arr[idx - 1][1] + start) : innerStart - start,
-                    height: innerEnd - innerStart
-                };
-
-                let innerRowMat;
-                try {
-                    innerRowMat = colMat.roi(new cv.Rect(0, innerStart - start, colMat.cols, innerEnd - innerStart));
-                }
-                catch (err) {
-                    console.error(err);
-                    throw err;
-                }
-                innerRowData.subColumns = detectColumns(innerRowMat, leftOffset = colStart);
-                innerRowMat.delete();
-
-                return innerRowData;
-            });
-
-            return {
-                range: [colStart, colEnd],
-                lines: lineBoundaries,
-                innerRows: innerRowBoundaries,
-            };
-        });
-
-        // Store detected blocks
-        blocks.push({
-            range: [start, end],
-            columns: columns
-        });
-    }
-
-    // Add separation and height properties to each block
-    blocks.forEach((block, i) => {
-        // Calculate separation before this block
-        block.separation = (i > 0) ? block.range[0] - blocks[i - 1].range[1] : block.range[0];
-        block.height = block.range[1] - block.range[0];
-    });
-
-    // Annotate blocks with solid border detection
-    const rectangles = checkSolidBorders(src, binary, blocks);
-
-    if (chartItems.length > 0) addCharts(chartItems, blocks, rectangles, binary);
-
-    // Clean up
-    src.delete();
-    gray.delete();
-    binary.delete();
-
-    return [blocks, lineItems, rectangles];
-}
-
-// Helper function to detect row boundaries
-function detectRows(mat, topOffset = 0, leftOffset = 0, maxTextLineSeparation = 6, minLineWidthRatio = 0.99) {
-
-    let rowTags = [];
-    let lineTags = [];
-
-    // Step 0: For whole-page detection, perform initial scan to find left and right margins
-    let leftMargin = mat.cols;
-    let rightMargin = 0;
-    if (leftOffset === 0) {
-        for (let x = 0; x < mat.cols; x++) {
-            const colNonZero = cv.countNonZero(mat.col(x));
-            if (colNonZero > 0) {
-                leftMargin = Math.min(leftMargin, x);
-                rightMargin = Math.max(rightMargin, x);
-            }
-        }
-    } else {
-        leftMargin = 0;
-        rightMargin = mat.cols;
-    }
-
-    // Step 1: Classify each row as line, text, or blank
-    let minLineWidth = Math.floor((rightMargin - leftMargin) * minLineWidthRatio);
-    for (let y = 0; y < mat.rows; y++) {
-        const rowNonZero = cv.countNonZero(mat.row(y));
-        rowTags.push(rowNonZero > 0 && rowNonZero < minLineWidth);
-        lineTags.push(rowNonZero >= minLineWidth);
-    }
-
-    // Step 2: Mark up to maxTextLineSeparation contiguous blanks between text rows as text rows
-    for (let i = 1; i < rowTags.length - 1; i++) {
-        if (rowTags[i] === false) {
-            let blanks = 1;
-            // Count contiguous blanks
-            while (i + blanks < rowTags.length && !rowTags[i + blanks]) blanks++;
-
-            // Check if blanks are surrounded by text rows
-            if (blanks <= maxTextLineSeparation && rowTags[i - 1] && rowTags[i + blanks]) {
-                for (let j = 0; j < blanks; j++) rowTags[i + j] = true; // Mark blanks as text
-            }
-
-            // Skip ahead by the number of blanks processed
-            i += blanks - 1;
-        }
-    }
-
-    // Step 3: Group text rows into blocks
-    let rowBoundaries = [];
-    let start = 0; // Start index for the text block
-
-    for (let y = 1; y <= rowTags.length; y++) {
-        if (y === rowTags.length || rowTags[y] !== rowTags[start]) {
-            // If current row is different or it's the last row
-            if (rowTags[start]) {
-                rowBoundaries.push([topOffset + start, topOffset + y - 1]); // Store boundary of the text block
-            }
-            // Start a new block
-            start = y;
-        }
-    }
-
-    // Step 4: Group lines into blocks
-    let lineItems = [];
-    start = 0; // Start index for the line block
-    const nudgeDown = 0; // Nudge down to include the line within sorting areas
-
-    for (let y = 1; y <= lineTags.length; y++) {
-        if (y === lineTags.length || lineTags[y] !== lineTags[start]) {
-            // If current row is different or it's the last row
-            if (lineTags[start]) {
-                rowBoundaries.push([topOffset + start, topOffset + y - 1]);
-                // If it's a line block
-                lineItems.push({
-                    top: topOffset + start + nudgeDown,
-                    bottom: topOffset + y - 1 + nudgeDown,
-                    left: leftOffset + leftMargin,
-                    right: leftOffset + rightMargin,
-                    height: y - start,
-                    width: rightMargin - leftMargin + 1,
-                    tableLine: true,
-                    fontName: 'line',
-                    str: ''
-                });
-            }
-            // Start a new block
-            start = y;
-        }
-    }
-
-    rowBoundaries.sort((a, b) => a[0] - b[0]);
-
-    return [rowBoundaries, lineItems];
-}
-
-// Helper function to detect column boundaries within a row
-function detectColumns(rowMat, leftOffset = 0, minColumnSeparation = 9) {
-    let colBoundaries = [];
-    let inCol = false;
-    let start = 0;
-    let blankCols = 0;
-
-    // Step 1: Label each column as text or blank
-    const isColText = [];
-    for (let x = 0; x < rowMat.cols; x++) {
-        const col = rowMat.col(x);
-        isColText[x] = cv.countNonZero(col) > 0; // true if column has non-zero pixels
-    }
-
-    // Step 2: Group columns into blocks
-    for (let x = 0; x < rowMat.cols; x++) {
-        if (isColText[x]) {
-            if (!inCol) {
-                start = x; // Start of a new text block
-                inCol = true;
-            }
-            blankCols = 0; // Reset blank column counter when in a text column
-        } else {
-            if (inCol) {
-                blankCols++;
-                if (blankCols >= minColumnSeparation) {
-                    colBoundaries.push([leftOffset + start, leftOffset + x - blankCols + 1]); // End of a column block
-                    inCol = false;
+        // Find Start
+        for (let y = startY; y < endY; y++) {
+            let hasPixel = false;
+            const rowOffset = y * width;
+            for (let x = 0; x < width; x += 5) {
+                if (rawData[rowOffset + x] > 0) {
+                    hasPixel = true;
+                    break;
                 }
             }
-        }
-    }
-
-    // Capture last column boundary if still in a text block
-    if (inCol) colBoundaries.push([leftOffset + start, leftOffset + rowMat.cols]);
-
-    return colBoundaries;
-}
-
-
-function checkSolidBorders(src, binary, originalBlocks, width = 3, tolerance = 0.95) {
-
-    const blocks = structuredClone(originalBlocks);
-    const rectangles = [];
-
-    // Reverse loop to merge any contiguous blocks
-    for (let i = blocks.length - 1; i > 0; i--) {
-        const currentBlock = blocks[i];
-        const previousBlock = blocks[i - 1];
-
-        // Check if current and previous blocks are contiguous
-        if (previousBlock.range[1] + 1 === currentBlock.range[0]) {
-            // Merge ranges
-            previousBlock.range[1] = currentBlock.range[1];
-            previousBlock.height = previousBlock.range[1] - previousBlock.range[0];
-            previousBlock.columns.push(...currentBlock.columns);
-
-            // Remove the current block after merging
-            blocks.splice(i, 1);
-        }
-    }
-
-    blocks.forEach((block, i) => {
-        const [yStart, yEnd] = block.range;
-        const blockHeight = block.height;
-        const verticalTolerance = Math.floor(blockHeight * tolerance);
-
-        block.columns.forEach((column, j) => {
-
-            const [xStart, xEnd] = column.range;
-            const columnWidth = xEnd - xStart;
-            const horizontalTolerance = Math.floor(columnWidth * tolerance);
-
-            // Skip columns with less than 10 pixels in height, which might simply be a line
-            if (blockHeight < 10) {
-                column.rectangle = false;
-                return;
-            }
-
-            const edges = {
-                top: {
-                    positions: Array.from({ length: width }, (_, i) => yStart + i),
-                    rect: (y) => new cv.Rect(xStart, y, columnWidth, 1),
-                    tolerance: horizontalTolerance,
-                },
-                bottom: {
-                    positions: Array.from({ length: width }, (_, i) => yEnd - i),
-                    rect: (y) => new cv.Rect(xStart, y, columnWidth, 1),
-                    tolerance: horizontalTolerance,
-                },
-                left: {
-                    positions: Array.from({ length: width }, (_, i) => xStart + i),
-                    rect: (x) => new cv.Rect(x, yStart, 1, blockHeight),
-                    tolerance: verticalTolerance,
-                },
-                right: {
-                    positions: Array.from({ length: width }, (_, i) => xEnd - i),
-                    rect: (x) => new cv.Rect(x, yStart, 1, blockHeight),
-                    tolerance: verticalTolerance,
-                },
-            };
-
-            column.border = {};
-
-            // Check each border for the current column
-            for (const [side, { positions, rect, tolerance }] of Object.entries(edges)) {
-                const hasBorder = positions.some(pos => {const r = rect(pos);
-
-                    // FIX: Ensure the ROI is strictly within the image bounds
-                    if (r.x < 0 || r.y < 0 || r.x + r.width > binary.cols || r.y + r.height > binary.rows) {
-                        return false; // Treat out-of-bounds as "no border found"
-                    }
-
-                    // Now safe to call .roi()
-                    const edge = (side === 'top' || side === 'bottom')
-                        ? binary.roi(r)
-                        : binary.roi(r);
-
-                    const result = cv.countNonZero(edge) >= tolerance;
-                    edge.delete(); // Free memory
-                    return result;
-                });
-                column.border[side] = hasBorder;
-            }
-
-            if (Object.keys(edges).every(side => column.border[side])) {
-                rectangles.push({top: yStart, bottom: yEnd, left: xStart, right: xEnd, height: blockHeight, width: columnWidth, type: 'segmentation'});
-            }
-        });
-    });
-
-    // Remove any duplicate rectangles (iterate in reverse to avoid index issues)
-    const overlapTolerance = 2;
-    for (let i = rectangles.length - 1; i > 0; i--) {
-        const currentRect = rectangles[i];
-        for (let j = i - 1; j >= 0; j--) {
-            const previousRect = rectangles[j];
-            if (
-                Math.abs(currentRect.top - previousRect.top) <= overlapTolerance &&
-                Math.abs(currentRect.bottom - previousRect.bottom) <= overlapTolerance &&
-                Math.abs(currentRect.left - previousRect.left) <= overlapTolerance &&
-                Math.abs(currentRect.right - previousRect.right) <= overlapTolerance
-            ) {
-                rectangles.splice(i, 1);
+            if (hasPixel) {
+                firstY = y;
                 break;
             }
         }
+
+        if (firstY === -1) return null; // No ink found
+
+        // Find End (Gap)
+        const GAP_TOLERANCE = 5;
+        let gapCounter = 0;
+
+        for (let y = firstY; y < endY; y++) {
+            let hasPixel = false;
+            const rowOffset = y * width;
+            for (let x = 0; x < width; x += 5) {
+                if (rawData[rowOffset + x] > 0) {
+                    hasPixel = true;
+                    break;
+                }
+            }
+
+            if (!hasPixel) {
+                gapCounter++;
+                if (gapCounter >= GAP_TOLERANCE) {
+                    lastY = y - GAP_TOLERANCE;
+                    break;
+                }
+            } else {
+                gapCounter = 0;
+            }
+        }
+
+        if (lastY === -1) lastY = endY; // Hit limit
+
+        return { y: firstY, h: lastY - firstY, bottom: lastY };
     }
 
-    console.debug('Detected Rectangles:', rectangles);
-    return rectangles;
-}
+    // B. Detect
+    const headerScanLimit = Math.floor(height * (pageNum === 1 ? 0.35 : 0.20));
 
+    // Find the first line
+    let primaryLine = scanLine(0, headerScanLimit);
 
-function addCharts(chartItems, blocks, rectangles, binary) {
+    if (primaryLine) {
+        let finalBottom = primaryLine.bottom;
 
-    console.debug('Blocks:', structuredClone(blocks));
+        // If Page 1, try to collect multi-line TITLEs
+        if (pageNum === 1) {
+            let currentBottom = primaryLine.bottom;
+            const refHeight = primaryLine.h;
 
-    // Locate chart items within the detected blocks and check pixel density above them
-    chartItems.forEach(item => {
-        const block = blocks.find(b =>
-            item.y >= b.range[0] && item.y <= b.range[1] &&
-            b.columns.some(c => item.x >= c.range[0] && item.x <= c.range[1])
-        );
-        if (block) {
-            const columnRange = block.columns.find(c => item.x >= c.range[0] && item.x <= c.range[1])?.range;
-            if (columnRange) {
-                const borderWidth = 5;
+            while (true) {
+                // Look for next line within reasonable gap
+                const nextLine = scanLine(currentBottom + 5, headerScanLimit);
 
-                // Find index of the current block
-                const blockIndex = blocks.findIndex(b => b === block);
-                // Loop through blocks between header and blockAboveIndex, finding the column range containing the item's x-coordinate
-                let innerRowMax = blocks[1]?.range[0];
-                for (let i = 1; i <= blockIndex; i++) {
-                    const columnAbove = blocks[i].columns.find(c => item.x >= c.range[0] && item.x <= c.range[1]);
-                    if (columnAbove) {
-                        columnRange[0] = Math.min(columnRange[0], columnAbove.range[0]);
-                        columnRange[1] = Math.max(columnRange[1], columnAbove.range[1]);
-                        // Find index of innerRow which contains the item
-                        const innerRowAbove = columnAbove.innerRows.findIndex(r => item.y >= r.range[0] && item.y <= r.range[1]) - 1;
-                        innerRowMax = Math.max(innerRowMax, columnAbove.innerRows[innerRowAbove]?.range[1] || 0);
-                    }
-                }
-                if (innerRowMax === blocks[1]?.range[0]) {
-                    innerRowMax = blockIndex > 1 ? Math.min(blocks[blockIndex - 1]?.range[1], item.top - borderWidth * 2) : item.top - borderWidth * 2;
-                }
+                if (!nextLine) break;
 
-                const testArea = {
-                    left: columnRange[0] - borderWidth,
-                    top: blocks[1]?.range[0] - borderWidth,
-                    width: columnRange[1] - columnRange[0] + 2 * borderWidth,
-                    height: innerRowMax - blocks[1]?.range[0] + 2 * borderWidth
-                };
+                // Gap Check: Is the next line close? (< 40px)
+                const gap = nextLine.y - currentBottom;
+                if (gap > 40) break;
 
-                // Find area between header and current block
-                const testRect = binary.roi(new cv.Rect(testArea.left, testArea.top, testArea.width, testArea.height));
-                item.density = cv.countNonZero(testRect) / (testArea.width * testArea.height);
+                // Height Check: Is it roughly the same size? (within 30%)
+                const hDiff = Math.abs(nextLine.h - refHeight);
+                if (hDiff > (refHeight * 0.3)) break;
 
-                if (item.density < 0.1) {
-                    Object.assign(item, { rowRange: block.range, columnRange });
-                    rectangles.push({
-                        ...testArea,
-                        bottom: testArea.top + testArea.height,
-                        right: testArea.left + testArea.width,
-                        type: 'chart',
-                        chartNumber: item.chartNumber
-                    });
-                }
-
-                testRect.delete();
-
+                // Match! Extend block.
+                currentBottom = nextLine.bottom;
+                finalBottom = nextLine.bottom;
             }
+        }
+
+        // Create the Block (Header or Title)
+        // Find X-bounds for the whole detected vertical region
+        const roiH = finalBottom - primaryLine.y;
+        if (roiH > 0) {
+            const headerROI = binary.roi(new cv.Rect(0, primaryLine.y, width, roiH));
+            const hContours = new cv.MatVector();
+            const hHier = new cv.Mat();
+            cv.findContours(headerROI, hContours, hHier, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+            let minX = width, maxX = 0;
+            let foundContent = false;
+
+            for (let i = 0; i < hContours.size(); i++) {
+                const rect = cv.boundingRect(hContours.get(i));
+                if (rect.width > 2) {
+                    if (rect.x < minX) minX = rect.x;
+                    if (rect.x + rect.width > maxX) maxX = rect.x + rect.width;
+                    foundContent = true;
+                }
+            }
+
+            if (foundContent) {
+                const type = (pageNum === 1) ? 'HEADING' : 'HEADER';
+                blocks.push({
+                    x: minX, y: primaryLine.y,
+                    width: maxX - minX, height: roiH,
+                    type: type
+                });
+                headerBottom = finalBottom + 5;
+            }
+            headerROI.delete(); hContours.delete(); hHier.delete();
+        }
+    }
+
+
+    // === STEP 2: FIND FOOTER SEPARATOR ===
+    const searchStart = Math.floor(height * 0.6);
+    const searchEnd = height;
+
+    let maxGapSize = 0;
+    let maxGapEnd = -1;
+    let currentGapStart = -1;
+
+    for (let y = searchStart; y < searchEnd; y++) {
+        let hasContent = false;
+        const rowOffset = y * width;
+        for (let x = 0; x < width; x += 10) {
+            if (rawData[rowOffset + x] > 0) {
+                hasContent = true;
+                break;
+            }
+        }
+
+        if (!hasContent) {
+            if (currentGapStart === -1) currentGapStart = y;
+        } else {
+            if (currentGapStart !== -1) {
+                const gapSize = y - currentGapStart;
+                if (gapSize > maxGapSize) {
+                    maxGapSize = gapSize;
+                    maxGapEnd = y;
+                }
+                currentGapStart = -1;
+            }
+        }
+    }
+
+    let splitY = height;
+    if (maxGapSize > 15) {
+        splitY = maxGapEnd;
+        if (splitY > height - 20) splitY = height;
+    }
+
+    // === STEP 3: SEGMENT BODY (Figures + Tables + RLSA Text) ===
+    if (splitY > headerBottom) {
+        const bodyHeight = splitY - headerBottom;
+        if (bodyHeight > 0) {
+            const bodyRect = new cv.Rect(0, headerBottom, width, bodyHeight);
+
+            // PRIORITY: 1. Figure -> 2. Table -> 3. Text (Raw RLSA Blocks)
+            const bodyBlocks = segmentBodyDetailed(binary, bodyRect, 'BODY', chartItems);
+            blocks.push(...bodyBlocks);
+        }
+    }
+
+    // === STEP 4: SEGMENT FOOTER ===
+    if (splitY < height) {
+        const footHeight = height - splitY;
+        const footRect = new cv.Rect(0, splitY, width, footHeight);
+        const footBlocks = segmentFooterZone(binary, footRect, chartItems);
+        blocks.push(...footBlocks);
+    }
+
+    // === STEP 5: DETECT HEADINGS ===
+    const headingBlocks = detectHeadings(gray, blocks, width);
+    blocks = applyHeadingResults(blocks, headingBlocks);
+
+    // === STEP 6: CLEANUP & SORT ===
+    blocks = mergeOverlappingBlocks(blocks);
+    sortBlocksByReadingOrder(blocks, width);
+
+    let orderCounter = 1;
+    blocks.forEach(b => {
+        if (b.type !== 'HEADER' && b.type !== 'FOOTER') {
+            b.order = orderCounter++;
         }
     });
 
-    console.debug('Chart Items:', structuredClone(chartItems));
+    src.delete(); gray.delete(); binary.delete();
 
+    return { blocks, stats: { width, height } };
+}
+
+function mergeOverlappingBlocks(blocks) {
+    let changed = true;
+    while (changed) {
+        changed = false;
+        for (let i = 0; i < blocks.length; i++) {
+            if (blocks[i].deleted) continue;
+
+            for (let j = i + 1; j < blocks.length; j++) {
+                if (blocks[j].deleted) continue;
+
+                const b1 = blocks[i];
+                const b2 = blocks[j];
+
+                const x1 = Math.max(b1.x, b2.x);
+                const y1 = Math.max(b1.y, b2.y);
+                const x2 = Math.min(b1.right, b2.right);
+                const y2 = Math.min(b1.bottom, b2.bottom);
+
+                if (x1 < x2 && y1 < y2) {
+                    const interArea = (x2 - x1) * (y2 - y1);
+                    const minArea = Math.min(b1.width * b1.height, b2.width * b2.height);
+
+                    if (interArea / minArea > 0.95) {
+                        b1.x = Math.min(b1.x, b2.x);
+                        b1.y = Math.min(b1.y, b2.y);
+                        b1.right = Math.max(b1.right, b2.right);
+                        b1.bottom = Math.max(b1.bottom, b2.bottom);
+                        b1.width = b1.right - b1.x;
+                        b1.height = b1.bottom - b1.y;
+
+                        if (b2.type.match(/FIGURE|TABLE|IMAGE/)) b1.type = b2.type;
+
+                        b2.deleted = true;
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
+    return blocks.filter(b => !b.deleted);
+}
+
+function sortBlocksByReadingOrder(blocks, pageW) {
+    const pageCenter = pageW / 2;
+    const LINE_TOLERANCE = 8; // pixels for vertical alignment
+
+    // Step 0: assign column type
+    blocks.forEach(b => {
+        const bCenter = b.x + (b.width / 2);
+        if (b.type.match(/HEADER|HEADING|FOOTER|TITLE/) || (b.x < pageCenter - 50 && b.x + b.width > pageCenter + 50)) {
+            b.colType = 'SPAN';
+        } else if (bCenter < pageCenter) {
+            b.colType = 'LEFT';
+        } else {
+            b.colType = 'RIGHT';
+        }
+    });
+
+    // Step 1: group blocks into vertical lines with tolerance
+    const lines = [];
+    const sortedByY = blocks.slice().sort((a,b) => a.y - b.y);
+    for (const b of sortedByY) {
+        let placed = false;
+        for (const line of lines) {
+            const lineTop = Math.min(...line.map(x => x.y));
+            const lineBottom = Math.max(...line.map(x => x.y + x.height));
+            if (b.y <= lineBottom + LINE_TOLERANCE && b.y + b.height >= lineTop - LINE_TOLERANCE) {
+                line.push(b);
+                placed = true;
+                break;
+            }
+        }
+        if (!placed) lines.push([b]);
+    }
+
+    // Step 2: sort blocks within each line: LEFT → RIGHT → SPAN
+    lines.forEach(line => {
+        const lefts = line.filter(b => b.colType === 'LEFT').sort((a,b) => a.x - b.x);
+        const rights = line.filter(b => b.colType === 'RIGHT').sort((a,b) => a.x - b.x);
+        const spans = line.filter(b => b.colType === 'SPAN').sort((a,b) => a.x - b.x);
+        line.splice(0, line.length, ...lefts, ...rights, ...spans);
+    });
+
+    // Step 3: sort lines top-to-bottom by the top of the line
+    lines.sort((a,b) => Math.min(...a.map(x => x.y)) - Math.min(...b.map(x => x.y)));
+
+    // Step 4: flatten
+    const sorted = lines.flat();
+
+    // Step 5: overwrite original array
+    blocks.splice(0, blocks.length, ...sorted);
+}
+
+
+function segmentBodyDetailed(fullBinary, roiRect, zoneType, chartItems) {
+    const roi = fullBinary.roi(roiRect);
+    const blocks = [];
+
+    // A. DETECT BOXED FIGURES
+    const contours = new cv.MatVector();
+    const hierarchy = new cv.Mat();
+    cv.findContours(roi, contours, hierarchy, cv.RETR_CCOMP, cv.CHAIN_APPROX_SIMPLE);
+
+    const figureMask = new cv.Mat.zeros(roi.rows, roi.cols, cv.CV_8UC1);
+    const figureRects = [];
+
+    for (let i = 0; i < contours.size(); i++) {
+        const rect = cv.boundingRect(contours.get(i));
+        const hasChild = hierarchy.intPtr(0, i)[2] !== -1;
+        const absX = rect.x + roiRect.x;
+        const absY = rect.y + roiRect.y;
+
+        const hasLabel = chartItems.some(item =>
+            item.x >= absX && item.x <= absX + rect.width &&
+            item.y >= absY && item.y <= absY + rect.height
+        );
+
+        if (hasLabel || (rect.width > 100 && rect.height > 100 && hasChild)) {
+            blocks.push({
+                x: absX, y: absY, width: rect.width, height: rect.height,
+                right: absX + rect.width, bottom: absY + rect.height,
+                density: 0, type: 'FIGURE'
+            });
+            figureRects.push(rect);
+            const pt1 = new cv.Point(rect.x, rect.y);
+            const pt2 = new cv.Point(rect.x + rect.width, rect.y + rect.height);
+            cv.rectangle(figureMask, pt1, pt2, [255, 255, 255, 255], -1);
+        }
+    }
+    contours.delete(); hierarchy.delete();
+
+    // B. MASK FIGURES
+    const cleanROI = roi.clone();
+    figureRects.forEach(rect => {
+        const pt1 = new cv.Point(rect.x, rect.y);
+        const pt2 = new cv.Point(rect.x + rect.width, rect.y + rect.height);
+        cv.rectangle(cleanROI, pt1, pt2, [0, 0, 0, 0], -1);
+    });
+
+    // C. DETECT TABLES
+    const tableRects = detectTableRegions(cleanROI, roiRect);
+    tableRects.forEach(tRect => {
+        blocks.push({
+            x: tRect.x, y: tRect.y,
+            width: tRect.width, height: tRect.height,
+            right: tRect.x + tRect.width, bottom: tRect.y + tRect.height,
+            density: 0, type: 'TABLE'
+        });
+
+        const relX = tRect.x - roiRect.x;
+        const relY = tRect.y - roiRect.y;
+        if (relX >= 0 && relY >= 0 && relX + tRect.width <= cleanROI.cols && relY + tRect.height <= cleanROI.rows) {
+            const pt1 = new cv.Point(relX, relY);
+            const pt2 = new cv.Point(relX + tRect.width, relY + tRect.height);
+            cv.rectangle(cleanROI, pt1, pt2, [0, 0, 0, 0], -1);
+        }
+    });
+
+    // D. DETECT TEXT (Raw RLSA)
+    const rawBlocks = runStandardRLSA(cleanROI, roiRect, zoneType, chartItems, 5, 15);
+    blocks.push(...rawBlocks);
+
+    roi.delete(); figureMask.delete(); cleanROI.delete();
+
+    return blocks;
+}
+
+function detectTableRegions(binaryROI, roiRect) {
+    const width = binaryROI.cols;
+    const height = binaryROI.rows;
+    const rawData = binaryROI.data;
+
+    const lineKernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(50, 1));
+    const linesMat = new cv.Mat();
+    cv.morphologyEx(binaryROI, linesMat, cv.MORPH_OPEN, lineKernel);
+
+    const contours = new cv.MatVector();
+    const hierarchy = new cv.Mat();
+    cv.findContours(linesMat, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+    const lines = [];
+    for (let i = 0; i < contours.size(); i++) {
+        const rect = cv.boundingRect(contours.get(i));
+        if (rect.width > 50 && rect.height < 20) {
+            lines.push(rect);
+        }
+    }
+
+    lines.sort((a, b) => a.y - b.y);
+    const tableCores = [];
+
+    if (lines.length > 0) {
+        let currentBlock = { ...lines[0] };
+        const MERGE_TOLERANCE = 60;
+
+        for (let i = 1; i < lines.length; i++) {
+            const line = lines[i];
+            const prevBottom = currentBlock.y + currentBlock.height;
+
+            if (line.y - prevBottom < MERGE_TOLERANCE) {
+                const minX = Math.min(currentBlock.x, line.x);
+                const maxX = Math.max(currentBlock.x + currentBlock.width, line.x + line.width);
+                const minY = currentBlock.y;
+                const maxY = Math.max(prevBottom, line.y + line.height);
+                currentBlock = { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+            } else {
+                tableCores.push(currentBlock);
+                currentBlock = { ...line };
+            }
+        }
+        tableCores.push(currentBlock);
+    }
+
+    lineKernel.delete(); linesMat.delete(); contours.delete(); hierarchy.delete();
+
+    const RIVER_THRESHOLD = 20;
+
+    return tableCores.map(core => {
+        let topY = core.y;
+        let bottomY = core.y + core.height;
+
+        let gapCount = 0;
+        for (let y = topY - 1; y >= 0; y--) {
+            let hasPixel = false;
+            const rowOffset = y * width;
+            for (let x = 0; x < width; x += 10) {
+                if (rawData[rowOffset + x] > 0) {
+                    hasPixel = true;
+                    break;
+                }
+            }
+            if (hasPixel) {
+                gapCount = 0;
+                topY = y;
+            } else {
+                gapCount++;
+                if (gapCount > RIVER_THRESHOLD) break;
+            }
+        }
+
+        gapCount = 0;
+        for (let y = bottomY; y < height; y++) {
+            let hasPixel = false;
+            const rowOffset = y * width;
+            for (let x = 0; x < width; x += 10) {
+                if (rawData[rowOffset + x] > 0) {
+                    hasPixel = true;
+                    break;
+                }
+            }
+            if (hasPixel) {
+                gapCount = 0;
+                bottomY = y + 1;
+            } else {
+                gapCount++;
+                if (gapCount > RIVER_THRESHOLD) break;
+            }
+        }
+
+        return {
+            x: Math.max(0, core.x - 5) + roiRect.x,
+            y: topY + roiRect.y,
+            width: (core.width + 10),
+            height: bottomY - topY
+        };
+    });
+}
+
+function segmentFooterZone(binaryImage, zoneRect, chartItems) {
+    const results = [];
+    const midX = Math.floor(zoneRect.width / 2);
+
+    const leftRect = new cv.Rect(zoneRect.x, zoneRect.y, midX, zoneRect.height);
+    const leftROI = binaryImage.roi(leftRect);
+    results.push(...runStandardRLSA(leftROI, leftRect, 'FOOTER', chartItems, 40, 10));
+    leftROI.delete();
+
+    const rightWidth = zoneRect.width - midX;
+    if (rightWidth > 10) {
+        const rightRect = new cv.Rect(zoneRect.x + midX, zoneRect.y, rightWidth, zoneRect.height);
+        const rightROI = binaryImage.roi(rightRect);
+        results.push(...runStandardRLSA(rightROI, rightRect, 'FOOTER', chartItems, 40, 10));
+        rightROI.delete();
+    }
+
+    return results;
+}
+
+function runStandardRLSA(roi, offsetRect, zoneType, chartItems, hSize, vSize) {
+    const hKernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(hSize, 1));
+    const hMorphed = new cv.Mat();
+    cv.morphologyEx(roi, hMorphed, cv.MORPH_CLOSE, hKernel);
+
+    const vKernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(1, vSize));
+    const finalMorphed = new cv.Mat();
+    cv.morphologyEx(hMorphed, finalMorphed, cv.MORPH_CLOSE, vKernel);
+
+    const contours = new cv.MatVector();
+    const hierarchy = new cv.Mat();
+    cv.findContours(finalMorphed, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+    const blocks = [];
+
+    for (let i = 0; i < contours.size(); i++) {
+        const cnt = contours.get(i);
+        const rect = cv.boundingRect(cnt);
+
+        if (rect.width < 10 || rect.height < 6) continue;
+
+        const absX = rect.x + offsetRect.x;
+        const absY = rect.y + offsetRect.y;
+
+        const blockROI = roi.roi(rect);
+        const whitePixels = cv.countNonZero(blockROI);
+        const density = whitePixels / (rect.width * rect.height);
+        blockROI.delete();
+
+        let type = zoneType;
+        if (density > 0.85) type = 'IMAGE';
+        else if (chartItems.some(item =>
+            item.x >= absX && item.x <= absX + rect.width &&
+            item.y >= absY && item.y <= absY + rect.height
+        )) type = 'FIGURE';
+
+        blocks.push({
+            x: absX, y: absY,
+            width: rect.width, height: rect.height,
+            right: absX + rect.width, bottom: absY + rect.height,
+            density: density,
+            type: type
+        });
+    }
+
+    hMorphed.delete(); finalMorphed.delete();
+    contours.delete(); hierarchy.delete(); hKernel.delete(); vKernel.delete();
+
+    return blocks;
+}
+
+/**
+ * Detect headings using OpenCV.js block lists.
+ *
+ * Inputs:
+ *   pageMat     : cv.Mat (grayscale image of page)
+ *   blocks      : [{x, y, width, height}, ...] from your contour/block detector
+ *   pageWidth   : number
+ *
+ * Output:
+ *   mergedHeadings : array of merged heading blocks
+ */
+
+function detectHeadings(pageMat, blocks) {
+    //----------------------------------------
+    // 0. Filter only unclassified blocks
+    //----------------------------------------
+    const relevantBlocks = blocks.filter(b => !['FOOTER','HEADER','FIGURE','TABLE'].includes(b.type));
+
+    if (relevantBlocks.length === 0) return [];
+
+    //----------------------------------------
+    // 1. Compute centre between minX and maxX of relevant blocks
+    //----------------------------------------
+    const minX = Math.min(...relevantBlocks.map(b => b.x));
+    const maxX = Math.max(...relevantBlocks.map(b => b.x + b.width));
+    const centerX = (minX + maxX) / 2;
+
+    // 2. Candidate blocks = indices of relevantBlocks crossing center
+    const candidates = relevantBlocks
+        .map((b,i) => ({b,i}))
+        .filter(({b}) => (b.x <= centerX && (b.x + b.width) >= centerX))
+        .map(({i}) => i);
+
+    console.debug("Center Crossing Blocks:", candidates.length);
+
+    function vOverlap(a,b) { return (a.y <= b.y+b.height) && (b.y <= a.y+a.height); }
+
+    const n = relevantBlocks.length;
+    const adj = Array.from({length:n},()=>new Set());
+    for (const i of candidates) {
+        const bi = relevantBlocks[i];
+        if (!(bi.x <= centerX && bi.x+bi.width >= centerX)) continue;
+        for (let j = 0; j < n; j++) {
+            if (i===j) continue;
+            if (vOverlap(bi,relevantBlocks[j])) { adj[i].add(j); adj[j].add(i); }
+        }
+    }
+    console.debug("Adjacency", adj);
+
+    //----------------------------------------
+    // 7. Connected components & merge
+    //----------------------------------------
+    const visited = new Set();
+    const mergedHeadings = [];
+
+    for (let i=0;i<n;i++) {
+        if (visited.has(i) || adj[i].size===0) { visited.add(i); continue; }
+
+        const stack = [i];
+        const group = [];
+        while(stack.length) {
+            const u = stack.pop();
+            if (visited.has(u)) continue;
+            visited.add(u);
+            group.push(u);
+            for(const v of adj[u]) if(!visited.has(v)) stack.push(v);
+        }
+
+        const hasTrigger = group.some(idx => candidates.includes(idx));
+        if (!hasTrigger) continue;
+
+        const xs = group.map(idx => relevantBlocks[idx].x);
+        const ys = group.map(idx => relevantBlocks[idx].y);
+        const rights = group.map(idx => relevantBlocks[idx].x + relevantBlocks[idx].width);
+        const bottoms = group.map(idx => relevantBlocks[idx].y + relevantBlocks[idx].height);
+
+        mergedHeadings.push({
+            x: Math.min(...xs),
+            y: Math.min(...ys),
+            width: Math.max(...rights) - Math.min(...xs),
+            height: Math.max(...bottoms) - Math.min(...ys),
+            type: 'HEADING'
+        });
+    }
+
+    return mergedHeadings;
+}
+
+
+function applyHeadingResults(blocks, headings) {
+
+    if (!headings || headings.length === 0) {
+        return blocks;   // nothing to modify
+    }
+
+    //------------------------------------------------------------
+    // Build a set of blocks to remove.
+    //
+    // We remove any block whose bounding box lies entirely inside
+    // any merged heading region. This is robust even without
+    // member indices.
+    //------------------------------------------------------------
+    const toRemove = new Set();
+
+    function blockInside(b, h) {
+        return (
+            b.x >= h.x &&
+            b.y >= h.y &&
+            (b.x + b.width) <= (h.x + h.width) &&
+            (b.y + b.height) <= (h.y + h.height)
+        );
+    }
+
+    for (const h of headings) {
+        for (let i = 0; i < blocks.length; i++) {
+            if (blockInside(blocks[i], h)) {
+                toRemove.add(i);
+            }
+        }
+    }
+
+    //------------------------------------------------------------
+    // Build the new block list:
+    //   1. Keep all non-removed blocks
+    //   2. Append merged heading blocks
+    //------------------------------------------------------------
+    const newBlocks = [];
+
+    for (let i = 0; i < blocks.length; i++) {
+        if (!toRemove.has(i)) {
+            newBlocks.push(blocks[i]);
+        }
+    }
+
+    // Insert merged headings last (order is not yet important;
+    // sortBlocksByReadingOrder() will handle ordering correctly)
+    for (const h of headings) {
+        newBlocks.push({
+            x: h.x,
+            y: h.y,
+            width: h.width,
+            height: h.height,
+            type: "HEADING"
+        });
+    }
+
+    return newBlocks;
 }

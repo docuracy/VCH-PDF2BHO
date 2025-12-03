@@ -12,11 +12,18 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs
 // State for PDF extraction
 let extractionModal = null;
 let extractedXHTML = null;
+let isDebugMode = true;
 
 // Helper to show a temporary modal
 function showTempModal(title, message, duration = 2500) {
     const modalEl = document.getElementById('notification-modal');
-    if (!modalEl) return;
+    if (!modalEl) {
+        console.warn("Notification modal element not found in DOM");
+        return;
+    }
+
+    // Force high z-index to ensure visibility over editor/other modals
+    modalEl.style.zIndex = "1070";
 
     // Update text
     const titleEl = document.getElementById('notification-title');
@@ -24,12 +31,15 @@ function showTempModal(title, message, duration = 2500) {
     if (titleEl) titleEl.textContent = title;
     if (msgEl) msgEl.textContent = message;
 
-    // Create and show modal
-    const modal = new bootstrap.Modal(modalEl, {
-        backdrop: false, // Less intrusive (allows seeing the editor behind)
-        keyboard: false,
-        focus: false     // Prevents stealing focus from editor
-    });
+    // Create or retrieve modal instance
+    let modal = bootstrap.Modal.getInstance(modalEl);
+    if (!modal) {
+        modal = new bootstrap.Modal(modalEl, {
+            backdrop: false, // Less intrusive
+            keyboard: false,
+            focus: false     // Prevents stealing focus
+        });
+    }
 
     modal.show();
 
@@ -42,205 +52,322 @@ function showTempModal(title, message, duration = 2500) {
 // Initialize on load
 window.addEventListener("DOMContentLoaded", async () => {
     // Initialize Bootstrap modal
-    extractionModal = new bootstrap.Modal(document.getElementById('pdf-extraction-modal'));
+    const extractModalEl = document.getElementById('pdf-extraction-modal');
+    if (extractModalEl) {
+        extractionModal = new bootstrap.Modal(extractModalEl);
+    }
 
-    const savedContent = localStorage.getItem("vch_editor_content");
+    // === INJECT UI ELEMENTS ===
+    setupDebugUI();
+    // ==========================
 
-    if (savedContent && savedContent.length > 50) { // Simple check to ensure it's not empty/garbage
-        // 1. Found saved work: Load it
-        console.log("Restoring auto-saved content...");
-        editor.dispatch({
-            changes: {from: 0, to: editor.state.doc.length, insert: savedContent}
-        });
-        updateFileDisplay("Restored from Backup");
-
-        // Notify user
-        showTempModal("Session Restored", "We have reloaded work from your previous session.", 3000);
-    } else {
-        // 2. No saved work: Load default template
-        try {
-            const url = "./xhtml-view/template.xhtml";
-            const resp = await fetch(url);
-            if (resp.ok) {
-                const text = await resp.text();
+    // Try to load default XHTML file
+    try {
+        const url = "./xhtml-view/template.xhtml";
+        const resp = await fetch(url);
+        if (resp.ok) {
+            const text = await resp.text();
+            // Only insert template if editor is empty or we are about to overwrite it
+            if (editor.state.doc.length === 0) {
                 editor.dispatch({
                     changes: {from: 0, to: editor.state.doc.length, insert: text}
                 });
                 updateFileDisplay(url.split('/').pop());
             }
-        } catch (e) {
-            console.error("Failed to load default XHTML:", e);
         }
+    } catch (e) {
+        console.error("Failed to load default XHTML:", e);
     }
 
     // Set up extraction modal button handlers
-    document.getElementById("extraction-load").onclick = loadExtractedXHTML;
-    document.getElementById("extraction-close").onclick = () => extractionModal.hide();
+    const loadBtn = document.getElementById("extraction-load");
+    if (loadBtn) loadBtn.onclick = loadExtractedXHTML;
 
-    // Template selector handler (add in DOMContentLoaded)
-    document.getElementById('template-selector').addEventListener('change', async (e) => {
-        const filename = e.target.value;
-        const url = `./xhtml-view/${filename}`;
-        try {
-            const resp = await fetch(url);
-            if (resp.ok) {
-                const text = await resp.text();
-                editor.dispatch({
-                    changes: {from: 0, to: editor.state.doc.length, insert: text}
-                });
-                updateFileDisplay(filename);
+    const closeBtn = document.getElementById("extraction-close");
+    if (closeBtn) closeBtn.onclick = () => extractionModal && extractionModal.hide();
+
+    // Template selector handler
+    const templateSelector = document.getElementById('template-selector');
+    if (templateSelector) {
+        templateSelector.addEventListener('change', async (e) => {
+            const filename = e.target.value;
+            const url = `./xhtml-view/${filename}`;
+            try {
+                const resp = await fetch(url);
+                if (resp.ok) {
+                    const text = await resp.text();
+                    editor.dispatch({
+                        changes: {from: 0, to: editor.state.doc.length, insert: text}
+                    });
+                    updateFileDisplay(filename);
+                }
+            } catch (error) {
+                console.error("Failed to load template:", error);
+                alert("Failed to load " + filename);
             }
-        } catch (error) {
-            console.error("Failed to load template:", error);
-            alert("Failed to load " + filename);
+        });
+    }
+
+    // Session Restore Check (Delayed slightly to ensure Bootstrap is ready)
+    setTimeout(() => {
+        const savedContent = localStorage.getItem("vch_editor_content");
+        if (savedContent && savedContent.length > 50) {
+            console.log("Restoring auto-saved content...");
+            editor.dispatch({
+                changes: {from: 0, to: editor.state.doc.length, insert: savedContent}
+            });
+            updateFileDisplay("Restored from Backup");
+            showTempModal("Session Restored", "We found unsaved work from your previous session.", 3000);
         }
-    });
+    }, 500); // 500ms delay to let UI settle
 });
 
 function updateFileDisplay(filename) {
-    document.getElementById('file-name').textContent = filename;
+    const el = document.getElementById('file-name');
+    if (el) el.textContent = filename;
 }
 
 function getCurrentFilename() {
-    return document.getElementById('file-name').textContent || 'document.xhtml';
+    const el = document.getElementById('file-name');
+    return el ? el.textContent : 'document.xhtml';
 }
 
 // ===== TAB SWITCHING =====
-document.getElementById("edit-tab").onclick = (e) => {
-    if (e.target.id === "download-xml-icon" || e.target.closest('#download-xml-icon')) {
-        e.stopPropagation();
-        downloadXML();
-        return;
-    }
-
-    document.getElementById("edit-container").style.display = "block";
-    document.getElementById("preview-container").style.display = "none";
-    document.getElementById("edit-tab").classList.add("active");
-    document.getElementById("preview-tab").classList.remove("active");
-};
-
-document.getElementById("preview-tab").onclick = async (e) => {
-    if (e.target.id === "download-html-icon" || e.target.closest('#download-html-icon')) {
-        e.stopPropagation();
-        await downloadHTML();
-        return;
-    }
-
-    if (e.target.id === "convert-to-bho-btn" || e.target.closest('#convert-to-bho-btn')) {
-        e.stopPropagation();
-        console.log("Convert to BHO button clicked");
-
-        const bhoXml = await convertToBHO();
-
-        if (bhoXml) {
-            // Download BHO XML with filename based on current file
-            const currentFilename = getCurrentFilename();
-            const bhoFilename = currentFilename.replace(/\.(xhtml|xml|html)$/i, '.xml');
-
-            const blob = new Blob([bhoXml], { type: 'application/xml' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = bhoFilename;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-
-            // Clean up the URL after a delay
-            setTimeout(() => URL.revokeObjectURL(url), 100);
-
-            console.log("BHO XML downloaded as:", bhoFilename);
+const editTab = document.getElementById("edit-tab");
+if (editTab) {
+    editTab.onclick = (e) => {
+        if (e.target.id === "download-xml-icon" || e.target.closest('#download-xml-icon')) {
+            e.stopPropagation();
+            downloadXML();
+            return;
         }
-        return;
-    }
 
-    const xhtml = editor.state.doc.toString();
+        document.getElementById("edit-container").style.display = "block";
+        document.getElementById("preview-container").style.display = "none";
+        document.getElementById("edit-tab").classList.add("active");
+        document.getElementById("preview-tab").classList.remove("active");
+    };
+}
 
-    if (!validateXML(xhtml)) {
-        return;
-    }
+const previewTab = document.getElementById("preview-tab");
+if (previewTab) {
+    previewTab.onclick = async (e) => {
+        if (e.target.id === "download-html-icon" || e.target.closest('#download-html-icon')) {
+            e.stopPropagation();
+            await downloadHTML();
+            return;
+        }
 
-    document.getElementById("edit-container").style.display = "none";
-    document.getElementById("preview-container").style.display = "block";
-    document.getElementById("edit-tab").classList.remove("active");
-    document.getElementById("preview-tab").classList.add("active");
+        if (e.target.id === "convert-to-bho-btn" || e.target.closest('#convert-to-bho-btn')) {
+            e.stopPropagation();
+            console.log("Convert to BHO button clicked");
 
-    await generatePreview(xhtml);
-};
+            const bhoXml = await convertToBHO();
+
+            if (bhoXml) {
+                // Download BHO XML with filename based on current file
+                const currentFilename = getCurrentFilename();
+                const bhoFilename = currentFilename.replace(/\.(xhtml|xml|html)$/i, '.xml');
+
+                const blob = new Blob([bhoXml], { type: 'application/xml' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = bhoFilename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+
+                // Clean up the URL after a delay
+                setTimeout(() => URL.revokeObjectURL(url), 100);
+
+                console.log("BHO XML downloaded as:", bhoFilename);
+            }
+            return;
+        }
+
+        const xhtml = editor.state.doc.toString();
+
+        if (!validateXML(xhtml)) {
+            return;
+        }
+
+        document.getElementById("edit-container").style.display = "none";
+        document.getElementById("preview-container").style.display = "block";
+        document.getElementById("edit-tab").classList.remove("active");
+        document.getElementById("preview-tab").classList.add("active");
+
+        await generatePreview(xhtml);
+    };
+}
 
 // ===== FILE HANDLING =====
-document.getElementById("file-input").addEventListener("change", async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+const fileInput = document.getElementById("file-input");
+if (fileInput) {
+    fileInput.addEventListener("change", async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
 
-    // Switch to Edit tab if we're on Preview tab
-    const previewTab = document.getElementById("preview-tab");
-    const editTab = document.getElementById("edit-tab");
-    if (previewTab.classList.contains("active")) {
-        previewTab.classList.remove("active");
-        editTab.classList.add("active");
-        document.getElementById("preview-container").style.display = "none";
-        document.getElementById("edit-container").style.display = "block";
-    }
+        // Switch to Edit tab if we're on Preview tab
+        const previewTab = document.getElementById("preview-tab");
+        const editTab = document.getElementById("edit-tab");
+        if (previewTab.classList.contains("active")) {
+            previewTab.classList.remove("active");
+            editTab.classList.add("active");
+            document.getElementById("preview-container").style.display = "none";
+            document.getElementById("edit-container").style.display = "block";
+        }
 
-    const extension = file.name.split('.').pop().toLowerCase();
+        const extension = file.name.split('.').pop().toLowerCase();
 
-    if (extension === 'pdf') {
-        // Trigger PDF extraction workflow
-        await handlePDFExtraction(file);
-    } else {
-        // Load text file directly
-        const text = await file.text();
-        editor.dispatch({
-            changes: {from: 0, to: editor.state.doc.length, insert: text}
+        if (extension === 'pdf') {
+            // Trigger PDF extraction workflow
+            await handlePDFExtraction(file);
+        } else {
+            // Load text file directly
+            const text = await file.text();
+            editor.dispatch({
+                changes: {from: 0, to: editor.state.doc.length, insert: text}
+            });
+            // Force update local storage
+            localStorage.setItem("vch_editor_content", text);
+            updateFileDisplay(file.name);
+        }
+    });
+}
+
+function markNonDefaultFonts(pageNum, defaultFont) {
+    const zones = JSON.parse(
+        LZString.decompressFromUTF16(localStorage.getItem(`page-${pageNum}-zones`))
+    );
+
+    const defaultFontKey = `${defaultFont.fontName}@${Math.round(defaultFont.height)}`;
+
+    zones.forEach(zone => {
+        if (!zone.items) return;
+
+        zone.items.forEach(line => {
+            const firstItem = line[0];
+            if (!firstItem) return;
+
+            const fontKey = `${firstItem.fontName}@${Math.round(firstItem.height)}`;
+
+            // Skip if this is the default font
+            if (fontKey === defaultFontKey) return;
+
+            // Check if ALL items in the line have the same font AND height
+            const roundedHeight = Math.round(firstItem.height);
+            const allSameFont = line.every(item =>
+                item.fontName === firstItem.fontName &&
+                Math.round(item.height) === roundedHeight
+            );
+
+            if (allSameFont) {
+                // Mark all items in this line with font signature
+                line.forEach(item => {
+                    item.fontSignature = fontKey;
+                });
+            }
         });
-        localStorage.setItem("vch_editor_content", text);
-        updateFileDisplay(file.name);
-    }
-});
+    });
+
+    localStorage.setItem(`page-${pageNum}-zones`,
+        LZString.compressToUTF16(JSON.stringify(zones)));
+}
+
+function applyFontRanks(pageNum, fontRankMap) {
+    const zones = JSON.parse(
+        LZString.decompressFromUTF16(localStorage.getItem(`page-${pageNum}-zones`))
+    );
+
+    zones.forEach(zone => {
+        if (!zone.items) return;
+
+        zone.items.forEach(line => {
+            const firstItem = line[0];
+            if (!firstItem) return;
+
+            const roundedHeight = Math.round(firstItem.height);
+            const fontKey = `${firstItem.fontName}@${roundedHeight}`;
+            const rank = fontRankMap.get(fontKey);
+            if (!rank) return; // First item is default font at default size
+
+            // Check if ALL items in the line have the same font AND similar height
+            const allSameFont = line.every(item =>
+                item.fontName === firstItem.fontName &&
+                Math.round(item.height) === roundedHeight
+            );
+
+            if (allSameFont) {
+                // Mark all items in this line as heading with this rank
+                line.forEach(item => {
+                    item.headingRank = rank;
+                });
+            }
+        });
+    });
+
+    localStorage.setItem(`page-${pageNum}-zones`,
+        LZString.compressToUTF16(JSON.stringify(zones)));
+}
 
 // ===== PDF EXTRACTION WORKFLOW =====
 async function handlePDFExtraction(file) {
     // Update filename display immediately
     updateFileDisplay(file.name);
+    // CRITICAL: Clear auto-save so we don't restore old session over new PDF
     clearAutoSave();
+
     showExtractionModal();
 
     try {
-        // Your existing PDF processing logic
         await extractPDFToXHTML(file);
     } catch (error) {
         console.error("PDF extraction failed:", error);
         updateExtractionUI(100, "Extraction failed", `Error: ${error.message}`);
-        document.getElementById("extraction-close").style.display = "inline-block";
+        const closeBtn = document.getElementById("extraction-close");
+        if (closeBtn) closeBtn.style.display = "inline-block";
     }
 }
 
 function showExtractionModal() {
     // Reset modal state
-    document.getElementById('extraction-log').innerHTML = '<p><strong>Processing Log:</strong></p>';
-    document.getElementById('extraction-progress-bar').style.width = '0%';
-    document.getElementById('extraction-status').textContent = 'Initializing...';
-    document.getElementById('extraction-load').style.display = 'none';
-    document.getElementById('extraction-close').style.display = 'none';
+    const logEl = document.getElementById('extraction-log');
+    if (logEl) logEl.innerHTML = '<p><strong>Processing Log:</strong></p>';
 
-    extractionModal.show();
+    const bar = document.getElementById('extraction-progress-bar');
+    if (bar) bar.style.width = '0%';
+
+    const status = document.getElementById('extraction-status');
+    if (status) status.textContent = 'Initializing...';
+
+    const loadBtn = document.getElementById('extraction-load');
+    if (loadBtn) loadBtn.style.display = 'none';
+
+    const closeBtn = document.getElementById('extraction-close');
+    if (closeBtn) closeBtn.style.display = 'none';
+
+    if (extractionModal) extractionModal.show();
 }
 
 function updateExtractionUI(percent, status, logMessage = null) {
     const progressBar = document.getElementById('extraction-progress-bar');
     const statusEl = document.getElementById('extraction-status');
 
-    progressBar.style.width = percent + '%';
-    progressBar.setAttribute('aria-valuenow', percent);
-    statusEl.textContent = status;
+    if (progressBar) {
+        progressBar.style.width = percent + '%';
+        progressBar.setAttribute('aria-valuenow', percent);
+    }
+    if (statusEl) statusEl.textContent = status;
 
     if (logMessage) {
         const logEl = document.getElementById('extraction-log');
-        const p = document.createElement('p');
-        p.textContent = logMessage;
-        logEl.appendChild(p);
-        logEl.scrollTop = logEl.scrollHeight;
+        if (logEl) {
+            const p = document.createElement('p');
+            p.textContent = logMessage;
+            logEl.appendChild(p);
+            logEl.scrollTop = logEl.scrollHeight;
+        }
     }
 }
 
@@ -256,6 +383,47 @@ function clearPDFStorage() {
     console.log("PDF temporary storage cleaned.");
 }
 
+function setupDebugUI() {
+    // 1. Add Checkbox to Extraction Modal
+    const modalFooter = document.querySelector('#pdf-extraction-modal .modal-footer');
+    if (modalFooter && !document.getElementById('debug-mode-chk')) {
+        const div = document.createElement('div');
+        div.className = 'form-check form-switch me-auto';
+        div.innerHTML = `
+            <input class="form-check-input" type="checkbox" id="debug-mode-chk" ${isDebugMode ? 'checked' : ''}>
+            <label class="form-check-label" for="debug-mode-chk">Visual Debug Mode</label>
+        `;
+        modalFooter.insertBefore(div, modalFooter.firstChild);
+
+        document.getElementById('debug-mode-chk').addEventListener('change', (e) => {
+            isDebugMode = e.target.checked;
+        });
+    }
+
+    // 2. Create Visualization Overlay (Hidden by default)
+    if (!document.getElementById('segmentation-overlay')) {
+        const overlay = document.createElement('div');
+        overlay.id = 'segmentation-overlay';
+        overlay.style.cssText = `
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85); z-index: 1060; display: none;
+            flex-direction: column; align-items: center; justify-content: center;
+        `;
+        overlay.innerHTML = `
+            <div style="background: white; padding: 10px; border-radius: 4px; margin-bottom: 10px; text-align: center;">
+                <h5 style="margin:0;">Segmentation Debugger</h5>
+                <p id="debug-page-info" style="margin:0; color:#666;">Page 1</p>
+            </div>
+            <div id="debug-canvas-container" style="overflow: auto; max-width: 90%; max-height: 80vh; border: 2px solid #fff;"></div>
+            <div style="margin-top: 15px;">
+                <button id="debug-continue-btn" class="btn btn-primary btn-lg">Continue >></button>
+                <button id="debug-stop-btn" class="btn btn-secondary">Stop Debugging</button>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+    }
+}
+
 async function extractPDFToXHTML(file) {
     clearPDFStorage();
     updateExtractionUI(5, "Loading PDF...", `Processing: ${file.name}`);
@@ -266,8 +434,7 @@ async function extractPDFToXHTML(file) {
     const pdf = await pdfjsLib.getDocument(typedArray).promise;
 
     let totalPages = pdf.numPages;
-
-    const earlyStop = Infinity; // Set to >0 to limit pages for testing, or Infinity for all pages
+    const earlyStop = 0; // Set to >0 to limit pages
     totalPages = earlyStop > 0 ? Math.min(earlyStop, totalPages) : totalPages;
 
     updateExtractionUI(10, `Analyzing ${totalPages} pages...`, `PDF loaded: ${totalPages} pages`);
@@ -278,18 +445,24 @@ async function extractPDFToXHTML(file) {
 
     for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
         const progress = 10 + (pageNum / totalPages * 40);
-        updateExtractionUI(
-            progress,
-            `Pre-processing page ${pageNum} of ${totalPages}...`,
-            `Page ${pageNum}: Analyzing layout`
-        );
+        updateExtractionUI(progress, `Pre-processing page ${pageNum}...`, `Page ${pageNum}: Analyzing layout`);
 
         const [pageFontMap, pageNumeral] = await storePageData(pdf, pageNum);
         pageNumerals.push(pageNumeral);
 
+        // === VISUAL DEBUG PAUSE ===
+        if (isDebugMode) {
+            const zones = JSON.parse(
+                LZString.decompressFromUTF16(localStorage.getItem(`page-${pageNum}-zones`))
+            ) || [];
+            await showSegmentationVisualizer(pdf, pageNum, zones);
+        }
+        // ==========================
+
         if (pageNum === 1) {
             masterFontMap = pageFontMap;
         } else {
+            // Merge fonts (keep existing logic)
             for (const font in pageFontMap) {
                 if (!(font in masterFontMap)) {
                     masterFontMap[font] = { name: pageFontMap[font].name, sizes: {} };
@@ -305,9 +478,11 @@ async function extractPDFToXHTML(file) {
         }
     }
 
+    console.debug("Master Font Map:", masterFontMap);
+
     fillMissingPageNumerals(pageNumerals);
 
-    // Find default font
+    // Font Analysis (Default, Header, Footnote)
     const defaultFont = Object.entries(masterFontMap).reduce((mostCommon, [fontName, fontEntry]) => {
         Object.entries(fontEntry.sizes).forEach(([size, sizeEntry]) => {
             if (sizeEntry.area > mostCommon.maxArea) {
@@ -316,27 +491,16 @@ async function extractPDFToXHTML(file) {
         });
         return mostCommon;
     }, { fontName: null, fontSize: null, maxArea: 0 });
+    console.info(`Default Font Identified: ${defaultFont.fontName} at ${defaultFont.fontSize}pt`);
 
-    // Identify header fonts
-    const headerFontSizes = Array.from(
-        new Set(
-            Object.entries(masterFontMap)
-                .flatMap(([fontName, fontEntry]) => {
-                    return Object.entries(fontEntry.sizes)
-                        .filter(([size]) => parseFloat(size) > defaultFont.fontSize)
-                        .map(([size]) => parseFloat(size));
-                })
-        )
-    ).sort((a, b) => b - a);
+    const headerFontSizes = Array.from(new Set(
+        Object.entries(masterFontMap).flatMap(([fontName, fontEntry]) => {
+            return Object.entries(fontEntry.sizes)
+                .filter(([size]) => parseFloat(size) > defaultFont.fontSize)
+                .map(([size]) => parseFloat(size));
+        })
+    )).sort((a, b) => b - a);
 
-    updateExtractionUI(50, "Processing fonts and headers...", `Default font: ${defaultFont.fontName} @ ${defaultFont.fontSize}px`);
-
-    // Process each page
-    for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
-        headerFooterAndFonts(pageNum, masterFontMap, defaultFont, headerFontSizes);
-    }
-
-    // Find footnote font
     const footFont = Object.entries(masterFontMap).reduce((mostCommon, [fontName, fontEntry]) => {
         Object.entries(fontEntry.sizes).forEach(([size, sizeEntry]) => {
             if (sizeEntry.footarea > mostCommon.maxFootArea) {
@@ -346,22 +510,28 @@ async function extractPDFToXHTML(file) {
         return mostCommon;
     }, { fontName: null, fontSize: null, maxFootArea: 0 });
 
-    // Build HTML
+    // Header tagging pass
+    for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+        headerFooterAndFonts(pageNum, masterFontMap, defaultFont, headerFontSizes);
+    }
+
+    // Build Content
     let docHTML = '';
     let maxEndnote = 0;
     let lastPageNumeral = null;
 
     for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
         const progress = 50 + (pageNum / totalPages * 40);
-        updateExtractionUI(
-            progress,
-            `Building content for page ${pageNum} of ${totalPages}...`,
-            `Page ${pageNum}: Extracting text and structures`
-        );
+        updateExtractionUI(progress, `Building page ${pageNum}...`, `Page ${pageNum}: Extracting text`);
 
         const currentPageNumeral = pageNumerals[pageNum - 1];
-        // Only add data-start on first page or when numbering is non-consecutive
-        const isNewPageNumeral = (pageNum === 1) || (currentPageNumeral !== lastPageNumeral + 1);
+        const currentNum = parseInt(currentPageNumeral, 10);
+        const lastNum = parseInt(lastPageNumeral, 10);
+
+        // Only mark as new page numeral if:
+        // 1. First page, OR
+        // 2. Current numeral is not sequential (lastNum + 1)
+        const isNewPageNumeral = (pageNum === 1) || isNaN(lastNum) || isNaN(currentNum) || (currentNum !== lastNum + 1);
 
         let pageHTML;
         [maxEndnote, pageHTML] = await processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, currentPageNumeral, false, isNewPageNumeral);
@@ -369,59 +539,20 @@ async function extractPDFToXHTML(file) {
         lastPageNumeral = currentPageNumeral;
     }
 
-    updateExtractionUI(90, "Processing footnotes...", "Inserting inline footnotes");
-
-    // Replace footnote placeholders with actual <data> content
-    for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
-        // Update progress for footnote processing
-        const footnoteProgress = 90 + (pageNum / totalPages * 3);
-        if (pageNum % 10 === 0 || pageNum === totalPages) {
-            updateExtractionUI(
-                footnoteProgress,
-                "Processing footnotes...",
-                `Processing page ${pageNum} of ${totalPages}`
-            );
-            // Allow UI to update
-            await new Promise(resolve => setTimeout(resolve, 0));
-        }
-
-        let footnotes;
-        try {
-            footnotes = JSON.parse(LZString.decompressFromUTF16(localStorage.getItem(`page-${pageNum}-footnotes`)));
-        } catch (err) {
-            footnotes = [];
-        }
-
-        footnotes.forEach(footnote => {
-            if (footnote.footNumber) {
-                const placeholder = `___FOOTNOTE_${footnote.footNumber}___`;
-                // Add spaces before and after the data element for proper spacing
-                const dataContent = ` <data>${footnote.str}</data> `;
-                docHTML = docHTML.replace(placeholder, dataContent);
-            }
-        });
-    }
-
-    updateExtractionUI(93, "Parsing document...", "Creating XML structure");
-    await new Promise(resolve => setTimeout(resolve, 0));
-
     updateExtractionUI(95, "Validating XHTML...", "Checking document structure");
     await new Promise(resolve => setTimeout(resolve, 0));
 
-    // Convert HTML to XHTML (footnotes are now inline as <data> elements)
     extractedXHTML = convertHTMLToXHTML(docHTML, file.name);
-
-    updateExtractionUI(100, "Extraction complete!", `Successfully extracted ${totalPages} pages`);
-    document.getElementById('extraction-load').style.display = 'inline-block';
-    document.getElementById('extraction-close').style.display = 'inline-block';
-
     clearPDFStorage();
 
-    // Auto-load after 2 seconds
+    updateExtractionUI(100, "Extraction complete!", `Successfully extracted ${totalPages} pages`);
+    const loadBtn = document.getElementById('extraction-load');
+    const closeBtn = document.getElementById('extraction-close');
+    if (loadBtn) loadBtn.style.display = 'inline-block';
+    if (closeBtn) closeBtn.style.display = 'inline-block';
+
     setTimeout(() => {
-        if (extractedXHTML) {
-            loadExtractedXHTML();
-        }
+        if (extractedXHTML) loadExtractedXHTML();
     }, 2000);
 }
 
@@ -431,8 +562,6 @@ function convertHTMLToXHTML(html, filename) {
 
     return xhtml;
 }
-
-
 
 function loadExtractedXHTML() {
     if (!extractedXHTML) return;
@@ -456,7 +585,7 @@ function downloadXML() {
     const xhtml = editor.state.doc.toString();
     const filename = getCurrentFilename();
 
-    const blob = new Blob([xhtml], { type: 'application/xml' });
+    const blob = new Blob([xhtml], {type: 'application/xml'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -481,7 +610,7 @@ async function downloadHTML() {
     const xmlFilename = getCurrentFilename();
     const htmlFilename = xmlFilename.replace(/\.(xhtml|xml)$/i, '.html');
 
-    const blob = new Blob([window.transformedHTML], { type: 'text/html' });
+    const blob = new Blob([window.transformedHTML], {type: 'text/html'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -490,4 +619,118 @@ async function downloadHTML() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+}
+
+async function showSegmentationVisualizer(pdf, pageNum, zones) {
+    const overlay = document.getElementById('segmentation-overlay');
+    const container = document.getElementById('debug-canvas-container');
+    const info = document.getElementById('debug-page-info');
+
+    // 1. Render Page
+    const page = await pdf.getPage(pageNum);
+    const viewport = page.getViewport({scale: 1.0}); // View at 100%
+
+    const canvas = document.createElement('canvas');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const ctx = canvas.getContext('2d');
+
+    await page.render({canvasContext: ctx, viewport}).promise;
+
+    // 2. Draw Zones
+    if (zones) {
+        zones.forEach(zone => {
+            // Pick Color based on Type
+            ctx.lineWidth = 2;
+            let label = zone.type;
+
+            switch (zone.type) {
+                case 'HEADER':
+                    ctx.strokeStyle = 'red';
+                    ctx.fillStyle = 'rgba(255, 0, 0, 0.2)';
+                    break;
+                case 'HEADING':
+                    ctx.strokeStyle = 'gold';
+                    ctx.fillStyle = 'rgba(255, 215, 0, 0.3)';
+                    break;
+                case 'FOOTER':
+                    ctx.strokeStyle = 'blue';
+                    ctx.fillStyle = 'rgba(0, 0, 255, 0.2)';
+                    break;
+                case 'IMAGE':
+                    ctx.strokeStyle = 'orange';
+                    ctx.fillStyle = 'rgba(255, 165, 0, 0.3)';
+                    break;
+                case 'FIGURE':
+                    ctx.strokeStyle = 'purple';
+                    ctx.fillStyle = 'rgba(128, 0, 128, 0.2)';
+                    break;
+                case 'TABLE':
+                    ctx.strokeStyle = 'teal';
+                    ctx.fillStyle = 'rgba(0, 255, 255, 0.2)';
+                    break;
+                case 'UNKNOWN':
+                    ctx.strokeStyle = '#666';
+                    ctx.fillStyle = 'rgba(100, 100, 100, 0.1)';
+                    break;
+                default: // BODY
+                    ctx.strokeStyle = 'green';
+                    ctx.fillStyle = 'rgba(0, 255, 0, 0.1)';
+                    break;
+            }
+
+            // Draw Box
+            ctx.fillRect(zone.x, zone.y, zone.width, zone.height);
+            ctx.strokeRect(zone.x, zone.y, zone.width, zone.height);
+
+            // Draw Label
+            if (zone.order) {
+                // Draw circle badge
+                ctx.beginPath();
+                ctx.arc(zone.x + 15, zone.y + 15, 12, 0, 2 * Math.PI);
+                ctx.fillStyle = "white";
+                ctx.fill();
+                ctx.lineWidth = 1;
+                ctx.strokeStyle = "black";
+                ctx.stroke();
+
+                // Draw Number
+                ctx.fillStyle = "black";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.font = "bold 12px Arial";
+                ctx.fillText(zone.order, zone.x + 15, zone.y + 15);
+            }
+        });
+    }
+
+    // 3. Show Overlay
+    container.innerHTML = '';
+    container.appendChild(canvas);
+    info.textContent = `Page ${pageNum} Analysis - (${zones ? zones.length : 0} zones detected)`;
+    overlay.style.display = 'flex';
+
+    // 4. Wait for user to click Continue
+    return new Promise(resolve => {
+        const contBtn = document.getElementById('debug-continue-btn');
+        const stopBtn = document.getElementById('debug-stop-btn');
+
+        // Clean up old listeners (simple cloning trick)
+        const newCont = contBtn.cloneNode(true);
+        const newStop = stopBtn.cloneNode(true);
+        contBtn.parentNode.replaceChild(newCont, contBtn);
+        stopBtn.parentNode.replaceChild(newStop, stopBtn);
+
+        newCont.onclick = () => {
+            overlay.style.display = 'none';
+            resolve();
+        };
+
+        newStop.onclick = () => {
+            overlay.style.display = 'none';
+            isDebugMode = false; // Turn off debug for remaining pages
+            document.getElementById('debug-mode-chk').checked = false;
+            resolve();
+        };
+    });
 }

@@ -1,141 +1,110 @@
 // Standalone utilities for PDF processing (no jQuery dependencies)
 // These functions are extracted from utilities.js and made independent
 
-function normaliseIndexEntry(input, addKey = false) {
-    let result = input;
-
-    // Step 1: Move numbers out of <h*> tag
-    result = result.replace(/^<h(\d+)>([^<]*?)([ ,;\d–npl.]+)<\/h\1>/i, (match, level, label, nums) => {
-        return `<h${level}>${label}</h${level}>, ${nums.trim()}`;
-    });
-
-    // Step 2: Spacing fixes
-    result = result.replace(/([,;])(?=\S)/g, '$1 ');      // Ensure space after , ;
-    result = result.replace(/\s{2,}/g, ' ');              // Collapse multiple spaces
-    result = result.replace(/\s+([,;])/g, '$1');          // Remove space before , ;
-    result = result.replace(/([^>\s])pl\./g, '$1 pl.');   // Ensure space before 'pl.'
-    result = result.replace(/h6>/g, 'b>');                // Replace <h6> with <b>
-    result = result.replace(/(\s+)<em>n<\/em>/g, '<em>n</em>'); // Remove space before <em>n</em>
-
-    if (addKey) {
-        // Step 3: Add <key> around label before index numbers
-        const keyMatch = result.match(
-            /^(.*?)(?=(,\s*(<em>see<\/em>|m\.\s+\d+|pl\.\s+\d+|<em>\d+|<b>\d+|\d+)|:$))/i
-        );
-        if (keyMatch) {
-            const key = keyMatch[1].trimEnd();
-            result = result.replace(key, `<key>${key}</key>`);
-        }
-    }
-
-    return result;
-}
-
-function closeOverlaps(items) {
-    // Reverse loop to merge overlapping items
-    for (let i = items.length - 1; i > 0; i--) {
-        const item = items[i];
-        const prevItem = items[i - 1];
-        if (item.row === prevItem.row && item.column === prevItem.column && item.line === prevItem.line && item.height === prevItem.height && item.left < prevItem.right) {
-            // Merge the items if they overlap
-            prevItem.str += item.str;
-            prevItem.right = item.right;
-            prevItem.width = prevItem.right - prevItem.left;
-            prevItem.area += item.area;
-            items.splice(i, 1);
-        }
-    }
-}
-
+// Title Case Helper
+// Handles small words, hyphens, and start-of-sentence logic
 function titleCase(str) {
-    const skipWords = ['and', 'the', 'of', 'in', 'on', 'at', 'with', 'to'];
-    return str
-        .replace(/\s+/g, ' ')
-        .split(' ')
-        .map((word, index) => {
-            const lowerWord = word.toLowerCase();
-            if (index === 0 || !skipWords.includes(lowerWord)) {
-                const hyphenatedParts = lowerWord.split('-');
-                hyphenatedParts[0] = hyphenatedParts[0].charAt(0).toUpperCase() + hyphenatedParts[0].slice(1);
-                for (let i = 1; i < hyphenatedParts.length; i++) {
-                    if (!skipWords.includes(hyphenatedParts[i])) {
-                        hyphenatedParts[i] = hyphenatedParts[i].charAt(0).toUpperCase() + hyphenatedParts[i].slice(1);
+    if (!str) return '';
+
+    const placeholderPattern = /(\x00\d+\x00)/; // Capture delimiter for splitting
+    const placeholderCheck = /^\x00\d+\x00$/;   // Check if a part is a placeholder
+
+    // 1. Analyze Source Casing (ignoring placeholders)
+    const rawClean = str.replace(/\x00\d+\x00/g, '').replace(/[^a-zA-Z]/g, '');
+    const isSourceAllCaps = rawClean.length > 0 && rawClean === rawClean.toUpperCase();
+
+    const smallWords = /^(a|an|and|as|at|but|by|en|for|if|in|nor|of|on|or|per|the|to|v\.?|vs\.?|via)$/i;
+    const romanNumerals = /^(I|II|III|IV|V|VI|VII|VIII|IX|X|XI|XII|XIII|XIV|XV|XVI|XVII|XVIII|XIX|XX|XXI|XXII|XXIII|XXIV|XXV|XXX|XL|L|LX|LXX|LXXX|XC|C|CC|CCC|CD|D|DC|DCC|DCCC|CM|M|MM|MMM)$/i;
+
+    str = str.replace(/\s+/g, ' ').trim();
+    const words = str.split(' ');
+
+    // 2. Identify "Visual" indices (words that actually contain text)
+    const visibleIndices = words
+        .map((w, i) => w.replace(/\x00\d+\x00/g, '').trim() ? i : -1)
+        .filter(i => i !== -1);
+
+    const firstVisualIndex = visibleIndices[0];
+    const lastVisualIndex = visibleIndices[visibleIndices.length - 1];
+
+    // 3. Process Words
+    return words.map((token, index) => {
+        // A "token" might be "\x000\x00Hello" or "World\x001\x00".
+        // Split keeps the placeholders because of the capturing group in regex.
+        const parts = token.split(placeholderPattern).filter(Boolean);
+
+        return parts.map(part => {
+            // If this part is a placeholder, return it exactly as is
+            if (placeholderCheck.test(part)) return part;
+
+            // --- TEXT PROCESSING ---
+            const cleanWord = part;
+            const lower = cleanWord.toLowerCase();
+
+            // Determine Visual Context
+            const isVisualFirst = index === firstVisualIndex;
+            const isVisualLast = index === lastVisualIndex;
+
+            // "After Colon" check (scanning previous tokens)
+            let afterColon = false;
+            if (!isVisualFirst) {
+                let prevIndex = index - 1;
+                while (prevIndex >= 0) {
+                    const prevClean = words[prevIndex].replace(/\x00\d+\x00/g, '');
+                    if (prevClean) {
+                        afterColon = prevClean.endsWith(':');
+                        break;
                     }
+                    prevIndex--;
                 }
-                return hyphenatedParts.join('-');
             }
-            return lowerWord;
-        })
-        .join(' ');
+
+            // Mixed Case (iPhone)
+            const hasLower = /[a-z]/.test(cleanWord);
+            const hasUpper = /[A-Z]/.test(cleanWord);
+            if (!isSourceAllCaps && hasLower && hasUpper && !romanNumerals.test(cleanWord)) {
+                return part;
+            }
+
+            // Circa (c.1500)
+            if (/^c\.?\d/.test(lower)) {
+                return 'c.' + lower.replace(/^c\.?/, '');
+            }
+
+            // Hyphenated
+            if (cleanWord.includes('-')) {
+                return cleanWord.split('-').map((subPart, pIdx, subParts) => {
+                    if (romanNumerals.test(subPart)) return subPart.toUpperCase();
+                    const subLower = subPart.toLowerCase();
+                    if (isVisualFirst || isVisualLast || afterColon || pIdx === 0 || pIdx === subParts.length - 1) {
+                        return subLower.charAt(0).toUpperCase() + subLower.slice(1);
+                    }
+                    if (smallWords.test(subPart.toLowerCase())) return subLower;
+                    return subLower.charAt(0).toUpperCase() + subLower.slice(1);
+                }).join('-');
+            }
+
+            // Roman Numerals
+            if (romanNumerals.test(cleanWord)) return cleanWord.toUpperCase();
+
+            // Acronyms (NASA vs Forest)
+            if (!isSourceAllCaps && /^[A-Z]{2,}$/.test(cleanWord)) {
+                return part;
+            }
+
+            // Standard Rules
+            if (isVisualFirst || isVisualLast || afterColon) {
+                return lower.charAt(0).toUpperCase() + lower.slice(1);
+            }
+            if (smallWords.test(lower)) {
+                return lower;
+            }
+            return lower.charAt(0).toUpperCase() + lower.slice(1);
+
+        }).join(''); // Rejoin the parts (tag + text + tag)
+    }).join(' ');
 }
 
-function wrapStrings(items) {
-    items.forEach(item => {
-        // DON'T wrap headers here - they're handled in the HTML generation phase
-        if (item?.header) {
-            delete item.fontName;
-            return;
-        }
-
-        // 1. Handle Bold
-        if (item.bold) {
-            item.str = `<b>${item.str}</b>`;
-            // Clean up: move trailing spaces outside the tag
-            item.str = item.str.replace(/(\s+)<\/b>/, '</b>$1');
-            // Clean up: move leading spaces outside the tag
-            item.str = item.str.replace(/<b>(\s+)/, '$1<b>');
-
-            delete item.bold;
-            delete item.fontName;
-        }
-
-        // 2. Handle Italic (Independent 'if' allows for Bold + Italic nesting)
-        if (item.italic) {
-            item.str = `<i>${item.str}</i>`;
-            item.str = item.str.replace(/(\s+)<\/i>/, '</i>$1');
-            item.str = item.str.replace(/<i>(\s+)/, '$1<i>');
-
-            delete item.italic;
-            delete item.fontName;
-        }
-
-        // 3. Handle Underline
-        if (item.underline) {
-            item.str = `<u>${item.str}</u>`;
-            item.str = item.str.replace(/(\s+)<\/u>/, '</u>$1');
-            item.str = item.str.replace(/<u>(\s+)/, '$1<u>');
-
-            delete item.underline;
-        }
-
-        // 4. Wrap any URLs found in the string
-        // Changed wrapper from <emph> to <i>
-        const urlRegex = /(https?:\/\/[^\s]+)/g;
-        item.str = item.str.replace(urlRegex, (url) => {
-            return `<i><a href="${url}">${url}</a></i>`;
-        });
-    });
-}
-
-function trimStrings(items) {
-    items.forEach(item => {
-        item.str = item.str
-            .replace(/\s+/g, ' ')
-            .replace(/\s([,.])/g, '$1')
-            .replace(/(\()\s+/g, '$1');
-    });
-}
-
-function escapeStrings(items) {
-    items.forEach(item => {
-        item.str = item.str
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&apos;');
-    });
-}
 
 function showAlert(message, type) {
     console.log(`[${type}] ${message}`);
@@ -153,17 +122,6 @@ function appendLogMessage(message) {
     }
 }
 
-function transformXml(html, xslt) {
-    const xsltProcessor = new XSLTProcessor();
-    const parser = new DOMParser();
-    const xsltDoc = parser.parseFromString(xslt, 'application/xml');
-    xsltProcessor.importStylesheet(xsltDoc);
-    const xmlDoc = parser.parseFromString(html, 'application/xml');
-    const transformedDoc = xsltProcessor.transformToFragment(xmlDoc, document);
-    const serializer = new XMLSerializer();
-    return serializer.serializeToString(transformedDoc);
-}
-
 function fillMissingPageNumerals(pageNumerals) {
     let startValue = pageNumerals.find(value => value !== null);
     if (startValue !== undefined) {
@@ -179,28 +137,8 @@ function fillMissingPageNumerals(pageNumerals) {
     }
 }
 
-function processXML(file, fileName, zip) {
-    return new Promise((resolve, reject) => {
-        const fileReader = new FileReader();
-        fileReader.onload = function (event) {
-            const xmlContent = event.target.result;
-            sessionStorage.setItem('XMLPreview', xmlContent);
-            zip.file(fileName, xmlContent);
-            resolve();
-        };
-        fileReader.readAsText(file);
-    });
-}
-
 // Make functions globally available
-window.normaliseIndexEntry = normaliseIndexEntry;
-window.closeOverlaps = closeOverlaps;
 window.titleCase = titleCase;
-window.wrapStrings = wrapStrings;
-window.trimStrings = trimStrings;
-window.escapeStrings = escapeStrings;
 window.showAlert = showAlert;
 window.appendLogMessage = appendLogMessage;
-window.transformXml = transformXml;
 window.fillMissingPageNumerals = fillMissingPageNumerals;
-window.processXML = processXML;

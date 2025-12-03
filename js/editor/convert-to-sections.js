@@ -1,10 +1,10 @@
-// Convert flat HTML with h2-h5 headings to nested section structure
+// Convert flat HTML with heading[font-signature] tags to nested section structure
 export function convertToNestedSections(htmlString, pubid = "") {
     // Parse the HTML
     const parser = new DOMParser();
     const doc = parser.parseFromString(htmlString, 'text/html');
     const body = doc.body;
-    console.debug(doc)
+    console.debug(doc);
 
     // Create article element
     const article = doc.createElement('article');
@@ -12,26 +12,46 @@ export function convertToNestedSections(htmlString, pubid = "") {
         article.setAttribute('data-pubid', pubid);
     }
 
-    // Find title (h2#title) and subtitle
-    const title = body.querySelector('h2#title, h1#title');
-    const subtitle = body.querySelector('p#subtitle');
+    // Find all headings in document order
+    const allHeadings = Array.from(body.querySelectorAll('heading[font-signature]'));
 
-    if (title) {
-        const header = doc.createElement('header');
-        header.textContent = title.textContent;
-        article.appendChild(header);
-        title.remove();
+    if (allHeadings.length === 0) {
+        console.warn('No headings found in document');
+        return htmlString;
     }
 
-    if (subtitle) {
-        const subtitleP = doc.createElement('p');
-        subtitleP.id = 'subtitle';
-        subtitleP.textContent = subtitle.textContent;
-        article.appendChild(subtitleP);
-        subtitle.remove();
-    }
+    // Build font signature hierarchy based on order of first appearance
+    const fontSignatureMap = new Map(); // font-signature -> level
+    let currentLevel = 1;
 
-    // Get all content nodes (everything except title/subtitle)
+    allHeadings.forEach(heading => {
+        const fontSig = heading.getAttribute('font-signature');
+        if (fontSig && !fontSignatureMap.has(fontSig)) {
+            fontSignatureMap.set(fontSig, currentLevel);
+            currentLevel++;
+        }
+    });
+
+    console.debug('Font signature hierarchy:', Array.from(fontSignatureMap.entries()));
+
+    // First heading becomes both title and first header
+    const firstHeading = allHeadings[0];
+    const titleText = firstHeading.textContent;
+
+    // Add title element
+    const title = doc.createElement('title');
+    title.textContent = titleText;
+    article.appendChild(title);
+
+    // Add first header element
+    const firstHeader = doc.createElement('header');
+    firstHeader.textContent = titleText;
+    article.appendChild(firstHeader);
+
+    // Remove first heading from DOM so it doesn't get processed again
+    firstHeading.remove();
+
+    // Get all content nodes (everything in body)
     const contentNodes = Array.from(body.childNodes);
 
     // Build nested section structure
@@ -44,13 +64,22 @@ export function convertToNestedSections(htmlString, pubid = "") {
             return;
         }
 
-        // Check if node is a heading (h3, h4, h5)
-        if (node.nodeType === Node.ELEMENT_NODE && /^H[3-5]$/.test(node.tagName)) {
-            const level = parseInt(node.tagName.charAt(1)); // 3, 4, or 5
-            const targetDepth = level - 2; // h3=1, h4=2, h5=3
+        // Check if node is a heading with font-signature
+        if (node.nodeType === Node.ELEMENT_NODE &&
+            node.tagName === 'HEADING' &&
+            node.hasAttribute('font-signature')) {
+
+            const fontSig = node.getAttribute('font-signature');
+            const level = fontSignatureMap.get(fontSig);
+
+            if (level === undefined) {
+                console.warn('Unknown font signature:', fontSig);
+                currentSection.appendChild(node.cloneNode(true));
+                return;
+            }
 
             // Close sections until we're at the right depth
-            while (sectionStack.length > targetDepth) {
+            while (sectionStack.length > level) {
                 sectionStack.pop();
             }
 
@@ -82,7 +111,7 @@ export function convertToNestedSections(htmlString, pubid = "") {
     // Reduce multiple consecutive spaces to single spaces
     articleHTML = articleHTML.replace(/ {2,}/g, ' ');
 
-    // 2. Remove empty <p> tags (handling attributes and &nbsp;)
+    // Remove empty <p> tags (handling attributes and &nbsp;)
     articleHTML = articleHTML.replace(/<p[^>]*>(?:\s|&nbsp;)*<\/p>/gi, '');
 
     const xhtml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -97,6 +126,5 @@ ${articleHTML}
 </body>
 </html>`;
 
-    console.debug(xhtml)
     return xhtml;
 }
