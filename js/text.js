@@ -394,7 +394,7 @@ function flushBuffer(buffer, isHeading = false, fontSignature = null, isCaption 
         const figNumber = figNumberMatch ? figNumberMatch[1] : null;
         const figCaption = figNumberMatch ? text.slice(figNumberMatch[0].length).trim() : text;
         if (figNumber) {
-            return `<figure><img src="" alt="Figure ${figNumber}" /><figcaption data-start="${figNumber}">${figCaption}</figcaption></figure>`;
+            return `<figure><img src="$figure-{figNumber}.png" alt="Figure ${figNumber}" /><figcaption data-start="${figNumber}">${figCaption}</figcaption></figure>`;
         }
         return `<figure><img src="" alt="Figure" /><figcaption>${text}</figcaption></figure>`;
     } else {

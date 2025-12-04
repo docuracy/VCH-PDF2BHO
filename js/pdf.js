@@ -588,7 +588,7 @@ async function extractImagesFromPDF(pdf, updateProgress, maxDimension = 4096) {
 
             if (blob) {
                 figureCount++;
-                zip.file(`page-${pageNum}-figure-${counter}.png`, await blob.arrayBuffer());
+                zip.file(`figure-${figureCount}.png`, await blob.arrayBuffer());
             }
         }
 
