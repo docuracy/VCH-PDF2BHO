@@ -42,31 +42,79 @@ nav a:hover, footer a:hover {
     text-decoration: underline;
 }
 
+/* H1: The "Chapter" level */
 h1 {
     font-size: 2.5em;
-    text-transform: uppercase;
+    font-weight: 800;
     border-bottom: 2px solid #333;
+    margin-bottom: 0.8em;
+    padding-bottom: 0.1em;
+    color: #000;
 }
 
+/* H2: Heavy Plimsoll + Grey Background */
+/* This creates a strong "Section" block */
 h2 {
     font-size: 2em;
-    border-bottom: 2px solid #333;
+    font-weight: 700;
+    color: #222;
+
+    /* Strong visual anchor */
+    border-left: 10px solid #444;
+    background-color: #e0e0e0;
+
+    padding: 10px 15px; /* Spacing inside the grey box */
+    margin-top: 1.5em;
+    margin-bottom: 0.5em;
 }
 
+/* H3: Medium Plimsoll + Light Background */
+/* Distinct from H2, but clearly a "Subsection" */
 h3 {
     font-size: 1.5em;
-    font-weight: bold;
-    color: #444;
+    font-weight: 600;
+    color: #333;
+
+    /* Medium visual anchor */
+    border-left: 6px solid #666;
+    background-color: #f0f0f0;
+
+    padding: 8px 12px;
     margin-top: 1.5em;
-    letter-spacing: 0.05em;
+    margin-bottom: 0.5em;
 }
 
+/* H4: Thin Plimsoll + Very Light Background + Italic */
+/* The italic helps distinguish it further as a "Sub-subsection" */
 h4 {
-    font-size: 1.2em;
-    font-weight: bold;
+    font-size: 1.25em;
+    font-weight: 600;
     font-style: italic;
-    color: #555;
-    margin-bottom: 0;
+    color: #444;
+
+    /* Light visual anchor */
+    border-left: 4px solid #999;
+    background-color: #f9f9f9;
+
+    padding: 5px 10px;
+    margin-top: 1.2em;
+    margin-bottom: 0.5em;
+}
+
+/* H5: Hairline Plimsoll + No Background (Indent style) */
+/* This looks like a label or prompt */
+h5 {
+    font-size: 1.1em;
+    font-weight: 600;
+    color: #666;
+
+    /* Minimal anchor */
+    border-left: 2px solid #bbb;
+    background-color: transparent; /* No background to indicate lowest level */
+
+    padding-left: 10px; /* Just indenting the text next to the line */
+    margin-top: 1.2em;
+    margin-bottom: 0.2em;
 }
 
 u {
