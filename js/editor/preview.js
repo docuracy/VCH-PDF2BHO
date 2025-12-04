@@ -58,7 +58,7 @@ export async function generatePreview(xhtml) {
   <div class="loading-container">
     <div class="spinner"></div>
     <div class="loading-text">Transforming document...</div>
-    <div class="loading-detail">${sizeKB.toFixed(0)} KB</div>
+    <div class="loading-detail">${sizeKB.toFixed(0)} KB - This may take several minutes.</div>
   </div>
 </body>
 </html>`);
