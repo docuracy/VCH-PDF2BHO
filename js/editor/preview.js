@@ -1,18 +1,72 @@
 export async function generatePreview(xhtml) {
-    console.log("=== PREVIEW GENERATION START ===");
+    const sizeKB = xhtml.length / 1024;
     console.log("XHTML length:", xhtml?.length);
-    console.log("XHTML first 200 chars:", xhtml?.substring(0, 200));
-    console.log("XHTML last 200 chars:", xhtml?.substring(xhtml.length - 200));
 
     // Clear the iframe first
     const iframe = document.getElementById("preview-frame");
     if (iframe && iframe.contentDocument) {
         const doc = iframe.contentDocument;
         doc.open();
-        doc.write('<html><head></head><body><p>Loading preview...</p></body></html>');
-        doc.close();
-        console.log("Iframe cleared");
+        doc.write(`<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      margin: 0;
+      background: #f5f5f5;
     }
+    .loading-container {
+      text-align: center;
+      padding: 40px;
+    }
+    .spinner {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #3498db;
+      border-radius: 50%;
+      width: 50px;
+      height: 50px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 20px;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .loading-text {
+      color: #333;
+      font-size: 16px;
+    }
+    .loading-detail {
+      color: #666;
+      font-size: 14px;
+      margin-top: 10px;
+    }
+    .timer {
+      color: #999;
+      font-size: 13px;
+      margin-top: 15px;
+      font-family: monospace;
+    }
+  </style>
+</head>
+<body>
+  <div class="loading-container">
+    <div class="spinner"></div>
+    <div class="loading-text">Transforming document...</div>
+    <div class="loading-detail">${sizeKB.toFixed(0)} KB</div>
+  </div>
+</body>
+</html>`);
+        doc.close();
+    }
+
+    // Yield to browser to render spinner
+    await new Promise(resolve => setTimeout(resolve, 100));
 
     // Try SaxonJS first if available (access via window in ES modules)
     if (typeof window.SaxonJS !== 'undefined') {
@@ -78,6 +132,12 @@ async function generatePreviewWithSaxonJS(xmlString) {
 
         // Write cleanly to iframe
         const iframe = document.getElementById("preview-frame");
+
+        // Clear the timer interval if it exists
+        if (iframe.contentWindow.loadingTimerInterval) {
+            clearInterval(iframe.contentWindow.loadingTimerInterval);
+        }
+
         const doc = iframe.contentDocument;
         doc.open();
         doc.write(htmlOutput);
@@ -156,6 +216,12 @@ ${htmlOutput}
 
             // Write to iframe
             const iframe = document.getElementById("preview-frame");
+
+            // Clear the timer interval if it exists
+            if (iframe.contentWindow.loadingTimerInterval) {
+                clearInterval(iframe.contentWindow.loadingTimerInterval);
+            }
+
             const doc = iframe.contentDocument;
             doc.open();
             doc.write(htmlOutput);
@@ -189,6 +255,12 @@ ${htmlOutput}
 
         console.log("Native XSLT: Writing to iframe...");
         const iframe = document.getElementById("preview-frame");
+
+        // Clear the timer interval if it exists
+        if (iframe.contentWindow.loadingTimerInterval) {
+            clearInterval(iframe.contentWindow.loadingTimerInterval);
+        }
+
         const doc = iframe.contentDocument;
         doc.open();
         doc.write(htmlOutput);
