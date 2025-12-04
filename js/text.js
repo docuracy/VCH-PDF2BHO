@@ -396,6 +396,54 @@ function flushBuffer(buffer, isHeading = false, fontSignature = null, isCaption 
 }
 
 /**
+ * Flush buffer for table cells - simpler version without heading/caption detection
+ */
+function flushTableCellBuffer(buffer) {
+    if (buffer.length === 0) return '';
+
+    // Process URLs BEFORE escaping
+    const urlPlaceholders = [];
+    buffer.forEach(item => {
+        if (!item.str.startsWith('<')) {
+            const urlRegex = /(https?:\/\/[^\s<>"')\]]+)/g;
+            item.str = item.str.replace(urlRegex, (url) => {
+                let cleanUrl = url;
+                const trailingMatch = cleanUrl.match(/[.,;:!?]+$/);
+                let trailing = '';
+                if (trailingMatch) {
+                    trailing = trailingMatch[0];
+                    cleanUrl = cleanUrl.slice(0, -trailing.length);
+                }
+                const placeholder = `\x00URL${urlPlaceholders.length}\x00`;
+                urlPlaceholders.push({ placeholder, url: cleanUrl, trailing });
+                return placeholder + trailing;
+            });
+        }
+    });
+
+    // Escape HTML entities
+    buffer.forEach(item => {
+        if (!item.str.startsWith('<')) {
+            item.str = escapeHTML(item.str);
+        }
+    });
+
+    // Apply formatting tags
+    wrapStringsNoURLs(buffer);
+
+    // Join items with dehyphenation
+    let text = joinItemsWithDehyphenation(buffer);
+    text = mergeConsecutiveTags(text.trim());
+
+    // Restore URLs
+    urlPlaceholders.forEach(({ placeholder, url, trailing }) => {
+        text = text.replace(placeholder, `<a href="${url}">${url}</a>`);
+    });
+
+    return text;
+}
+
+/**
  * Calculate typical line metrics for a zone to help with paragraph detection
  */
 function calculateZoneMetrics(zone) {
@@ -448,13 +496,36 @@ function calculateZoneMetrics(zone) {
     };
 }
 
+/**
+ * Process TABLE zone items into simple text (no heading/caption detection)
+ */
+function mergeTableZoneItems(zone) {
+    if (!zone.items || zone.items.length === 0) {
+        return '';
+    }
+
+    let buffer = [];
+
+    zone.items.forEach(line => {
+        buffer.push(...line);
+    });
+
+    return flushTableCellBuffer(buffer);
+}
 
 function mergeZoneItems(zones, defaultFont) {
     const defaultFontKey = `${defaultFont.fontName}@${Math.round(defaultFont.fontSize)}`;
 
     zones.forEach(zone => {
-        if (['FOOTER', 'TABLE', 'FIGURE'].includes(zone.type)) {
+        if (['FOOTER', 'FIGURE'].includes(zone.type)) {
             zone.html = '';
+            return;
+        }
+
+        // Handle TABLE zones with simplified processing
+        if (zone.type === 'TABLE') {
+            zone.html = mergeTableZoneItems(zone);
+            delete zone.items;
             return;
         }
 
@@ -661,28 +732,133 @@ function mergeZoneItems(zones, defaultFont) {
     });
 }
 
+/**
+ * Build HTML tables from TABLE zones using segmentation attributes.
+ *
+ * Each TABLE zone has attributes from segmentation:
+ * - tableId: unique identifier for the table
+ * - section: 'caption', 'header', 'body', or 'notes'
+ * - row: row index (null for caption/notes)
+ * - column: column index (null for caption/notes)
+ */
 function buildTables(zones) {
-    zones.forEach(zone => {
-        if (zone.type !== 'TABLE' || !zone.items || zone.items.length === 0) return;
+    // Group TABLE zones by tableId
+    const tableGroups = new Map();
 
-        // First line is the caption
-        const captionLine = zone.items[0];
-        const captionText = captionLine.map(item => item.str).join(' ').trim();
-        // Remove leading "Table X" if exists
-        const captionMatch = captionText.match(/^(Table\s+\d+\s*[:.-]?\s*)/i);
-        const finalCaption = captionMatch
-            ? captionText.slice(captionMatch[0].length).trim()
-            : captionText;
+    zones.forEach((zone, index) => {
+        if (zone.type !== 'TABLE') return;
 
-        // Everything else goes into a single cell
-        const bodyLines = zone.items.slice(1);
-        const bodyText = bodyLines
-            .map(line => line.map(item => item.str).join(' '))
-            .join(' ')
-            .replace(/ {2,}/g, ' ')
-            .trim();
+        const tableId = zone.tableId;
+        if (!tableId) {
+            console.warn(`TABLE zone at index ${index} has no tableId`);
+            return;
+        }
 
-        zone.html = `<table><caption>${escapeHTML(finalCaption)}</caption><tbody><tr><td>${escapeHTML(bodyText)}</td></tr></tbody></table>`;
+        if (!tableGroups.has(tableId)) {
+            tableGroups.set(tableId, []);
+        }
+        tableGroups.get(tableId).push({ zone, index });
+    });
+
+    console.debug(`Found ${tableGroups.size} tables`);
+
+    // Process each table
+    tableGroups.forEach((cells, tableId) => {
+        console.debug(`Building table ${tableId} with ${cells.length} cells`);
+
+        // Separate cells by section
+        const caption = cells.filter(c => c.zone.section === 'caption');
+        const headerCells = cells.filter(c => c.zone.section === 'header');
+        const bodyCells = cells.filter(c => c.zone.section === 'body');
+        const notes = cells.filter(c => c.zone.section === 'notes');
+
+        // Determine table dimensions from body cells
+        const maxRow = bodyCells.length > 0
+            ? Math.max(...bodyCells.map(c => c.zone.row ?? -1))
+            : -1;
+        const maxCol = Math.max(
+            headerCells.length > 0 ? Math.max(...headerCells.map(c => c.zone.column ?? -1)) : -1,
+            bodyCells.length > 0 ? Math.max(...bodyCells.map(c => c.zone.column ?? -1)) : -1
+        );
+
+        const numRows = maxRow + 1;
+        const numCols = maxCol + 1;
+
+        console.debug(`Table ${tableId}: ${numRows} rows, ${numCols} columns`);
+
+        // Build caption HTML
+        let captionHtml = '';
+        if (caption.length > 0) {
+            const captionText = caption.map(c => c.zone.html || '').join(' ').trim();
+            if (captionText) {
+                captionHtml = `<caption>${captionText}</caption>`;
+            }
+        }
+
+        // Build header HTML
+        let theadHtml = '';
+        if (headerCells.length > 0 && numCols > 0) {
+            // Create a row for header cells
+            const headerRow = new Array(numCols).fill('');
+            headerCells.forEach(c => {
+                const col = c.zone.column;
+                if (col !== null && col !== undefined && col < numCols) {
+                    headerRow[col] = c.zone.html || '';
+                }
+            });
+
+            const thCells = headerRow.map(content => `<th>${content}</th>`).join('');
+            theadHtml = `<thead><tr>${thCells}</tr></thead>`;
+        }
+
+        // Build body HTML
+        let tbodyHtml = '';
+        if (bodyCells.length > 0 && numRows > 0 && numCols > 0) {
+            // Create a 2D array for body cells
+            const bodyGrid = Array.from({ length: numRows }, () => new Array(numCols).fill(''));
+
+            bodyCells.forEach(c => {
+                const row = c.zone.row;
+                const col = c.zone.column;
+                if (row !== null && row !== undefined &&
+                    col !== null && col !== undefined &&
+                    row < numRows && col < numCols) {
+                    bodyGrid[row][col] = c.zone.html || '';
+                }
+            });
+
+            const rows = bodyGrid.map(row => {
+                const tdCells = row.map(content => `<td>${content}</td>`).join('');
+                return `<tr>${tdCells}</tr>`;
+            }).join('');
+
+            tbodyHtml = `<tbody>${rows}</tbody>`;
+        }
+
+        // Build notes HTML (as tfoot)
+        let tfootHtml = '';
+        if (notes.length > 0) {
+            const notesText = notes.map(c => c.zone.html || '').join(' ').trim();
+            if (notesText) {
+                tfootHtml = `<tfoot><tr><td colspan="${numCols || 1}">${notesText}</td></tr></tfoot>`;
+            }
+        }
+
+        // Combine into full table HTML
+        const tableHtml = `<table>${captionHtml}${theadHtml}${tbodyHtml}${tfootHtml}</table>`;
+
+        // Store the complete table HTML in the first cell's zone
+        // and mark other cells for removal
+        const firstCell = cells.sort((a, b) => a.index - b.index)[0];
+        firstCell.zone.html = tableHtml;
+        firstCell.zone.isTableRoot = true;
+
+        // Mark other cells for skipping
+        cells.forEach(c => {
+            if (c !== firstCell) {
+                c.zone.skipInOutput = true;
+            }
+        });
     });
 }
 
@@ -715,6 +891,10 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
 
     for (let i = 0; i < zones.length; i++) {
         const zone = zones[i];
+
+        // Skip table cells that have been merged into the table root
+        if (zone.skipInOutput) continue;
+
         let zoneHtml = zone.html || '';
 
         switch (zone.type) {
@@ -725,7 +905,6 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
                     pageHTML += `<p>${pendingParagraphContent}</p>`;
                     pendingParagraphContent = null;
                 }
-                // TODO: Build table from zone items earlier in the pipeline
                 pageHTML += zoneHtml;
                 break;
 

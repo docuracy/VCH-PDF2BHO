@@ -1,5 +1,6 @@
 // segmenter.js
 // Description: Hybrid Layout Analysis - Multi-Line Title / Boxed-Figure / Expanded-Table / Split-Body (RLSA-Only) / Constrained-Footer
+// Extended with table cell segmentation
 
 self.importScripts('./opencv.js');
 
@@ -227,7 +228,10 @@ function processPageHybrid(imageData, chartItems, pageNum) {
     const headingBlocks = detectHeadings(gray, blocks, width);
     blocks = applyHeadingResults(blocks, headingBlocks);
 
-    // === STEP 6: CLEANUP & SORT ===
+    // === STEP 6: SEGMENT TABLES INTO CELLS ===
+    blocks = segmentTableCells(binary, blocks);
+
+    // === STEP 7: CLEANUP & SORT ===
     blocks = mergeOverlappingBlocks(blocks);
     sortBlocksByReadingOrder(blocks, width);
 
@@ -243,6 +247,595 @@ function processPageHybrid(imageData, chartItems, pageNum) {
     return { blocks, stats: { width, height } };
 }
 
+/**
+ * Segment detected TABLE blocks into cells with row/column/section attributes.
+ *
+ * Tables are characterised by:
+ * - At least 3 horizontal solid lines
+ * - No vertical solid lines
+ * - Caption (optional) above first line
+ * - Header between lines 1 and 2
+ * - Body below line 2, above last line
+ * - Notes (optional) below last line
+ * - Columns distinguished by vertical white rivers
+ * - Rows distinguished by horizontal white rivers or lines
+ */
+function segmentTableCells(binaryImage, blocks) {
+    const newBlocks = [];
+
+    // Separate TABLE blocks from others
+    const tableBlocks = blocks.filter(b => b.type === 'TABLE');
+    const otherBlocks = blocks.filter(b => b.type !== 'TABLE');
+
+    // Deduplicate TABLE blocks with identical or near-identical bounds
+    const uniqueTables = [];
+    const TOLERANCE = 5; // pixels
+
+    for (const table of tableBlocks) {
+        const isDuplicate = uniqueTables.some(existing =>
+            Math.abs(existing.x - table.x) <= TOLERANCE &&
+            Math.abs(existing.y - table.y) <= TOLERANCE &&
+            Math.abs(existing.width - table.width) <= TOLERANCE &&
+            Math.abs(existing.height - table.height) <= TOLERANCE
+        );
+
+        if (!isDuplicate) {
+            uniqueTables.push(table);
+        }
+    }
+
+    console.debug(`Deduplicated ${tableBlocks.length} TABLE blocks to ${uniqueTables.length}`);
+
+    // Add non-table blocks
+    newBlocks.push(...otherBlocks);
+
+    // Process unique tables
+    for (const block of uniqueTables) {
+        // Extract ROI for this table
+        const tableROI = binaryImage.roi(new cv.Rect(block.x, block.y, block.width, block.height));
+
+        try {
+            const cellBlocks = parseTableStructure(tableROI, block);
+            newBlocks.push(...cellBlocks);
+        } catch (err) {
+            console.error("Table segmentation error:", err);
+            // Fall back to original block if parsing fails
+            newBlocks.push(block);
+        }
+
+        tableROI.delete();
+    }
+
+    return newBlocks;
+}
+
+/**
+ * Parse table structure and return cell blocks
+ */
+function parseTableStructure(tableROI, tableBlock) {
+    const width = tableROI.cols;
+    const height = tableROI.rows;
+    const absX = tableBlock.x;
+    const absY = tableBlock.y;
+
+    // === STEP 1: Detect horizontal lines ===
+    const horizontalLines = detectHorizontalLines(tableROI);
+
+    console.debug(`Table at (${absX}, ${absY}): Found ${horizontalLines.length} horizontal lines`);
+
+    // Need at least 3 lines for a valid table structure
+    if (horizontalLines.length < 3) {
+        console.debug("Insufficient horizontal lines for table parsing, returning original block");
+        return [{
+            ...tableBlock,
+            right: tableBlock.x + tableBlock.width,
+            bottom: tableBlock.y + tableBlock.height
+        }];
+    }
+
+    // Sort lines by y position
+    horizontalLines.sort((a, b) => a.y - b.y);
+
+    // === STEP 2: Identify table sections ===
+    const firstLineY = horizontalLines[0].y;
+    const firstLineBottom = horizontalLines[0].y + horizontalLines[0].height;
+    const secondLineY = horizontalLines[1].y;
+    const secondLineBottom = horizontalLines[1].y + horizontalLines[1].height;
+    const lastLineY = horizontalLines[horizontalLines.length - 1].y;
+    const lastLineBottom = horizontalLines[horizontalLines.length - 1].y + horizontalLines[horizontalLines.length - 1].height;
+
+    // Section boundaries (relative to table ROI)
+    // Body starts AFTER the second line and ends BEFORE the last line
+    const sections = {
+        caption: { start: 0, end: firstLineY },
+        header: { start: firstLineBottom, end: secondLineY },
+        body: { start: secondLineBottom, end: lastLineY },
+        notes: { start: lastLineBottom, end: height }
+    };
+
+    // === STEP 3: Detect column dividers from header region ===
+    const headerHeight = sections.header.end - sections.header.start;
+    let columnRivers = [];
+
+    if (headerHeight > 5) {
+        const headerROI = tableROI.roi(new cv.Rect(0, sections.header.start, width, headerHeight));
+        columnRivers = detectVerticalRivers(headerROI, 5); // minimum river width threshold
+        headerROI.delete();
+    }
+
+    console.debug(`Found ${columnRivers.length} column dividers:`, columnRivers);
+
+    // Build column boundaries
+    const columnBounds = buildColumnBounds(columnRivers, width);
+
+    // === STEP 4: Detect row dividers in body ===
+    const bodyHeight = sections.body.end - sections.body.start;
+    let rowDividers = [];
+
+    if (bodyHeight > 5) {
+        // Check for lines within the body (between line 2 and last line)
+        const bodyLines = horizontalLines.filter(line =>
+            line.y > sections.body.start && line.y < sections.body.end
+        );
+
+        if (bodyLines.length > 0) {
+            // If there are additional horizontal lines, use them as the only dividers
+            rowDividers = bodyLines.map(l => ({
+                y: l.y - sections.body.start,
+                height: l.height,
+                source: 'line'
+            }));
+        } else {
+            // No additional lines - fall back to white river detection
+            const bodyROI = tableROI.roi(new cv.Rect(0, sections.body.start, width, bodyHeight));
+            const whiteRowDividers = detectHorizontalRivers(bodyROI, 3);
+            bodyROI.delete();
+
+            // Use only the y-centre of each river as the divider position
+            rowDividers = whiteRowDividers.map(r => ({
+                y: Math.floor(r.center),
+                height: 0,  // point divider, not a range
+                source: 'river'
+            }));
+        }
+
+        // Sort and deduplicate
+        rowDividers.sort((a, b) => a.y - b.y);
+        rowDividers = deduplicateDividers(rowDividers, 10);
+    }
+
+    console.debug(`Found ${rowDividers.length} row dividers`);
+
+    // Build row boundaries for body
+    const rowBounds = buildRowBounds(rowDividers, bodyHeight);
+
+    // === STEP 5: Generate cell blocks ===
+    const cellBlocks = [];
+    const tableId = `table_${absX}_${absY}`;
+
+    // Caption (if present - check for content)
+    if (sections.caption.end - sections.caption.start > 3) {
+        const captionBlock = extractSectionBlock(
+            tableROI, sections.caption.start, sections.caption.end,
+            absX, absY, tableId, 'caption', null, null, width
+        );
+        if (captionBlock) cellBlocks.push(captionBlock);
+    }
+
+    // Header cells
+    for (let col = 0; col < columnBounds.length; col++) {
+        const colBound = columnBounds[col];
+        const cellBlock = extractCellBlock(
+            tableROI,
+            sections.header.start, sections.header.end,
+            colBound.start, colBound.end,
+            absX, absY, tableId,
+            'header', 0, col
+        );
+        if (cellBlock) cellBlocks.push(cellBlock);
+    }
+
+    // Body cells
+    for (let row = 0; row < rowBounds.length; row++) {
+        const rowBound = rowBounds[row];
+        for (let col = 0; col < columnBounds.length; col++) {
+            const colBound = columnBounds[col];
+            const cellBlock = extractCellBlock(
+                tableROI,
+                sections.body.start + rowBound.start,
+                sections.body.start + rowBound.end,
+                colBound.start, colBound.end,
+                absX, absY, tableId,
+                'body', row, col
+            );
+            if (cellBlock) cellBlocks.push(cellBlock);
+        }
+    }
+
+    // Notes (if present - check for content)
+    if (sections.notes.end - sections.notes.start > 3) {
+        const notesBlock = extractSectionBlock(
+            tableROI, sections.notes.start, sections.notes.end,
+            absX, absY, tableId, 'notes', null, null, width
+        );
+        if (notesBlock) cellBlocks.push(notesBlock);
+    }
+
+    console.debug(`Generated ${cellBlocks.length} cell blocks for table`);
+
+    return cellBlocks.length > 0 ? cellBlocks : [{
+        ...tableBlock,
+        right: tableBlock.x + tableBlock.width,
+        bottom: tableBlock.y + tableBlock.height
+    }];
+}
+
+/**
+ * Detect horizontal lines using morphological operations
+ */
+function detectHorizontalLines(roi) {
+    const width = roi.cols;
+    const height = roi.rows;
+
+    // Use a long horizontal kernel to detect solid lines
+    const minLineWidth = Math.max(50, width * 0.3);
+    const lineKernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(Math.floor(minLineWidth), 1));
+    const linesMat = new cv.Mat();
+    cv.morphologyEx(roi, linesMat, cv.MORPH_OPEN, lineKernel);
+
+    const contours = new cv.MatVector();
+    const hierarchy = new cv.Mat();
+    cv.findContours(linesMat, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+    const lines = [];
+    for (let i = 0; i < contours.size(); i++) {
+        const rect = cv.boundingRect(contours.get(i));
+        // Filter: must be wide and thin
+        if (rect.width > minLineWidth * 0.8 && rect.height < 15) {
+            lines.push({
+                x: rect.x,
+                y: rect.y,
+                width: rect.width,
+                height: Math.max(rect.height, 1)
+            });
+        }
+    }
+
+    lineKernel.delete();
+    linesMat.delete();
+    contours.delete();
+    hierarchy.delete();
+
+    return lines;
+}
+
+/**
+ * Detect vertical white rivers (column dividers) in a region.
+ * Returns array of river objects with { start, end, center } coordinates.
+ * Filters out edge rivers (margins at x=0 or x=width).
+ */
+function detectVerticalRivers(roi, minWidth) {
+    const width = roi.cols;
+    const height = roi.rows;
+
+    // Clone the ROI to get contiguous memory layout
+    // (ROI.data uses parent's stride which causes incorrect indexing)
+    const roiClone = roi.clone();
+    const rawData = roiClone.data;
+
+    // For each column, count the percentage of ink pixels
+    const columnInkDensity = [];
+    for (let x = 0; x < width; x++) {
+        let inkCount = 0;
+        for (let y = 0; y < height; y++) {
+            if (rawData[y * width + x] > 0) {
+                inkCount++;
+            }
+        }
+        columnInkDensity.push(inkCount / height);
+    }
+
+    roiClone.delete();
+
+    // Find runs of low-density columns (rivers)
+    const rivers = [];
+    let riverStart = -1;
+    const densityThreshold = 0.01; // columns with < 1% ink are considered white
+
+    for (let x = 0; x < width; x++) {
+        if (columnInkDensity[x] < densityThreshold) {
+            if (riverStart === -1) riverStart = x;
+        } else {
+            if (riverStart !== -1) {
+                const riverWidth = x - riverStart;
+                if (riverWidth >= minWidth) {
+                    rivers.push({
+                        start: riverStart,
+                        end: x,
+                        width: riverWidth,
+                        center: riverStart + riverWidth / 2
+                    });
+                }
+                riverStart = -1;
+            }
+        }
+    }
+
+    // Handle river at end
+    if (riverStart !== -1) {
+        const riverWidth = width - riverStart;
+        if (riverWidth >= minWidth) {
+            rivers.push({
+                start: riverStart,
+                end: width,
+                width: riverWidth,
+                center: riverStart + riverWidth / 2
+            });
+        }
+    }
+
+    // Filter out edge rivers (margins) - only keep interior rivers
+    // An interior river doesn't touch x=0 or x=width
+    const interiorRivers = rivers.filter(r => r.start > 0 && r.end < width);
+
+    return interiorRivers;
+}
+
+/**
+ * Detect horizontal white rivers (row dividers) in a region.
+ * Filters out edge rivers (at y=0 or y=height) as these are just margins.
+ */
+function detectHorizontalRivers(roi, minHeight) {
+    const width = roi.cols;
+    const height = roi.rows;
+
+    // Clone the ROI to get contiguous memory layout
+    const roiClone = roi.clone();
+    const rawData = roiClone.data;
+
+    // For each row, count the percentage of ink pixels
+    const rowInkDensity = [];
+    for (let y = 0; y < height; y++) {
+        let inkCount = 0;
+        const rowOffset = y * width;
+        for (let x = 0; x < width; x++) {
+            if (rawData[rowOffset + x] > 0) {
+                inkCount++;
+            }
+        }
+        rowInkDensity.push(inkCount / width);
+    }
+
+    roiClone.delete();
+
+    // Find runs of low-density rows (rivers)
+    const rivers = [];
+    let riverStart = -1;
+    const densityThreshold = 0.02; // rows with < 2% ink are considered white
+
+    for (let y = 0; y < height; y++) {
+        if (rowInkDensity[y] < densityThreshold) {
+            if (riverStart === -1) riverStart = y;
+        } else {
+            if (riverStart !== -1) {
+                const riverHeight = y - riverStart;
+                if (riverHeight >= minHeight) {
+                    rivers.push({
+                        y: riverStart,
+                        height: riverHeight,
+                        center: riverStart + riverHeight / 2
+                    });
+                }
+                riverStart = -1;
+            }
+        }
+    }
+
+    // Handle river at end
+    if (riverStart !== -1) {
+        const riverHeight = height - riverStart;
+        if (riverHeight >= minHeight) {
+            rivers.push({
+                y: riverStart,
+                height: riverHeight,
+                center: riverStart + riverHeight / 2
+            });
+        }
+    }
+
+    // Filter out edge rivers (margins at top/bottom of body)
+    // An interior river doesn't touch y=0 or y=height
+    const interiorRivers = rivers.filter(r => r.y > 0 && (r.y + r.height) < height);
+
+    return interiorRivers;
+}
+
+/**
+ * Build column boundaries from river divider objects.
+ * Each river has { start, end } - dividers are at the right-hand edge (end) of each river.
+ * Columns run from one divider to the next.
+ */
+function buildColumnBounds(rivers, totalWidth) {
+    const bounds = [];
+
+    if (rivers.length === 0) {
+        // Single column spanning full width
+        bounds.push({ start: 0, end: totalWidth });
+    } else {
+        // Sort rivers by position
+        rivers.sort((a, b) => a.start - b.start);
+
+        // Extract divider positions (right-hand edge of each river)
+        const dividers = rivers.map(r => r.end);
+
+        // First column: from 0 to first divider
+        bounds.push({ start: 0, end: dividers[0] });
+
+        // Middle columns: from one divider to the next
+        for (let i = 0; i < dividers.length - 1; i++) {
+            bounds.push({
+                start: dividers[i],
+                end: dividers[i + 1]
+            });
+        }
+
+        // Last column: from last divider to totalWidth
+        bounds.push({
+            start: dividers[dividers.length - 1],
+            end: totalWidth
+        });
+    }
+
+    // Filter out any zero-width or negative-width columns
+    return bounds.filter(b => b.end > b.start);
+}
+
+/**
+ * Build row boundaries from divider positions
+ */
+function buildRowBounds(dividers, totalHeight) {
+    const bounds = [];
+
+    if (dividers.length === 0) {
+        // Single row spanning full height
+        bounds.push({ start: 0, end: totalHeight });
+    } else {
+        // First row
+        bounds.push({ start: 0, end: Math.floor(dividers[0].y) });
+
+        // Middle rows
+        for (let i = 0; i < dividers.length - 1; i++) {
+            const startY = Math.floor(dividers[i].y + (dividers[i].height || 0));
+            const endY = Math.floor(dividers[i + 1].y);
+            if (endY > startY) {
+                bounds.push({ start: startY, end: endY });
+            }
+        }
+
+        // Last row
+        const lastDiv = dividers[dividers.length - 1];
+        const lastStart = Math.floor(lastDiv.y + (lastDiv.height || 0));
+        if (totalHeight > lastStart) {
+            bounds.push({ start: lastStart, end: totalHeight });
+        }
+    }
+
+    return bounds.filter(b => b.end > b.start);
+}
+
+/**
+ * Deduplicate dividers that are close together
+ */
+function deduplicateDividers(dividers, tolerance) {
+    if (dividers.length === 0) return [];
+
+    const result = [dividers[0]];
+    for (let i = 1; i < dividers.length; i++) {
+        const last = result[result.length - 1];
+        if (dividers[i].y - last.y > tolerance) {
+            result.push(dividers[i]);
+        }
+    }
+    return result;
+}
+
+/**
+ * Extract a cell block from the table ROI
+ */
+function extractCellBlock(roi, yStart, yEnd, xStart, xEnd, absX, absY, tableId, section, row, col) {
+    const cellHeight = yEnd - yStart;
+    const cellWidth = xEnd - xStart;
+
+    if (cellHeight < 3 || cellWidth < 3) return null;
+
+    // Check if there's actual content in this cell
+    const cellROI = roi.roi(new cv.Rect(
+        Math.max(0, xStart),
+        Math.max(0, yStart),
+        Math.min(cellWidth, roi.cols - xStart),
+        Math.min(cellHeight, roi.rows - yStart)
+    ));
+
+    const nonZero = cv.countNonZero(cellROI);
+    cellROI.delete();
+
+    // Skip empty cells (but still create block for structure)
+    const hasContent = nonZero > (cellWidth * cellHeight * 0.005);
+
+    return {
+        x: absX + xStart,
+        y: absY + yStart,
+        width: cellWidth,
+        height: cellHeight,
+        right: absX + xEnd,
+        bottom: absY + yEnd,
+        type: 'TABLE',
+        tableId: tableId,
+        section: section,
+        row: row,
+        column: col,
+        hasContent: hasContent
+    };
+}
+
+/**
+ * Extract a section block (caption or notes) from the table ROI
+ */
+function extractSectionBlock(roi, yStart, yEnd, absX, absY, tableId, section, row, col, totalWidth) {
+    const sectionHeight = yEnd - yStart;
+
+    if (sectionHeight < 3) return null;
+
+    // Check if there's actual content
+    const sectionROI = roi.roi(new cv.Rect(0, yStart, totalWidth, sectionHeight));
+    const nonZero = cv.countNonZero(sectionROI);
+    sectionROI.delete();
+
+    // Only create block if there's meaningful content
+    if (nonZero < totalWidth * sectionHeight * 0.005) return null;
+
+    // Find actual content bounds within the section
+    const contentROI = roi.roi(new cv.Rect(0, yStart, totalWidth, sectionHeight));
+    const contours = new cv.MatVector();
+    const hierarchy = new cv.Mat();
+    cv.findContours(contentROI, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+    let minX = totalWidth, maxX = 0, minY = sectionHeight, maxY = 0;
+    let foundContent = false;
+
+    for (let i = 0; i < contours.size(); i++) {
+        const rect = cv.boundingRect(contours.get(i));
+        if (rect.width > 2 && rect.height > 2) {
+            minX = Math.min(minX, rect.x);
+            maxX = Math.max(maxX, rect.x + rect.width);
+            minY = Math.min(minY, rect.y);
+            maxY = Math.max(maxY, rect.y + rect.height);
+            foundContent = true;
+        }
+    }
+
+    contours.delete();
+    hierarchy.delete();
+    contentROI.delete();
+
+    if (!foundContent) return null;
+
+    return {
+        x: absX + minX,
+        y: absY + yStart + minY,
+        width: maxX - minX,
+        height: maxY - minY,
+        right: absX + maxX,
+        bottom: absY + yStart + maxY,
+        type: 'TABLE',
+        tableId: tableId,
+        section: section,
+        row: row,
+        column: col,
+        hasContent: true
+    };
+}
+
 function mergeOverlappingBlocks(blocks) {
     let changed = true;
     while (changed) {
@@ -255,6 +848,10 @@ function mergeOverlappingBlocks(blocks) {
 
                 const b1 = blocks[i];
                 const b2 = blocks[j];
+
+                // Don't merge TABLE cells
+                if (b1.type === 'TABLE' && b1.section) continue;
+                if (b2.type === 'TABLE' && b2.section) continue;
 
                 const x1 = Math.max(b1.x, b2.x);
                 const y1 = Math.max(b1.y, b2.y);
