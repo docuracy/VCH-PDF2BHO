@@ -10,7 +10,9 @@
 
 This is a **browser-hosted software application** designed to
 convert [Victoria County History](https://www.history.ac.uk/research/victoria-county-history) (VCH) PDF files into a
-simple XHTML format. The
+simple XHTML format. It also extracts images embedded in the PDFs, and renders vector graphics at a resolution
+appropriate
+for subsequent re-publication. The
 software provides an editing window for making manual corrections or adjustments, and then validates and converts the
 XHTML into HTML suitable for display on the [British History Online](https://www.british-history.ac.uk/) (BHO) platform.
 The application provides a preview of this HTML, which can also be converted into BHO's legacy XML format.
@@ -64,10 +66,11 @@ button can also be used to load previously-saved XHTML files.
 
 ![img_9.png](img_9.png)
 
-When conversion is complete, the resulting XHTML is loaded into the editing window. The "Format" button (top-right) will
-arrange the XHTML into a readily-legible, structured format. **The XHTML will always require some manual correction**
-due to
-the challenges described [below](#technical-challenges).
+When conversion is complete, the extracted images are zipped and offered for saving to the user's local filesystem, and the
+resulting XHTML is loaded into the editing window. The "Format" button (top-right) will
+arrange the XHTML into a readily-legible, structured format. The system will attempt to join tables which have been
+split across two PDF pages. **The XHTML will always require some manual correction**
+due to the challenges described [below](#technical-challenges).
 
 ### Editing
 
