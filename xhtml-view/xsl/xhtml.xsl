@@ -11,6 +11,9 @@
     <xsl:variable name="title" select="//xhtml:article/xhtml:header[1]"/>
     <xsl:variable name="subtitle" select="//xhtml:article/xhtml:p[@id='subtitle']"/>
 
+    <!-- Cache expensive queries -->
+    <xsl:variable name="all-data" select="//xhtml:data"/>
+
     <!-- Identity template for generic pass-through -->
     <xsl:template match="@*|node()">
         <xsl:copy>
@@ -41,14 +44,14 @@
                 </main>
 
                 <!-- Footnotes section -->
-                <xsl:if test="//xhtml:data">
+                <xsl:if test="$all-data">
                     <footer role="contentinfo" aria-label="Footnotes">
                         <section class="footnotes" id="fns">
                             <header>
                                 <h2>Notes</h2>
                             </header>
                             <ul>
-                                <xsl:apply-templates select="//xhtml:data" mode="footnotes"/>
+                                <xsl:apply-templates select="$all-data" mode="footnotes"/>
                             </ul>
                         </section>
                     </footer>
@@ -82,7 +85,7 @@
                 </xsl:if>
 
                 <!-- Link to footnotes -->
-                <xsl:if test="//xhtml:data">
+                <xsl:if test="$all-data">
                     <li>
                         <a href="#fns">Footnotes</a>
                     </li>
@@ -189,10 +192,7 @@
     <!-- Convert <data> in text to inline footnote link with title attribute -->
     <xsl:template match="xhtml:data">
         <xsl:variable name="n" select="count(preceding::xhtml:data) + 1"/>
-        <xsl:variable name="footnote-text">
-            <xsl:value-of select="."/>
-        </xsl:variable>
-        <a class="footnote" href="#fnn{$n}" id="fnr{$n}" title="{$footnote-text}" role="doc-noteref" aria-label="Footnote {$n}">
+        <a class="footnote" href="#fnn{$n}" id="fnr{$n}" title="{.}" role="doc-noteref" aria-label="Footnote {$n}">
             <xsl:text> (fn. </xsl:text>
             <xsl:value-of select="$n"/>
             <xsl:text>)</xsl:text>
