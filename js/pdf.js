@@ -477,7 +477,7 @@ function headerFooterAndFonts(pageNum, masterFontMap, defaultFont, headerFontSiz
         if (!zone.items) return;
 
         zone.items.forEach(line => {
-            line.forEach(item => {
+            line.forEach((item, index) => {
                 const fontEntry = masterFontMap[item.fontName];
                 if (fontEntry) {
                     // Apply font styles
@@ -491,6 +491,21 @@ function headerFooterAndFonts(pageNum, masterFontMap, defaultFont, headerFontSiz
                                 item[style] = true;
                             }
                         }
+                    }
+                }
+
+                const prevItem = index > 0 ? line[index - 1] : null;
+
+                if (prevItem) {
+                    // 1. Is it smaller? (Allow a small tolerance, but generally < previous)
+                    const isSmaller = item.height < prevItem.height;
+
+                    // 2. Is it higher? (In standard coordinates, higher visual position = smaller 'bottom' value)
+                    // We use a small buffer (0.5) to avoid jitter on uneven scans
+                    const isHigher = item.bottom < (prevItem.bottom - 0.5);
+
+                    if (isSmaller && isHigher) {
+                        item.superscript = true;
                     }
                 }
 

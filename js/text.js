@@ -54,6 +54,13 @@ function wrapStringsNoURLs(items) {
             delete item.underline;
         }
 
+        // 4. Handle Superscript
+        if (item.superscript) {
+            item.str = `<sup>${item.str}</sup>`;
+            item.str = item.str.replace(/(\s+)<\/sup>/, '</sup>$1');
+            item.str = item.str.replace(/<sup>(\s+)/, '$1<sup>');
+        }
+
         // NOTE: URLs are NOT handled here - they should be processed before escaping
     });
 }
@@ -887,7 +894,13 @@ function buildTables(zones) {
         if (caption.length > 0) {
             const captionText = caption.map(c => c.zone.html || '').join(' ').trim();
             if (captionText) {
-                captionHtml = `<caption>${captionText}</caption>`;
+                // 1. ^((?:<[^>]+>\s*)*)  -> Capture Group $1: Matches any number of HTML tags (like <i>, <b>) at the start
+                // 2. Table\s+\d+...      -> Matches the "Table X" part we want to remove
+                const captionTextClean = captionText
+                    .replace(/^((?:<[^>]+>\s*)*)Table\s+\d+(?:\.\d+)?\s*[:.-]?\s*/i, '$1')
+                    .trim();
+
+                captionHtml = `<caption>${captionTextClean}</caption>`;
             }
         }
 
@@ -933,8 +946,9 @@ function buildTables(zones) {
 
         // Build notes HTML (as tfoot) - parse numbered list structure
         let tfootHtml = '';
+        let notesHtml = '';
         if (notes.length > 0) {
-            const notesHtml = parseTableNotes(notes);
+            notesHtml = parseTableNotes(notes);
             if (notesHtml) {
                 tfootHtml = `<tfoot><tr><td colspan="${numCols || 1}">${notesHtml}</td></tr></tfoot>`;
             }
@@ -949,6 +963,18 @@ function buildTables(zones) {
         firstCell.zone.html = tableHtml;
         firstCell.zone.isTableRoot = true;
 
+        // Store metadata for cross-page merging
+        firstCell.zone.tableMetadata = {
+            numCols,
+            numRows,
+            hasCaption: captionHtml !== '',
+            captionHtml,
+            theadHtml,
+            tbodyHtml,
+            tfootHtml,
+            notesHtml
+        };
+
         // Mark other cells for skipping
         cells.forEach(c => {
             if (c !== firstCell) {
@@ -956,6 +982,233 @@ function buildTables(zones) {
             }
         });
     });
+}
+
+/**
+ * Merge two tables that span across pages (horizontal continuation).
+ * Returns merged table HTML or null if tables are not compatible.
+ *
+ * These tables have the SAME rows but DIFFERENT columns - the second table
+ * continues the columns of the first table horizontally.
+ *
+ * Conditions for merging:
+ * - Same number of body rows (same row structure)
+ * - Second table has empty caption
+ * - If both have notes with ordered lists, merge the lists
+ */
+function mergeCrossPageTables(prevTableMeta, currTableMeta) {
+    // Check body row count matches (same row structure)
+    if (prevTableMeta.numRows !== currTableMeta.numRows) {
+        console.debug('Cross-page table merge failed: row count mismatch',
+            prevTableMeta.numRows, 'vs', currTableMeta.numRows);
+        return null;
+    }
+
+    // Check second table has no caption
+    if (currTableMeta.hasCaption) {
+        console.debug('Cross-page table merge failed: continuation has caption');
+        return null;
+    }
+
+    console.debug('Merging cross-page tables horizontally');
+
+    // Use caption from first table
+    const captionHtml = prevTableMeta.captionHtml;
+
+    // Merge thead: append cells from second header row to first header row
+    const theadHtml = mergeTableSection(prevTableMeta.theadHtml, currTableMeta.theadHtml, 'th');
+
+    // Merge tbody: append cells from each row of second table to corresponding row of first
+    const tbodyHtml = mergeTableSection(prevTableMeta.tbodyHtml, currTableMeta.tbodyHtml, 'td');
+
+    // Calculate total columns for tfoot colspan
+    const totalCols = prevTableMeta.numCols + currTableMeta.numCols;
+
+    // Merge notes if both have them
+    let tfootHtml = '';
+
+    if (prevTableMeta.notesHtml && currTableMeta.notesHtml) {
+        // Both have notes - try to merge ordered lists
+        const mergedNotes = mergeNotesLists(prevTableMeta.notesHtml, currTableMeta.notesHtml);
+        tfootHtml = `<tfoot><tr><td colspan="${totalCols}">${mergedNotes}</td></tr></tfoot>`;
+    } else if (prevTableMeta.notesHtml) {
+        // Update colspan in first table's tfoot
+        tfootHtml = prevTableMeta.tfootHtml.replace(/colspan="\d+"/, `colspan="${totalCols}"`);
+    } else if (currTableMeta.notesHtml) {
+        // Update colspan in second table's tfoot
+        tfootHtml = currTableMeta.tfootHtml.replace(/colspan="\d+"/, `colspan="${totalCols}"`);
+    }
+
+    return `<table>${captionHtml}${theadHtml}${tbodyHtml}${tfootHtml}</table>`;
+}
+
+/**
+ * Merge two table sections (thead or tbody) horizontally.
+ * Appends cells from each row of section2 to the corresponding row of section1.
+ *
+ * @param {string} section1Html - First section HTML (e.g., <thead>...</thead>)
+ * @param {string} section2Html - Second section HTML
+ * @param {string} cellTag - 'th' or 'td'
+ * @returns {string} Merged section HTML
+ */
+function mergeTableSection(section1Html, section2Html, cellTag) {
+    if (!section1Html || !section2Html) {
+        return section1Html || section2Html || '';
+    }
+
+    // Extract rows from both sections
+    const rows1 = [...section1Html.matchAll(/<tr>(.*?)<\/tr>/gs)].map(m => m[1]);
+    const rows2 = [...section2Html.matchAll(/<tr>(.*?)<\/tr>/gs)].map(m => m[1]);
+
+    // Determine the section tag (thead or tbody)
+    const sectionTagMatch = section1Html.match(/^<(\w+)>/);
+    const sectionTag = sectionTagMatch ? sectionTagMatch[1] : 'tbody';
+
+    // Merge corresponding rows
+    const mergedRows = [];
+    const maxRows = Math.max(rows1.length, rows2.length);
+
+    for (let i = 0; i < maxRows; i++) {
+        const row1Cells = rows1[i] || '';
+        const row2Cells = rows2[i] || '';
+        mergedRows.push(`<tr>${row1Cells}${row2Cells}</tr>`);
+    }
+
+    return `<${sectionTag}>${mergedRows.join('')}</${sectionTag}>`;
+}
+
+/**
+ * Merge two notes sections, combining ordered lists if present.
+ */
+function mergeNotesLists(notes1, notes2) {
+    // Check if both contain ordered lists
+    const olMatch1 = notes1.match(/<ol[^>]*class="table-notes"[^>]*>(.*?)<\/ol>/s);
+    const olMatch2 = notes2.match(/<ol[^>]*class="table-notes"[^>]*>(.*?)<\/ol>/s);
+
+    if (olMatch1 && olMatch2) {
+        // Extract list items from both
+        const items1 = olMatch1[1];
+        const items2 = olMatch2[1];
+
+        // Get start attribute from first list
+        const startMatch = notes1.match(/<ol[^>]*start="(\d+)"/);
+        const startNum = startMatch ? startMatch[1] : '1';
+
+        // Any preamble from first notes (text before <ol>)
+        const preamble1 = notes1.substring(0, notes1.indexOf('<ol'));
+
+        return `${preamble1}<ol class="table-notes" start="${startNum}">${items1}${items2}</ol>`;
+    }
+
+    // Can't merge as lists - just concatenate
+    return notes1 + ' ' + notes2;
+}
+
+/**
+ * Post-process HTML to merge tables that span across pages.
+ * The continuation table is moved back to the previous page.
+ *
+ * @param {Array} pageResults - Array of {html, tableMetadata} for each page
+ * @returns {Array} - Array of merged HTML strings
+ */
+function mergeTablesAcrossPages(pageResults) {
+    console.debug('=== mergeTablesAcrossPages called ===');
+    console.debug(`Processing ${pageResults.length} pages`);
+
+    if (pageResults.length === 0) return [];
+
+    const mergedPages = [];
+    let i = 0;
+
+    while (i < pageResults.length) {
+        let currentPage = pageResults[i];
+        let currentHtml = currentPage.html;
+        let currentTableMeta = currentPage.lastContentTableMetadata;
+
+        console.debug(`\nProcessing page ${i + 1}, hasTable: ${!!currentTableMeta}`);
+
+        // Look ahead to see if next page has a continuation table
+        while (i + 1 < pageResults.length) {
+            const nextPage = pageResults[i + 1];
+            const nextTableMeta = nextPage.firstContinuationTableMetadata;
+
+            if (!currentTableMeta || !nextTableMeta) {
+                break;
+            }
+
+            // Check if tables can be merged
+            if (currentTableMeta.numRows === nextTableMeta.numRows) {
+
+                console.debug(`  -> MERGE CONDITIONS MET! Merging table from page ${i + 2} into page ${i + 1}`);
+
+                // Merge the tables
+                const mergedTableHtml = mergeCrossPageTables(currentTableMeta, nextTableMeta);
+
+                if (mergedTableHtml) {
+                    // 1. UPDATE CURRENT PAGE (Inject merged table)
+                    const allTables = [...currentHtml.matchAll(/<table>.*?<\/table>/gs)];
+                    const lastTableMatch = allTables.length > 0 ? allTables[allTables.length - 1] : null;
+
+                    if (lastTableMatch) {
+                        const beforeTable = currentHtml.substring(0, lastTableMatch.index);
+                        const afterTable = currentHtml.substring(lastTableMatch.index + lastTableMatch[0].length);
+                        currentHtml = beforeTable + mergedTableHtml + afterTable;
+                    }
+
+                    // 2. UPDATE NEXT PAGE (Remove the moved table)
+                    const nextHtml = nextPage.html;
+                    const allNextTables = [...nextHtml.matchAll(/<table>.*?<\/table>/gs)];
+                    let firstCaptionlessTableMatch = null;
+
+                    for (const tableMatch of allNextTables) {
+                        const tableHtml = tableMatch[0];
+                        const captionMatch = tableHtml.match(/<caption>(.*?)<\/caption>/s);
+                        if (!captionMatch || captionMatch[1].trim() === '') {
+                            firstCaptionlessTableMatch = tableMatch;
+                            break;
+                        }
+                    }
+
+                    let updatedNextHtml = nextHtml;
+                    if (firstCaptionlessTableMatch) {
+                        const tableToRemove = firstCaptionlessTableMatch[0];
+                        const tableStart = firstCaptionlessTableMatch.index;
+                        const tableEnd = tableStart + tableToRemove.length;
+
+                        const beforeTable = nextHtml.substring(0, tableStart);
+                        const afterTable = nextHtml.substring(tableEnd);
+                        updatedNextHtml = beforeTable + afterTable;
+                    }
+
+                    // Update next page result in the array so it's ready for the next iteration of the outer loop
+                    pageResults[i + 1] = {
+                        ...nextPage,
+                        html: updatedNextHtml,
+                        firstContinuationTableMetadata: null
+                    };
+
+                    // Update local currentTableMeta metadata in case we want to try merging i with i+2 (unlikely but safe)
+                    currentTableMeta = {
+                        ...currentTableMeta,
+                        numCols: currentTableMeta.numCols + nextTableMeta.numCols,
+                        theadHtml: mergedTableHtml.match(/<thead>.*<\/thead>/s)?.[0] || '',
+                        tbodyHtml: mergedTableHtml.match(/<tbody>.*<\/tbody>/s)?.[0] || '',
+                        tfootHtml: mergedTableHtml.match(/<tfoot>.*<\/tfoot>/s)?.[0] || '',
+                        notesHtml: currentTableMeta.notesHtml || nextTableMeta.notesHtml
+                    };
+                }
+            }
+
+            // Break the inner loop (standard behavior after checking next page)
+            break;
+        }
+
+        mergedPages.push(currentHtml);
+        i++;
+    }
+
+    console.debug(`\n=== mergeTablesAcrossPages complete, returning ${mergedPages.length} pages ===`);
+    return mergedPages;
 }
 
 async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pageNumeral, isIndex, isNewPageNumeral = true) {
@@ -968,7 +1221,7 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
 
     if (!zones || zones.length === 0) {
         console.warn(`No zones found for page ${pageNum}`);
-        return '';
+        return [maxEndnote, '', null, null];
     }
 
     buildFootnoteLookup(zones);
@@ -985,12 +1238,14 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
     // Track previous zone for potential paragraph merging
     let pendingParagraphContent = null;
 
-    for (let i = 0; i < zones.length; i++) {
-        const zone = zones[i];
+    // Track first and last table metadata for cross-page merging
+    let firstTableMetadata = null;
+    let lastTableMetadata = null;
 
-        // Skip table cells that have been merged into the table root
-        if (zone.skipInOutput) continue;
+    const visibleZones = zones.filter(z => !z.skipInOutput);
 
+    for (let i = 0; i < visibleZones.length; i++) {
+        const zone = visibleZones[i];
         let zoneHtml = zone.html || '';
 
         switch (zone.type) {
@@ -1001,6 +1256,15 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
                     pageHTML += `<p>${pendingParagraphContent}</p>`;
                     pendingParagraphContent = null;
                 }
+
+                // Track table metadata
+                if (zone.isTableRoot && zone.tableMetadata) {
+                    if (firstTableMetadata === null) {
+                        firstTableMetadata = zone.tableMetadata;
+                    }
+                    lastTableMetadata = zone.tableMetadata;
+                }
+
                 pageHTML += zoneHtml;
                 break;
 
@@ -1060,5 +1324,48 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
         pageHTML += `<p>${pendingParagraphContent}</p>`;
     }
 
-    return [maxEndnote, pageHTML];
+    // Find the last table on the page (for potential continuation on next page)
+    // Search backwards through all zones
+    let lastContentTableMetadata = null;
+    for (let j = visibleZones.length - 1; j >= 0; j--) {
+        const zone = visibleZones[j];
+        if (zone.type === 'TABLE' && zone.isTableRoot && zone.tableMetadata) {
+            lastContentTableMetadata = zone.tableMetadata;
+            break;
+        }
+    }
+
+    // Find first captionless table on page (potential continuation from previous page)
+    // Search forward through all zones
+    let firstContinuationTableMetadata = null;
+    for (const zone of visibleZones) {
+        if (zone.type === 'TABLE' && zone.isTableRoot && zone.tableMetadata) {
+            if (!zone.tableMetadata.hasCaption) {
+                firstContinuationTableMetadata = zone.tableMetadata;
+            }
+            // Stop at first TABLE - if it has a caption, it's not a continuation
+            break;
+        }
+    }
+
+    console.debug(`Page ${pageNum} table detection:`, {
+        lastContentTableMetadata: lastContentTableMetadata ? {
+            numCols: lastContentTableMetadata.numCols,
+            numRows: lastContentTableMetadata.numRows,
+            hasCaption: lastContentTableMetadata.hasCaption
+        } : null,
+        firstContinuationTableMetadata: firstContinuationTableMetadata ? {
+            numCols: firstContinuationTableMetadata.numCols,
+            numRows: firstContinuationTableMetadata.numRows,
+            hasCaption: firstContinuationTableMetadata.hasCaption
+        } : null,
+        visibleZoneTypes: visibleZones.map(z => z.type)
+    });
+
+    return [
+        maxEndnote,
+        pageHTML,
+        firstContinuationTableMetadata,
+        lastContentTableMetadata
+    ];
 }

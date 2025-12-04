@@ -516,9 +516,9 @@ async function extractPDFToXHTML(file) {
     }
 
     // Build Content
-    let docHTML = '';
     let maxEndnote = 0;
     let lastPageNumeral = null;
+    const pageResults = [];
 
     for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
         const progress = 50 + (pageNum / totalPages * 40);
@@ -533,11 +533,21 @@ async function extractPDFToXHTML(file) {
         // 2. Current numeral is not sequential (lastNum + 1)
         const isNewPageNumeral = (pageNum === 1) || isNaN(lastNum) || isNaN(currentNum) || (currentNum !== lastNum + 1);
 
-        let pageHTML;
-        [maxEndnote, pageHTML] = await processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, currentPageNumeral, false, isNewPageNumeral);
-        docHTML += pageHTML;
+        let pageHTML, firstContinuationTableMetadata, lastContentTableMetadata;
+        [maxEndnote, pageHTML, firstContinuationTableMetadata, lastContentTableMetadata] = await processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, currentPageNumeral, false, isNewPageNumeral);
+
+        pageResults.push({
+            html: pageHTML,
+            firstContinuationTableMetadata,
+            lastContentTableMetadata
+        });
+
         lastPageNumeral = currentPageNumeral;
     }
+
+    // Merge tables that span across pages
+    const mergedPages = mergeTablesAcrossPages(pageResults);
+    const docHTML = mergedPages.join('');
 
     updateExtractionUI(95, "Validating XHTML...", "Checking document structure");
     await new Promise(resolve => setTimeout(resolve, 0));
