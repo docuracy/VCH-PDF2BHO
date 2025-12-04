@@ -523,9 +523,16 @@ function mergeZoneItems(zones, defaultFont) {
         }
 
         // Handle TABLE zones with simplified processing
+        // BUT preserve items for 'notes' sections - they need special parsing in buildTables
         if (zone.type === 'TABLE') {
-            zone.html = mergeTableZoneItems(zone);
-            delete zone.items;
+            if (zone.section === 'notes') {
+                // Don't process notes yet - buildTables will handle them with parseTableNotes
+                zone.html = '';
+                // Keep zone.items for later parsing
+            } else {
+                zone.html = mergeTableZoneItems(zone);
+                delete zone.items;
+            }
             return;
         }
 
@@ -733,6 +740,95 @@ function mergeZoneItems(zones, defaultFont) {
 }
 
 /**
+ * Parse table notes into a structured list.
+ * Notes typically start with an integer, and continuation lines don't.
+ * Returns HTML as an ordered list.
+ */
+function parseTableNotes(notesZones) {
+    if (notesZones.length === 0) return '';
+
+    // Collect all items from all notes zones, preserving line structure
+    const allLines = [];
+    notesZones.forEach(c => {
+        if (c.zone.items && c.zone.items.length > 0) {
+            allLines.push(...c.zone.items);
+        }
+    });
+
+    if (allLines.length === 0) return '';
+
+    // Parse lines into numbered notes
+    const notes = [];
+    let currentNote = null;
+    let currentNoteNum = null;
+
+    allLines.forEach(line => {
+        if (line.length === 0) return;
+
+        const firstItem = line[0];
+        const firstStr = firstItem.str.trim();
+
+        // Check if line starts with an integer
+        const numMatch = firstStr.match(/^(\d+)$/);
+
+        if (numMatch) {
+            // Save previous note if exists
+            if (currentNote !== null && currentNote.length > 0) {
+                notes.push({ num: currentNoteNum, items: currentNote });
+            }
+
+            // Start new note - skip the number itself, take rest of line
+            currentNoteNum = parseInt(numMatch[1]);
+            currentNote = line.slice(1);
+        } else if (currentNote !== null) {
+            // Continuation of current note
+            currentNote.push(...line);
+        } else {
+            // Text before first numbered note - start note 0
+            currentNoteNum = 0;
+            currentNote = [...line];
+        }
+    });
+
+    // Don't forget the last note
+    if (currentNote !== null && currentNote.length > 0) {
+        notes.push({ num: currentNoteNum, items: currentNote });
+    }
+
+    if (notes.length === 0) return '';
+
+    // Build HTML - use ordered list if we have numbered notes
+    const hasNumberedNotes = notes.some(n => n.num > 0);
+
+    if (hasNumberedNotes) {
+        // Find the starting number
+        const startNum = Math.min(...notes.filter(n => n.num > 0).map(n => n.num));
+
+        const listItems = notes.map(note => {
+            const text = flushTableCellBuffer(note.items);
+            if (note.num === 0) {
+                // Unnumbered preamble - output before the list
+                return null;
+            }
+            return `<li value="${note.num}">${text}</li>`;
+        }).filter(Boolean);
+
+        // Check for preamble (note with num 0)
+        const preamble = notes.find(n => n.num === 0);
+        let preambleHtml = '';
+        if (preamble) {
+            preambleHtml = `<p>${flushTableCellBuffer(preamble.items)}</p>`;
+        }
+
+        return `${preambleHtml}<ol class="table-notes" start="${startNum}">${listItems.join('')}</ol>`;
+    } else {
+        // No numbered notes - just output as paragraph
+        const allItems = notes.flatMap(n => n.items);
+        return flushTableCellBuffer(allItems);
+    }
+}
+
+/**
  * Build HTML tables from TABLE zones using segmentation attributes.
  *
  * Each TABLE zone has attributes from segmentation:
@@ -835,12 +931,12 @@ function buildTables(zones) {
             tbodyHtml = `<tbody>${rows}</tbody>`;
         }
 
-        // Build notes HTML (as tfoot)
+        // Build notes HTML (as tfoot) - parse numbered list structure
         let tfootHtml = '';
         if (notes.length > 0) {
-            const notesText = notes.map(c => c.zone.html || '').join(' ').trim();
-            if (notesText) {
-                tfootHtml = `<tfoot><tr><td colspan="${numCols || 1}">${notesText}</td></tr></tfoot>`;
+            const notesHtml = parseTableNotes(notes);
+            if (notesHtml) {
+                tfootHtml = `<tfoot><tr><td colspan="${numCols || 1}">${notesHtml}</td></tr></tfoot>`;
             }
         }
 
