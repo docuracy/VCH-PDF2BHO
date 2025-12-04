@@ -525,3 +525,226 @@ function headerFooterAndFonts(pageNum, masterFontMap, defaultFont, headerFontSiz
     localStorage.setItem(`page-${pageNum}-zones`,
         LZString.compressToUTF16(JSON.stringify(zones)));
 }
+
+async function extractImagesFromPDF(pdf, updateProgress, maxDimension = 4096) {
+    if (typeof JSZip === 'undefined') throw new Error("JSZip is not loaded");
+
+    const zip = new JSZip();
+    const totalPages = pdf.numPages;
+    let figureCount = 0;
+    let nativeCount = 0;
+    let renderedCount = 0;
+
+    for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+        const zonesData = localStorage.getItem(`page-${pageNum}-zones`);
+        if (!zonesData) continue;
+
+        const zones = JSON.parse(LZString.decompressFromUTF16(zonesData));
+        const figureBlocks = zones.filter(z => z.type === "FIGURE");
+        if (!figureBlocks.length) continue;
+
+        const page = await pdf.getPage(pageNum);
+        const viewport = page.getViewport({ scale: 1 });
+
+        const embeddedImages = await getEmbeddedImagesWithData(page, viewport);
+
+        // Check if any figures need rendering
+        const needsRender = figureBlocks.some(block => !findMatchingImage(block, embeddedImages));
+
+        let fullCanvas = null;
+        let renderScale = null;
+
+        if (needsRender) {
+            const unmatched = figureBlocks.filter(b => !findMatchingImage(b, embeddedImages));
+            const maxBlockDim = Math.max(...unmatched.flatMap(b => [b.width, b.height]));
+            renderScale = Math.min(maxDimension / maxBlockDim, 10);
+
+            const scaledViewport = page.getViewport({ scale: renderScale });
+            fullCanvas = document.createElement("canvas");
+            fullCanvas.width = scaledViewport.width;
+            fullCanvas.height = scaledViewport.height;
+            const ctx = fullCanvas.getContext("2d");
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(0, 0, fullCanvas.width, fullCanvas.height);
+
+            await page.render({
+                canvasContext: ctx,
+                viewport: scaledViewport
+            }).promise;
+        }
+
+        for (let counter = 1; counter <= figureBlocks.length; counter++) {
+            const block = figureBlocks[counter - 1];
+            const matchedImage = findMatchingImage(block, embeddedImages);
+
+            let blob;
+            if (matchedImage) {
+                blob = await extractNativeImage(matchedImage);
+                nativeCount++;
+            } else {
+                blob = await cropFromCanvas(fullCanvas, block, renderScale);
+                renderedCount++;
+            }
+
+            if (blob) {
+                figureCount++;
+                zip.file(`page-${pageNum}-figure-${counter}.png`, await blob.arrayBuffer());
+            }
+        }
+
+        // Release memory
+        fullCanvas = null;
+
+        // Update progress
+        if (updateProgress) {
+            const percent = Math.round((pageNum / totalPages) * 100);
+            updateProgress(
+                percent,
+                `Extracting images: page ${pageNum}/${totalPages}`,
+                `Page ${pageNum}: ${figureBlocks.length} figure(s) processed`
+            );
+        }
+    }
+
+    // Final summary
+    if (updateProgress) {
+        updateProgress(
+            100,
+            "Image extraction complete",
+            `Extracted ${figureCount} figures (${nativeCount} native, ${renderedCount} rendered)`
+        );
+    }
+
+    return await zip.generateAsync({ type: "blob" });
+}
+
+async function getEmbeddedImagesWithData(page, viewport) {
+    const operatorList = await page.getOperatorList();
+    const images = [];
+
+    for (let i = 0; i < operatorList.fnArray.length; i++) {
+        if (operatorList.fnArray[i] !== pdfjsLib.OPS.paintImageXObject) continue;
+
+        const imageName = operatorList.argsArray[i][0];
+
+        // Find the preceding transform (usually at i-2)
+        let transform = null;
+        for (let j = i - 1; j >= Math.max(0, i - 5); j--) {
+            if (operatorList.fnArray[j] === pdfjsLib.OPS.transform) {
+                transform = operatorList.argsArray[j];
+                break;
+            }
+        }
+
+        if (!transform) continue;
+
+        try {
+            const imageData = await page.objs.get(imageName);
+            if (!imageData || !imageData.data) continue;
+
+            const [a, b, c, d, e, f] = transform;
+
+            // Calculate bounding box in screen coordinates
+            let x = e;
+            let y = viewport.height - f - Math.abs(d);
+            let width = Math.abs(a);
+            let height = Math.abs(d);
+
+            // Handle rotation/skew if present
+            if (b !== 0 || c !== 0) {
+                width = Math.sqrt(a * a + b * b);
+                height = Math.sqrt(c * c + d * d);
+            }
+
+            images.push({
+                name: imageName,
+                imageData: imageData,
+                width: imageData.width,
+                height: imageData.height,
+                kind: imageData.kind,
+                // Bounding box in screen coordinates
+                bounds: { x, y, width, height }
+            });
+        } catch (e) {
+            console.warn(`Could not load image ${imageName}:`, e);
+        }
+    }
+
+    return images;
+}
+
+function findMatchingImage(block, embeddedImages, overlapThreshold = 0.5) {
+    // Find an embedded image whose bounds substantially overlap the zone
+    const blockArea = block.width * block.height;
+
+    for (const img of embeddedImages) {
+        const b = img.bounds;
+
+        // Calculate intersection
+        const xOverlap = Math.max(0, Math.min(block.x + block.width, b.x + b.width) - Math.max(block.x, b.x));
+        const yOverlap = Math.max(0, Math.min(block.y + block.height, b.y + b.height) - Math.max(block.y, b.y));
+        const intersection = xOverlap * yOverlap;
+
+        // Check if intersection covers enough of the zone
+        const overlapRatio = intersection / blockArea;
+
+        if (overlapRatio >= overlapThreshold) {
+            return img;
+        }
+    }
+
+    return null;
+}
+
+async function extractNativeImage(img) {
+    const canvas = document.createElement("canvas");
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const ctx = canvas.getContext("2d");
+    const imgData = ctx.createImageData(img.width, img.height);
+
+    const src = img.imageData.data;
+    const dst = imgData.data;
+
+    if (img.kind === 1) {
+        // Grayscale
+        for (let j = 0; j < src.length; j++) {
+            const idx = j * 4;
+            dst[idx] = dst[idx + 1] = dst[idx + 2] = src[j];
+            dst[idx + 3] = 255;
+        }
+    } else if (img.kind === 2) {
+        // RGB
+        for (let j = 0; j < src.length / 3; j++) {
+            const srcIdx = j * 3;
+            const dstIdx = j * 4;
+            dst[dstIdx] = src[srcIdx];
+            dst[dstIdx + 1] = src[srcIdx + 1];
+            dst[dstIdx + 2] = src[srcIdx + 2];
+            dst[dstIdx + 3] = 255;
+        }
+    } else {
+        // RGBA
+        dst.set(src);
+    }
+
+    ctx.putImageData(imgData, 0, 0);
+    return new Promise(resolve => canvas.toBlob(resolve, "image/png"));
+}
+
+function cropFromCanvas(fullCanvas, block, scale) {
+    const cropCanvas = document.createElement("canvas");
+    cropCanvas.width = Math.ceil(block.width * scale);
+    cropCanvas.height = Math.ceil(block.height * scale);
+    const ctx = cropCanvas.getContext("2d");
+
+    ctx.drawImage(
+        fullCanvas,
+        block.x * scale, block.y * scale,
+        block.width * scale, block.height * scale,
+        0, 0,
+        cropCanvas.width, cropCanvas.height
+    );
+
+    return new Promise(resolve => cropCanvas.toBlob(resolve, "image/png"));
+}

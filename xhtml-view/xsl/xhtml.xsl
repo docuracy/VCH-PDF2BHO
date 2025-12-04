@@ -317,7 +317,7 @@
                         </xsl:choose>
                     </xsl:attribute>
 
-                    <xsl:attribute name="onerror">this.onerror=null; this.src='../images/fallback-image.jpg';</xsl:attribute>
+                    <xsl:attribute name="onerror">this.onerror=null; this.src='../images/fallback-image.png';</xsl:attribute>
 
                     <xsl:apply-templates select="@*[name() != 'src' and name() != 'alt']"/>
                 </img>

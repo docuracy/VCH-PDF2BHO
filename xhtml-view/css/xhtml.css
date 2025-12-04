@@ -209,6 +209,11 @@ figure {
     margin: 20px 0;
 }
 
+figure img {
+    max-width: 100%;
+    height: auto;
+}
+
 figcaption {
     font-size: 0.9em;
     margin-top: 10px;

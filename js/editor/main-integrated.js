@@ -553,7 +553,15 @@ async function extractPDFToXHTML(file) {
     await new Promise(resolve => setTimeout(resolve, 0));
 
     extractedXHTML = convertHTMLToXHTML(docHTML, file.name);
-    clearPDFStorage();
+
+    updateExtractionUI(90, "Extracting images...", "Scanning for figures");
+    const zippedImages = await extractImagesFromPDF(pdf, (percent, status, log) => {
+        const mappedPercent = 90 + Math.round(percent * 0.08); // 90-98%
+        updateExtractionUI(mappedPercent, status, log);
+    });
+
+    updateExtractionUI(99, "Finalizing...", "Preparing download");
+
 
     updateExtractionUI(100, "Extraction complete!", `Successfully extracted ${totalPages} pages`);
     const loadBtn = document.getElementById('extraction-load');
@@ -561,6 +569,16 @@ async function extractPDFToXHTML(file) {
     if (loadBtn) loadBtn.style.display = 'inline-block';
     if (closeBtn) closeBtn.style.display = 'inline-block';
 
+    const url = URL.createObjectURL(zippedImages);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "extracted-images.zip";
+    document.body.appendChild(a); // required in Firefox
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    clearPDFStorage();
     setTimeout(() => {
         if (extractedXHTML) loadExtractedXHTML();
     }, 2000);
