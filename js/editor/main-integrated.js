@@ -92,6 +92,17 @@ window.addEventListener("DOMContentLoaded", async () => {
         templateSelector.addEventListener('change', async (e) => {
             const filename = e.target.value;
             const url = `./xhtml-view/${filename}`;
+
+            // Switch to Edit tab if we're on Preview tab
+            const previewTab = document.getElementById("preview-tab");
+            const editTab = document.getElementById("edit-tab");
+            if (previewTab.classList.contains("active")) {
+                previewTab.classList.remove("active");
+                editTab.classList.add("active");
+                document.getElementById("preview-container").style.display = "none";
+                document.getElementById("edit-container").style.display = "block";
+            }
+
             try {
                 const resp = await fetch(url);
                 if (resp.ok) {
