@@ -1,10 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<xsl:stylesheet version="1.0"
+<xsl:stylesheet version="3.0"
                 xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
                 xmlns:xhtml="http://www.w3.org/1999/xhtml"
-                exclude-result-prefixes="xhtml">
+                xmlns:xs="http://www.w3.org/2001/XMLSchema"
+                xmlns:local="http://local-functions"
+                exclude-result-prefixes="xhtml xs local">
 
-    <xsl:output method="html" encoding="UTF-8" indent="yes"/>
+    <xsl:output method="html" encoding="UTF-8" indent="yes" html-version="5"/>
 
     <!-- Capture metadata from article element -->
     <xsl:variable name="pubid" select="//xhtml:article/@data-pubid"/>
@@ -13,6 +15,9 @@
 
     <!-- Cache expensive queries -->
     <xsl:variable name="all-data" select="//xhtml:data"/>
+
+    <!-- Pre-index footnotes for O(1) lookup instead of O(n) counting -->
+    <xsl:key name="data-by-id" match="xhtml:data" use="generate-id()"/>
 
     <!-- Identity template for generic pass-through -->
     <xsl:template match="@*|node()">
@@ -51,7 +56,34 @@
                                 <h2>Notes</h2>
                             </header>
                             <ul>
-                                <xsl:apply-templates select="$all-data" mode="footnotes"/>
+                                <xsl:choose>
+                                    <!-- If pre-processed, use the attributes -->
+                                    <xsl:when test="$all-data[1]/@data-fn-num">
+                                        <xsl:for-each select="$all-data">
+                                            <xsl:variable name="n" select="@data-fn-num"/>
+                                            <li class="footnote" id="fnn{$n}" value="{$n}" role="doc-endnote">
+                                                <a href="#fnr{$n}" role="doc-backlink" aria-label="Back to reference {$n}">
+                                                    <xsl:value-of select="$n"/>
+                                                    <xsl:text>.</xsl:text>
+                                                </a>
+                                                <xsl:apply-templates select="node()"/>
+                                            </li>
+                                        </xsl:for-each>
+                                    </xsl:when>
+                                    <!-- Otherwise use position() -->
+                                    <xsl:otherwise>
+                                        <xsl:for-each select="$all-data">
+                                            <xsl:variable name="n" select="position()"/>
+                                            <li class="footnote" id="fnn{$n}" value="{$n}" role="doc-endnote">
+                                                <a href="#fnr{$n}" role="doc-backlink" aria-label="Back to reference {$n}">
+                                                    <xsl:value-of select="$n"/>
+                                                    <xsl:text>.</xsl:text>
+                                                </a>
+                                                <xsl:apply-templates select="node()"/>
+                                            </li>
+                                        </xsl:for-each>
+                                    </xsl:otherwise>
+                                </xsl:choose>
                             </ul>
                         </section>
                     </footer>
@@ -116,14 +148,12 @@
 
     <!-- Generate unique section IDs based on position in hierarchy -->
     <xsl:template name="generate-section-id">
-        <xsl:variable name="depth" select="count(ancestor::xhtml:section) + 1"/>
         <xsl:text>section-</xsl:text>
-        <xsl:for-each select="ancestor-or-self::xhtml:section">
-            <xsl:value-of select="count(preceding-sibling::xhtml:section) + 1"/>
-            <xsl:if test="position() != last()">
-                <xsl:text>-</xsl:text>
-            </xsl:if>
-        </xsl:for-each>
+        <xsl:value-of select="string-join(
+            for $s in ancestor-or-self::xhtml:section
+            return string(count($s/preceding-sibling::xhtml:section) + 1),
+            '-'
+        )"/>
     </xsl:template>
 
     <!-- Process article element -->
@@ -175,23 +205,25 @@
     <xsl:template match="xhtml:section/xhtml:header"/>
 
     <!-- Helper template to extract filename from path -->
-    <xsl:template name="get-filename">
-        <xsl:param name="path"/>
-        <xsl:choose>
-            <xsl:when test="contains($path, '/')">
-                <xsl:call-template name="get-filename">
-                    <xsl:with-param name="path" select="substring-after($path, '/')"/>
-                </xsl:call-template>
-            </xsl:when>
-            <xsl:otherwise>
-                <xsl:value-of select="$path"/>
-            </xsl:otherwise>
-        </xsl:choose>
-    </xsl:template>
+    <xsl:function name="local:get-filename" as="xs:string">
+        <xsl:param name="path" as="xs:string"/>
+        <xsl:sequence select="tokenize($path, '/')[last()]"/>
+    </xsl:function>
 
     <!-- Convert <data> in text to inline footnote link with title attribute -->
     <xsl:template match="xhtml:data">
-        <xsl:variable name="n" select="count(preceding::xhtml:data) + 1"/>
+        <xsl:variable name="n">
+            <xsl:choose>
+                <!-- Use pre-processed number if available -->
+                <xsl:when test="@data-fn-num">
+                    <xsl:value-of select="@data-fn-num"/>
+                </xsl:when>
+                <!-- Fall back to expensive counting -->
+                <xsl:otherwise>
+                    <xsl:value-of select="index-of($all-data/generate-id(), generate-id(.))"/>
+                </xsl:otherwise>
+            </xsl:choose>
+        </xsl:variable>
         <a class="footnote" href="#fnn{$n}" id="fnr{$n}" title="{.}" role="doc-noteref" aria-label="Footnote {$n}">
             <xsl:text> (fn. </xsl:text>
             <xsl:value-of select="$n"/>
@@ -199,34 +231,31 @@
         </a>
     </xsl:template>
 
-    <!-- Collect footnotes at bottom as ordered list items -->
-    <xsl:template match="xhtml:data" mode="footnotes">
-        <xsl:variable name="n" select="count(preceding::xhtml:data) + 1"/>
-        <li class="footnote" id="fnn{$n}" value="{$n}" role="doc-endnote">
-            <a href="#fnr{$n}" role="doc-backlink" aria-label="Back to reference {$n}">
-                <xsl:value-of select="$n"/>
-                <xsl:text>.</xsl:text>
-            </a>
-            <xsl:apply-templates/>
-        </li>
-    </xsl:template>
-
     <!-- Page breaks: transform hr.page-break to page marker -->
     <xsl:template match="xhtml:hr[@class='page-break']">
         <xsl:variable name="page-num">
             <xsl:choose>
-                <xsl:when test="@data-start">
-                    <xsl:value-of select="@data-start"/>
+                <!-- Use pre-processed number if available -->
+                <xsl:when test="@data-page-num">
+                    <xsl:value-of select="@data-page-num"/>
                 </xsl:when>
+                <!-- Fall back to expensive calculation -->
                 <xsl:otherwise>
-                    <xsl:variable name="last-reset" select="preceding::xhtml:hr[@class='page-break'][@data-start][1]/@data-start"/>
                     <xsl:choose>
-                        <xsl:when test="$last-reset">
-                            <xsl:variable name="pages-since-reset" select="count(preceding::xhtml:hr[@class='page-break'][preceding::xhtml:hr[@class='page-break'][@data-start][1]/@data-start = $last-reset]) + 1"/>
-                            <xsl:value-of select="number($last-reset) + $pages-since-reset"/>
+                        <xsl:when test="@data-start">
+                            <xsl:value-of select="@data-start"/>
                         </xsl:when>
                         <xsl:otherwise>
-                            <xsl:value-of select="count(preceding::xhtml:hr[@class='page-break']) + 1"/>
+                            <xsl:variable name="last-reset" select="preceding::xhtml:hr[@class='page-break'][@data-start][1]/@data-start"/>
+                            <xsl:choose>
+                                <xsl:when test="$last-reset">
+                                    <xsl:variable name="pages-since-reset" select="count(preceding::xhtml:hr[@class='page-break'][preceding::xhtml:hr[@class='page-break'][@data-start][1]/@data-start = $last-reset]) + 1"/>
+                                    <xsl:value-of select="xs:integer($last-reset) + $pages-since-reset"/>
+                                </xsl:when>
+                                <xsl:otherwise>
+                                    <xsl:value-of select="count(preceding::xhtml:hr[@class='page-break']) + 1"/>
+                                </xsl:otherwise>
+                            </xsl:choose>
                         </xsl:otherwise>
                     </xsl:choose>
                 </xsl:otherwise>
@@ -275,9 +304,7 @@
             </xsl:choose>
         </xsl:variable>
 
-        <xsl:variable name="alt-text">
-            <xsl:value-of select="xhtml:figcaption"/>
-        </xsl:variable>
+        <xsl:variable name="alt-text" select="string(xhtml:figcaption)"/>
 
         <figure role="figure" aria-label="Figure {$fig-num}">
             <xsl:apply-templates select="@*"/>
@@ -287,36 +314,15 @@
                 <img>
                     <xsl:choose>
                         <xsl:when test="starts-with($original-src, 'data:')">
-                            <xsl:attribute name="src">
-                                <xsl:value-of select="$original-src"/>
-                            </xsl:attribute>
+                            <xsl:attribute name="src" select="$original-src"/>
                         </xsl:when>
                         <xsl:otherwise>
-                            <xsl:variable name="filename">
-                                <xsl:call-template name="get-filename">
-                                    <xsl:with-param name="path" select="$original-src"/>
-                                </xsl:call-template>
-                            </xsl:variable>
-                            <xsl:attribute name="src">
-                                <xsl:text>/sites/default/files/publications/pubid-</xsl:text>
-                                <xsl:value-of select="$pubid"/>
-                                <xsl:text>/images/</xsl:text>
-                                <xsl:value-of select="$filename"/>
-                            </xsl:attribute>
+                            <xsl:variable name="filename" select="local:get-filename($original-src)"/>
+                            <xsl:attribute name="src" select="concat('/sites/default/files/publications/pubid-', $pubid, '/images/', $filename)"/>
                         </xsl:otherwise>
                     </xsl:choose>
 
-                    <xsl:attribute name="alt">
-                        <xsl:choose>
-                            <xsl:when test="@alt">
-                                <xsl:value-of select="@alt"/>
-                            </xsl:when>
-                            <xsl:otherwise>
-                                <xsl:value-of select="$alt-text"/>
-                            </xsl:otherwise>
-                        </xsl:choose>
-                    </xsl:attribute>
-
+                    <xsl:attribute name="alt" select="if (@alt) then @alt else $alt-text"/>
                     <xsl:attribute name="onerror">this.onerror=null; this.src='./images/fallback-image.png';</xsl:attribute>
 
                     <xsl:apply-templates select="@*[name() != 'src' and name() != 'alt']"/>

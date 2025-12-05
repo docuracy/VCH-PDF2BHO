@@ -1,6 +1,6 @@
 export async function generatePreview(xhtml) {
     const sizeKB = xhtml.length / 1024;
-    console.log("XHTML length:", xhtml?.length);
+    console.info(`Generating preview for XHTML of size ${sizeKB.toFixed(2)} KB`);
 
     // Clear the iframe first
     const iframe = document.getElementById("preview-frame");
@@ -58,7 +58,7 @@ export async function generatePreview(xhtml) {
   <div class="loading-container">
     <div class="spinner"></div>
     <div class="loading-text">Transforming document...</div>
-    <div class="loading-detail">${sizeKB.toFixed(0)} KB - This may take several minutes.</div>
+    <div class="loading-detail">${sizeKB.toFixed(0)} KB.</div>
   </div>
 </body>
 </html>`);
@@ -94,14 +94,43 @@ async function generatePreviewWithSaxonJS(xmlString) {
     const sefUrl = "./xhtml-view/xsl/xhtml.sef.json";
 
     try {
+        console.time('Total');
+        console.log("Pre-processing XHTML for performance...");
+        // The XSLT is programmed to work without this step, but it speeds up processing significantly
+
+        // Pre-process to add numbers
+        console.time('Pre-processing time');
+        const parser = new DOMParser();
+        let doc = parser.parseFromString(xmlString, "application/xml");
+
+        // Number footnotes
+        const footnotes = doc.querySelectorAll('data');
+        footnotes.forEach((fn, i) => fn.setAttribute('data-fn-num', i + 1));
+
+        // Number pages
+        let pageNum = 1;
+        const pages = doc.querySelectorAll('hr[class="page-break"]');
+        pages.forEach(hr => {
+            if (hr.hasAttribute('data-start')) {
+                pageNum = parseInt(hr.getAttribute('data-start'));
+            }
+            hr.setAttribute('data-page-num', pageNum);
+            pageNum++;
+        });
+
+        const preprocessed = new XMLSerializer().serializeToString(doc);
+        console.timeEnd('Pre-processing time');
+
         console.log("Loading SEF file:", sefUrl);
 
         // Run XSLT 3.0 - use "serialized" for HTML string output
+        console.time('1. SaxonJS transform');
         const result = await window.SaxonJS.transform({
             stylesheetLocation: sefUrl,
-            sourceText: xmlString,
+            sourceText: preprocessed,
             destination: "serialized"
         }, "async");
+        console.timeEnd('1. SaxonJS transform');
 
         console.log("SaxonJS transformation complete");
 
@@ -114,6 +143,7 @@ async function generatePreviewWithSaxonJS(xmlString) {
 
         console.log("HTML output length:", htmlOutput.length);
 
+        console.time('2. Cleanup HTML');
         // Clean up for HTML5:
         // 1. Remove XML declaration
         htmlOutput = htmlOutput.replace(/<\?xml[^?]*\?>\s*/i, '');
@@ -129,8 +159,10 @@ async function generatePreviewWithSaxonJS(xmlString) {
                 '<link rel="stylesheet" href="./xhtml-view/css/xhtml.css"/>\n</head>'
             );
         }
+        console.timeEnd('2. Cleanup HTML');
 
         // Write cleanly to iframe
+        console.time('3. Write to iframe');
         const iframe = document.getElementById("preview-frame");
 
         // Clear the timer interval if it exists
@@ -138,12 +170,15 @@ async function generatePreviewWithSaxonJS(xmlString) {
             clearInterval(iframe.contentWindow.loadingTimerInterval);
         }
 
-        const doc = iframe.contentDocument;
+        doc = iframe.contentDocument;
         doc.open();
         doc.write(htmlOutput);
         doc.close();
 
         window.transformedHTML = doc.documentElement.outerHTML;
+
+        console.timeEnd('3. Write to iframe');
+        console.timeEnd('Total');
 
         console.log("SaxonJS preview rendered successfully");
 
