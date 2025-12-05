@@ -2,6 +2,7 @@ import {editor, formatDocument, clearAutoSave} from "./editor.js";
 import {generatePreview, convertToBHO} from "./preview.js";
 import {validateXML} from "./validator.js";
 import {convertToNestedSections} from "./convert-to-sections.js";
+import {transformBHOHTML, isBHOHTML} from "./bho-html-transform.js";
 
 // Expose formatDocument globally for the button
 window.formatDocument = formatDocument;
@@ -47,6 +48,37 @@ function showTempModal(title, message, duration = 2500) {
     setTimeout(() => {
         modal.hide();
     }, duration);
+}
+
+// Helper to show a loading modal (for BHO HTML transformation)
+function showLoadingModal(title, message) {
+    const modalEl = document.getElementById('notification-modal');
+    if (!modalEl) {
+        console.warn("Notification modal element not found in DOM");
+        return null;
+    }
+
+    // Force high z-index
+    modalEl.style.zIndex = "1070";
+
+    // Update text
+    const titleEl = document.getElementById('notification-title');
+    const msgEl = document.getElementById('notification-message');
+    if (titleEl) titleEl.textContent = title;
+    if (msgEl) msgEl.textContent = message;
+
+    // Create or retrieve modal instance
+    let modal = bootstrap.Modal.getInstance(modalEl);
+    if (!modal) {
+        modal = new bootstrap.Modal(modalEl, {
+            backdrop: 'static', // Don't allow closing during transformation
+            keyboard: false,
+            focus: false
+        });
+    }
+
+    modal.show();
+    return modal;
 }
 
 // Initialize on load
@@ -213,6 +245,7 @@ if (previewTab) {
 }
 
 // ===== FILE HANDLING =====
+// ===== FILE HANDLING =====
 const fileInput = document.getElementById("file-input");
 if (fileInput) {
     fileInput.addEventListener("change", async (e) => {
@@ -234,8 +267,72 @@ if (fileInput) {
         if (extension === 'pdf') {
             // Trigger PDF extraction workflow
             await handlePDFExtraction(file);
+        } else if (extension === 'html' || extension === 'htm') {
+            // Handle HTML files - check if BHO HTML format
+            const htmlText = await file.text();
+
+            // Check if this is BHO HTML
+            if (isBHOHTML(htmlText)) {
+                console.log("Detected BHO HTML - transforming to XHTML...");
+
+                // Show loading modal
+                const loadingModal = showLoadingModal(
+                    "Transforming BHO HTML",
+                    "Converting HTML to BHO XHTML format..."
+                );
+
+                try {
+                    // Transform using SaxonJS
+                    const xhtmlText = await transformBHOHTML(htmlText);
+
+                    // Load transformed XHTML into editor
+                    editor.dispatch({
+                        changes: {from: 0, to: editor.state.doc.length, insert: xhtmlText}
+                    });
+
+                    // Force update local storage
+                    localStorage.setItem("vch_editor_content", xhtmlText);
+                    updateFileDisplay(file.name.replace(/\.html?$/i, '.xhtml'));
+
+                    // Hide loading modal and show success
+                    if (loadingModal) {
+                        loadingModal.hide();
+                    }
+                    showTempModal("Success", "BHO HTML transformed to XHTML", 2000);
+
+                } catch (error) {
+                    console.error("BHO transformation failed:", error);
+
+                    // Hide loading modal
+                    if (loadingModal) {
+                        loadingModal.hide();
+                    }
+
+                    // Show error and ask if user wants to load untransformed
+                    const loadAnyway = confirm(
+                        `BHO HTML transformation failed:\n\n${error.message}\n\n` +
+                        `Would you like to load the HTML file without transformation?`
+                    );
+
+                    if (loadAnyway) {
+                        editor.dispatch({
+                            changes: {from: 0, to: editor.state.doc.length, insert: htmlText}
+                        });
+                        localStorage.setItem("vch_editor_content", htmlText);
+                        updateFileDisplay(file.name);
+                    }
+                }
+            } else {
+                // Regular HTML - load directly
+                console.log("Loading HTML file (not BHO format)");
+                editor.dispatch({
+                    changes: {from: 0, to: editor.state.doc.length, insert: htmlText}
+                });
+                localStorage.setItem("vch_editor_content", htmlText);
+                updateFileDisplay(file.name);
+            }
         } else {
-            // Load text file directly
+            // Load other text files directly (XHTML, XML, etc.)
             const text = await file.text();
             editor.dispatch({
                 changes: {from: 0, to: editor.state.doc.length, insert: text}
