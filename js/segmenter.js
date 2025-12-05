@@ -2,7 +2,16 @@
 // Description: Hybrid Layout Analysis - Multi-Line Title / Boxed-Figure / Expanded-Table / Split-Body (RLSA-Only) / Constrained-Footer
 // Extended with table cell segmentation
 
-self.importScripts('./opencv.js');
+self.Module = {
+    locateFile(path) {
+        if (path.endsWith(".wasm")) {
+            return "library/opencv_js.wasm";
+        }
+        return path;
+    }
+};
+
+self.importScripts('library/opencv.js');
 
 cv.onRuntimeInitialized = () => {
     console.debug('OpenCV (Worker) loaded and ready');

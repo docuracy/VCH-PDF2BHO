@@ -240,11 +240,9 @@ function joinItemsWithDehyphenation(items) {
     const prefixesToKeep = /^(mid|early|late|pre|post|non|ex|self|all|quasi|cross|counter|neo|semi|multi)$/i;
 
     // 2. SUFFIXES: If the next line starts with these, ALWAYS remove hyphen (e.g., "cross-ing")
-    // This fixes your "cross-ings" issue automatically without listing every word.
     const commonSuffixes = /^(ing|ings|ed|er|est|ist|ism|ment|tion|sional|tural|ance|ence|ly|ness)$/i;
 
     // 3. EXCEPTIONS: Specific full words that start with a prefix but should have NO hyphen.
-    // Add words here that fail the logic above.
     const solidCompounds = new Set([
         'crossroad', 'crossroads', 'crossword', 'crossover',
         'middleware', 'midnight', 'midsummer',
@@ -252,34 +250,82 @@ function joinItemsWithDehyphenation(items) {
         'semicolon', 'seminar'
     ]);
 
+    // ADAPTIVE GAP ANALYSIS
+    // Collect gaps between items on the same line to determine typical word spacing
+    const gaps = [];
+
+    for (let i = 0; i < items.length - 1; i++) {
+        const currentItem = items[i];
+        const nextItem = items[i + 1];
+
+        if (currentItem.top !== undefined && currentItem.bottom !== undefined &&
+            nextItem.top !== undefined && nextItem.bottom !== undefined &&
+            currentItem.left !== undefined && currentItem.width !== undefined &&
+            nextItem.left !== undefined) {
+
+            // Check if on same line
+            const verticalOverlap = Math.min(currentItem.bottom, nextItem.bottom) -
+                Math.max(currentItem.top, nextItem.top);
+            const currentHeight = currentItem.bottom - currentItem.top;
+            const onSameLine = verticalOverlap > (currentHeight * 0.5);
+
+            if (onSameLine) {
+                const gap = nextItem.left - (currentItem.left + currentItem.width);
+                if (gap >= 0) { // Only positive gaps
+                    gaps.push(gap);
+                }
+            }
+        }
+    }
+
+    // Calculate adaptive threshold
+    let adjacentThreshold = 2; // fallback default
+
+    if (gaps.length > 0) {
+        // Sort gaps to find the natural break between "adjacent" and "spaced"
+        gaps.sort((a, b) => a - b);
+
+        // The typical word gap is around the median or mean
+        // Adjacent items (like superscripts) will have much smaller gaps
+        const median = gaps[Math.floor(gaps.length / 2)];
+        const mean = gaps.reduce((a, b) => a + b, 0) / gaps.length;
+
+        // Use a threshold that's significantly smaller than typical word spacing
+        // Set it at 30% of the median gap, or the minimum gap if there's a clear cluster
+        adjacentThreshold = Math.min(median * 0.3, mean * 0.25);
+
+        // But ensure it's at least 0.5 pixels (for truly adjacent items)
+        adjacentThreshold = Math.max(0.5, adjacentThreshold);
+
+        console.debug(`Gap analysis: median=${median.toFixed(2)}, mean=${mean.toFixed(2)}, threshold=${adjacentThreshold.toFixed(2)}`);
+    }
+
     let result = '';
 
     for (let i = 0; i < items.length; i++) {
         let str = items[i].str;
+        const currentItem = items[i];
 
         // Ensure we are processing the hyphen correctly
-        // Some PDFs use a "Soft Hyphen" (\u00AD) or different dash types
         const hasHyphen = /[-\u00AD\u2010\u2011]\s*$/.test(str);
 
         if (i < items.length - 1 && hasHyphen) {
-
             // Clean the current part (remove hyphen and space)
             const currentPart = str.replace(/[-\u00AD\u2010\u2011]\s*$/, '');
             const currentLower = currentPart.toLowerCase();
 
             // Look ahead to the next item
             const nextStr = items[i+1].str.trim();
-            // Get just the first word of the next line, stripping punctuation (like "ings,")
             const nextFirstWord = nextStr.split(/[^a-zA-Z0-9]/)[0];
             const nextLower = nextFirstWord.toLowerCase();
 
-            const combinedWord = currentLower + nextLower; // e.g., "crossings"
+            const combinedWord = currentLower + nextLower;
 
             let keepHyphen = false;
 
             // --- LOGIC GATES ---
 
-            // Gate 1: Is the next part a suffix fragment? (e.g. "ings") -> REMOVE HYPHEN
+            // Gate 1: Is the next part a suffix fragment? -> REMOVE HYPHEN
             if (commonSuffixes.test(nextLower)) {
                 keepHyphen = false;
             }
@@ -289,9 +335,6 @@ function joinItemsWithDehyphenation(items) {
             }
             // Gate 3: Is the current part a special prefix? -> KEEP HYPHEN
             else if (prefixesToKeep.test(currentLower)) {
-                // Double check: modern English drops hyphens if the next letter is consonant
-                // unless it is the same letter (e.g. non-native vs nonnative).
-                // But generally, for your list, we default to keeping it.
                 keepHyphen = true;
             }
             // Gate 4: Default behavior for standard text -> REMOVE HYPHEN
@@ -300,21 +343,43 @@ function joinItemsWithDehyphenation(items) {
             }
 
             if (keepHyphen) {
-                // Ensure we output a standard hyphen, removing extra space
                 result += currentPart + '-';
             } else {
-                // Join them directly
                 result += currentPart;
             }
 
         } else {
-            // Not a hyphenated line break, just append
-            // If it's the last item, just add it
+            // Not a hyphenated line break
             if (i === items.length - 1) {
+                // Last item, just add it
                 result += str;
             } else {
-                // Standard space between words
-                result += str + ' ';
+                const nextItem = items[i + 1];
+
+                // Check if items are on the same line AND close together
+                let needsSpace = true;
+
+                if (currentItem.top !== undefined && currentItem.bottom !== undefined &&
+                    nextItem.top !== undefined && nextItem.bottom !== undefined &&
+                    currentItem.left !== undefined && currentItem.width !== undefined &&
+                    nextItem.left !== undefined) {
+
+                    // Items are on the same line if their vertical positions overlap significantly
+                    const verticalOverlap = Math.min(currentItem.bottom, nextItem.bottom) -
+                        Math.max(currentItem.top, nextItem.top);
+                    const currentHeight = currentItem.bottom - currentItem.top;
+                    const onSameLine = verticalOverlap > (currentHeight * 0.5);
+
+                    // If on same line, check horizontal gap against adaptive threshold
+                    if (onSameLine) {
+                        const gap = nextItem.left - (currentItem.left + currentItem.width);
+                        if (gap < adjacentThreshold) {
+                            needsSpace = false;
+                        }
+                    }
+                }
+
+                result += str + (needsSpace ? ' ' : '');
             }
         }
     }
@@ -583,11 +648,15 @@ function mergeZoneItems(zones, defaultFont) {
 
             // Detect caption start: non-italic integer followed by italic text
             let isCaptionStart = false;
-            if (!inCaption && !inHeading && /^\d+$/.test(firstItem.str.trim()) && !firstItem.italic) {
-                const hasItalicAfter = line.slice(1).some(item => item.italic);
-                if (hasItalicAfter) {
-                    isCaptionStart = true;
-                    console.debug(`Caption start detected at line ${lineIdx}: "${line.map(i => i.str).join(' ').substring(0, 50)}..."`);
+            if (!inCaption && !inHeading && /^\d+$/.test(firstItem.str.trim()) && !firstItem.italic && line.length > 1) {
+                const next = line[1];
+                if (next.italic) {
+                    // Enforce adjacency using exact PDF coordinates
+                    const gap = next.left - (firstItem.left + firstItem.width);
+                    if (gap >= 2) {
+                        isCaptionStart = true;
+                        console.debug(`Caption start detected at line ${lineIdx}: "${line.map(i => i.str).join(' ').substring(0, 50)}..."`);
+                    }
                 }
             }
 
