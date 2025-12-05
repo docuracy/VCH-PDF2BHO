@@ -250,61 +250,10 @@ function joinItemsWithDehyphenation(items) {
         'semicolon', 'seminar'
     ]);
 
-    // ADAPTIVE GAP ANALYSIS
-    // Collect gaps between items on the same line to determine typical word spacing
-    const gaps = [];
-
-    for (let i = 0; i < items.length - 1; i++) {
-        const currentItem = items[i];
-        const nextItem = items[i + 1];
-
-        if (currentItem.top !== undefined && currentItem.bottom !== undefined &&
-            nextItem.top !== undefined && nextItem.bottom !== undefined &&
-            currentItem.left !== undefined && currentItem.width !== undefined &&
-            nextItem.left !== undefined) {
-
-            // Check if on same line
-            const verticalOverlap = Math.min(currentItem.bottom, nextItem.bottom) -
-                Math.max(currentItem.top, nextItem.top);
-            const currentHeight = currentItem.bottom - currentItem.top;
-            const onSameLine = verticalOverlap > (currentHeight * 0.5);
-
-            if (onSameLine) {
-                const gap = nextItem.left - (currentItem.left + currentItem.width);
-                if (gap >= 0) { // Only positive gaps
-                    gaps.push(gap);
-                }
-            }
-        }
-    }
-
-    // Calculate adaptive threshold
-    let adjacentThreshold = 2; // fallback default
-
-    if (gaps.length > 0) {
-        // Sort gaps to find the natural break between "adjacent" and "spaced"
-        gaps.sort((a, b) => a - b);
-
-        // The typical word gap is around the median or mean
-        // Adjacent items (like superscripts) will have much smaller gaps
-        const median = gaps[Math.floor(gaps.length / 2)];
-        const mean = gaps.reduce((a, b) => a + b, 0) / gaps.length;
-
-        // Use a threshold that's significantly smaller than typical word spacing
-        // Set it at 30% of the median gap, or the minimum gap if there's a clear cluster
-        adjacentThreshold = Math.min(median * 0.3, mean * 0.25);
-
-        // But ensure it's at least 0.5 pixels (for truly adjacent items)
-        adjacentThreshold = Math.max(0.5, adjacentThreshold);
-
-        console.debug(`Gap analysis: median=${median.toFixed(2)}, mean=${mean.toFixed(2)}, threshold=${adjacentThreshold.toFixed(2)}`);
-    }
-
     let result = '';
 
     for (let i = 0; i < items.length; i++) {
         let str = items[i].str;
-        const currentItem = items[i];
 
         // Ensure we are processing the hyphen correctly
         const hasHyphen = /[-\u00AD\u2010\u2011]\s*$/.test(str);
@@ -350,36 +299,11 @@ function joinItemsWithDehyphenation(items) {
 
         } else {
             // Not a hyphenated line break
+            // Items are already merged if adjacent, so just add space between them
             if (i === items.length - 1) {
-                // Last item, just add it
                 result += str;
             } else {
-                const nextItem = items[i + 1];
-
-                // Check if items are on the same line AND close together
-                let needsSpace = true;
-
-                if (currentItem.top !== undefined && currentItem.bottom !== undefined &&
-                    nextItem.top !== undefined && nextItem.bottom !== undefined &&
-                    currentItem.left !== undefined && currentItem.width !== undefined &&
-                    nextItem.left !== undefined) {
-
-                    // Items are on the same line if their vertical positions overlap significantly
-                    const verticalOverlap = Math.min(currentItem.bottom, nextItem.bottom) -
-                        Math.max(currentItem.top, nextItem.top);
-                    const currentHeight = currentItem.bottom - currentItem.top;
-                    const onSameLine = verticalOverlap > (currentHeight * 0.5);
-
-                    // If on same line, check horizontal gap against adaptive threshold
-                    if (onSameLine) {
-                        const gap = nextItem.left - (currentItem.left + currentItem.width);
-                        if (gap < adjacentThreshold) {
-                            needsSpace = false;
-                        }
-                    }
-                }
-
-                result += str + (needsSpace ? ' ' : '');
+                result += str + ' ';
             }
         }
     }
@@ -585,6 +509,73 @@ function mergeTableZoneItems(zone) {
     return flushTableCellBuffer(buffer);
 }
 
+/**
+ * Calculate Jenks Natural Breaks for gap clustering.
+ * This finds the optimal split point that minimizes variance within clusters.
+ */
+function calculateJenksBreak(values, numClasses = 2) {
+    if (values.length < 3) return null;
+
+    const n = values.length;
+
+    // Sort values
+    const sorted = [...values].sort((a, b) => a - b);
+
+    // Initialize matrices
+    const lowerClassLimits = Array(n + 1).fill(0).map(() => Array(numClasses + 1).fill(0));
+    const varianceCombinations = Array(n + 1).fill(0).map(() => Array(numClasses + 1).fill(0));
+
+    // Initialize first row
+    for (let i = 1; i <= numClasses; i++) {
+        lowerClassLimits[1][i] = 1;
+        varianceCombinations[1][i] = 0;
+        for (let j = 2; j <= n; j++) {
+            varianceCombinations[j][i] = Infinity;
+        }
+    }
+
+    // Calculate variance for each possible class
+    for (let l = 2; l <= n; l++) {
+        let sum = 0;
+        let sumSquares = 0;
+        let w = 0;
+        let variance = 0;
+
+        for (let m = 1; m <= l; m++) {
+            const lm = l - m + 1;
+            const val = sorted[lm - 1];
+
+            w++;
+            sum += val;
+            sumSquares += val * val;
+
+            variance = sumSquares - (sum * sum) / w;
+            const i4 = lm - 1;
+
+            if (i4 !== 0) {
+                for (let j = 2; j <= numClasses; j++) {
+                    if (varianceCombinations[l][j] >= variance + varianceCombinations[i4][j - 1]) {
+                        lowerClassLimits[l][j] = lm;
+                        varianceCombinations[l][j] = variance + varianceCombinations[i4][j - 1];
+                    }
+                }
+            }
+        }
+
+        lowerClassLimits[l][1] = 1;
+        varianceCombinations[l][1] = variance;
+    }
+
+    // Extract break point (for 2 classes, there's 1 break)
+    const breakIndex = lowerClassLimits[n][numClasses] - 2;
+
+    if (breakIndex >= 0 && breakIndex < sorted.length - 1) {
+        return breakIndex;
+    }
+
+    return null;
+}
+
 function mergeZoneItems(zones, defaultFont) {
     const defaultFontKey = `${defaultFont.fontName}@${Math.round(defaultFont.fontSize)}`;
 
@@ -614,6 +605,137 @@ function mergeZoneItems(zones, defaultFont) {
             return;
         }
 
+        // === PER-LINE GAP ANALYSIS AND MERGING ===
+        zone.items.forEach((line, lineIdx) => {
+            if (line.length < 2) return; // Need at least 2 items to analyze gaps
+
+            // Analyze gaps for this line
+            const gaps = [];
+            for (let i = 0; i < line.length - 1; i++) {
+                const currentItem = line[i];
+                const nextItem = line[i + 1];
+
+                if (currentItem.left !== undefined && currentItem.width !== undefined &&
+                    nextItem.left !== undefined) {
+                    const gap = nextItem.left - (currentItem.left + currentItem.width);
+                    if (gap >= 0) {
+                        gaps.push(gap);
+                    }
+                }
+            }
+
+            let adjacentThreshold = 2; // fallback default
+
+            if (gaps.length >= 5) {
+                // Use Jenks Natural Breaks for better clustering
+                gaps.sort((a, b) => a - b);
+                const splitIndex = calculateJenksBreak(gaps, 2);
+
+                if (splitIndex !== null && splitIndex > 0 && splitIndex < gaps.length - 1) {
+                    // Threshold is midpoint between the two clusters
+                    adjacentThreshold = (gaps[splitIndex] + gaps[splitIndex + 1]) / 2;
+
+                    console.debug(`Line ${lineIdx} Jenks clustering: ${gaps.length} gaps`);
+                    console.debug(`  Adjacent cluster: ${gaps[0].toFixed(2)}-${gaps[splitIndex].toFixed(2)}px`);
+                    console.debug(`  Word spacing cluster: ${gaps[splitIndex + 1].toFixed(2)}-${gaps[gaps.length - 1].toFixed(2)}px`);
+                    console.debug(`  Threshold: ${adjacentThreshold.toFixed(2)}px`);
+                } else {
+                    // Jenks failed, fall back to largest jump method
+                    let maxJump = 0;
+                    let maxJumpIndex = 0;
+
+                    for (let i = 0; i < gaps.length - 1; i++) {
+                        const jump = gaps[i + 1] - gaps[i];
+                        if (jump > maxJump) {
+                            maxJump = jump;
+                            maxJumpIndex = i;
+                        }
+                    }
+
+                    if (maxJump > gaps[maxJumpIndex] * 0.5 && maxJumpIndex > 0) {
+                        adjacentThreshold = (gaps[maxJumpIndex] + gaps[maxJumpIndex + 1]) / 2;
+                        console.debug(`Line ${lineIdx} max jump fallback: threshold = ${adjacentThreshold.toFixed(2)}px`);
+                    } else {
+                        // Use 25th percentile
+                        const percentile25Index = Math.floor(gaps.length * 0.25);
+                        adjacentThreshold = gaps[percentile25Index];
+                        console.debug(`Line ${lineIdx} percentile fallback: threshold = ${adjacentThreshold.toFixed(2)}px`);
+                    }
+                }
+
+                // Ensure reasonable bounds
+                adjacentThreshold = Math.max(0.5, Math.min(adjacentThreshold, 5));
+
+            } else if (gaps.length >= 3) {
+                // Too few for Jenks, use largest jump method
+                gaps.sort((a, b) => a - b);
+
+                let maxJump = 0;
+                let splitIndex = 0;
+
+                for (let i = 0; i < gaps.length - 1; i++) {
+                    const jump = gaps[i + 1] - gaps[i];
+                    if (jump > maxJump) {
+                        maxJump = jump;
+                        splitIndex = i;
+                    }
+                }
+
+                if (maxJump > gaps[splitIndex] * 0.5 && splitIndex > 0) {
+                    adjacentThreshold = (gaps[splitIndex] + gaps[splitIndex + 1]) / 2;
+                    console.debug(`Line ${lineIdx} gap jump: threshold = ${adjacentThreshold.toFixed(2)}px`);
+                } else {
+                    adjacentThreshold = gaps[Math.floor(gaps.length * 0.25)];
+                    console.debug(`Line ${lineIdx} percentile: threshold = ${adjacentThreshold.toFixed(2)}px`);
+                }
+
+                adjacentThreshold = Math.max(0.5, Math.min(adjacentThreshold, 5));
+
+            } else if (gaps.length > 0) {
+                // Very few gaps - use minimum
+                adjacentThreshold = Math.min(...gaps) * 0.8;
+            }
+
+            // Merge adjacent items on this line
+            let i = 0;
+            while (i < line.length - 1) {
+                const currentItem = line[i];
+                const nextItem = line[i + 1];
+
+                // Calculate gap
+                const gap = nextItem.left - (currentItem.left + currentItem.width);
+
+                // Check if items should be merged:
+                // 1. Gap is below threshold (adjacent)
+                // 2. Same font properties
+                // 3. Same superscript status
+                const shouldMerge = gap < adjacentThreshold &&
+                    currentItem.fontName === nextItem.fontName &&
+                    Math.round(currentItem.height) === Math.round(nextItem.height) &&
+                    currentItem.superscript === nextItem.superscript;
+
+                if (shouldMerge) {
+                    // Merge nextItem into currentItem
+                    currentItem.str += nextItem.str;
+                    currentItem.width = (nextItem.left + nextItem.width) - currentItem.left;
+                    currentItem.right = nextItem.right;
+
+                    // Preserve formatting properties
+                    if (nextItem.bold) currentItem.bold = true;
+                    if (nextItem.italic) currentItem.italic = true;
+                    if (nextItem.underline) currentItem.underline = true;
+
+                    // Remove nextItem from line
+                    line.splice(i + 1, 1);
+
+                    // Don't increment i - check if we can merge with the new next item
+                } else {
+                    i++;
+                }
+            }
+        });
+
+        // [Rest of the function remains the same as before...]
         // Calculate zone metrics for paragraph and caption detection
         const metrics = calculateZoneMetrics(zone);
         const INDENT_THRESHOLD = 5; // pixels
@@ -627,7 +749,6 @@ function mergeZoneItems(zones, defaultFont) {
         let prevLineWasHeading = false;
         let prevLineBottom = 0;
 
-        // Track zone boundaries for cross-zone paragraph merging
         zone.startsWithIndent = false;
         zone.endsWithFullLine = false;
 
@@ -639,19 +760,15 @@ function mergeZoneItems(zones, defaultFont) {
             const lineTop = Math.min(...line.map(item => item.top));
             const lineBottom = Math.max(...line.map(item => item.bottom));
 
-            // Check gap from previous line (for caption end detection)
             const gapFromPrevLine = prevLineBottom > 0 ? lineTop - prevLineBottom : 0;
 
-            // Build font signature for this line
             const roundedHeight = Math.round(firstItem.height);
             const fontKey = `${firstItem.fontName}@${roundedHeight}`;
 
-            // Detect caption start: non-italic integer followed by italic text
             let isCaptionStart = false;
             if (!inCaption && !inHeading && /^\d+$/.test(firstItem.str.trim()) && !firstItem.italic && line.length > 1) {
                 const next = line[1];
                 if (next.italic) {
-                    // Enforce adjacency using exact PDF coordinates
                     const gap = next.left - (firstItem.left + firstItem.width);
                     if (gap >= 2) {
                         isCaptionStart = true;
@@ -660,17 +777,12 @@ function mergeZoneItems(zones, defaultFont) {
                 }
             }
 
-            // Check if caption should end (large gap before this line)
             let captionEnded = false;
             if (inCaption && metrics && gapFromPrevLine > metrics.captionGapThreshold) {
                 captionEnded = true;
                 console.debug(`Caption end detected at line ${lineIdx}: gap=${gapFromPrevLine.toFixed(1)}px (threshold=${metrics.captionGapThreshold.toFixed(1)})`);
             }
 
-            // Check if this line is a potential heading:
-            // 1. Not the default font
-            // 2. All items in line have same font and height
-            // 3. NOT in caption mode or starting a caption
             const allSameFont = line.every(item =>
                 item.fontName === firstItem.fontName &&
                 Math.round(item.height) === roundedHeight
@@ -679,21 +791,15 @@ function mergeZoneItems(zones, defaultFont) {
             let isHeadingLine = (fontKey !== defaultFontKey) && allSameFont && !inCaption && !isCaptionStart;
             let lineFontSignature = isHeadingLine ? fontKey : null;
 
-            // Additional check: if previous line exists and wasn't a heading,
-            // and this line's first item has same font as previous line's last item,
-            // AND the previous line was NOT all in the same font (i.e., was mixed),
-            // then this is NOT a heading (it's a continuation)
             if (isHeadingLine && prevLine && !prevLineWasHeading) {
                 const lastItemOfPrevLine = prevLine[prevLine.length - 1];
                 const prevRoundedHeight = Math.round(lastItemOfPrevLine.height);
 
-                // Check if previous line was all the same font
                 const prevLineAllSameFont = prevLine.every(item =>
                     item.fontName === lastItemOfPrevLine.fontName &&
                     Math.round(item.height) === prevRoundedHeight
                 );
 
-                // Only treat as continuation if prev line was MIXED fonts
                 if (!prevLineAllSameFont &&
                     firstItem.fontName === lastItemOfPrevLine.fontName &&
                     roundedHeight === prevRoundedHeight) {
@@ -702,16 +808,13 @@ function mergeZoneItems(zones, defaultFont) {
                 }
             }
 
-            // Handle caption end (before processing current line)
             if (captionEnded && buffer.length > 0) {
-                html += flushBuffer(buffer, false, null, true); // true = isCaption
+                html += flushBuffer(buffer, false, null, true);
                 buffer = [];
                 inCaption = false;
             }
 
-            // Handle caption start
             if (isCaptionStart) {
-                // Flush any previous content
                 if (buffer.length > 0) {
                     html += flushBuffer(buffer, inHeading, inHeading ? currentFontSignature : null, false);
                     buffer = [];
@@ -722,16 +825,13 @@ function mergeZoneItems(zones, defaultFont) {
                 buffer.push(...line);
                 prevLineWasHeading = false;
             }
-            // Handle heading
             else if (isHeadingLine) {
-                // Flush any previous content (including caption)
                 if (!inHeading && buffer.length > 0) {
                     html += flushBuffer(buffer, false, null, inCaption);
                     buffer = [];
                     inCaption = false;
                 }
 
-                // Check if font signature changed
                 if (inHeading && lineFontSignature !== currentFontSignature) {
                     html += flushBuffer(buffer, true, currentFontSignature, false);
                     buffer = [];
@@ -743,14 +843,10 @@ function mergeZoneItems(zones, defaultFont) {
                 prevLineWasHeading = true;
 
             } else if (inCaption) {
-                // Continue caption mode
                 buffer.push(...line);
                 prevLineWasHeading = false;
 
             } else {
-                // Regular text line
-
-                // Flush heading if we were in one
                 if (inHeading) {
                     html += flushBuffer(buffer, true, currentFontSignature, false);
                     buffer = [];
@@ -758,12 +854,9 @@ function mergeZoneItems(zones, defaultFont) {
                     currentFontSignature = null;
                 }
 
-                // Check for paragraph break using zone metrics
-                // A new paragraph starts when a line is indented from the left margin
                 let isNewParagraph = false;
 
                 if (metrics && prevLine) {
-                    // Check if this line is indented relative to normal left margin
                     const lineIndent = firstItem.left - metrics.normalLeft;
                     isNewParagraph = lineIndent > INDENT_THRESHOLD;
 
@@ -772,7 +865,6 @@ function mergeZoneItems(zones, defaultFont) {
                     }
                 }
 
-                // Track if first line is indented (for cross-zone merging)
                 if (lineIdx === 0) {
                     if (metrics) {
                         const lineIndent = firstItem.left - metrics.normalLeft;
@@ -793,17 +885,14 @@ function mergeZoneItems(zones, defaultFont) {
             prevLineBottom = lineBottom;
         });
 
-        // Check if zone ends with a full line (no right indent) - for cross-zone merging
         if (prevLine && prevLine.length > 0 && metrics) {
             const lastItem = prevLine[prevLine.length - 1];
             if (lastItem) {
-                // If last item extends close to max right (within 10%), consider it a full line
                 const rightGap = metrics.maxRight - lastItem.right;
                 zone.endsWithFullLine = rightGap < (metrics.lineWidth * 0.1);
             }
         }
 
-        // Flush remaining buffer
         if (buffer.length > 0) {
             html += flushBuffer(buffer, inHeading, inHeading ? currentFontSignature : null, inCaption);
         }
