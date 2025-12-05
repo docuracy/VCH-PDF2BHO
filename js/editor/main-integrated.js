@@ -244,6 +244,9 @@ if (fileInput) {
             localStorage.setItem("vch_editor_content", text);
             updateFileDisplay(file.name);
         }
+
+        // Reset input value so same file can be selected again
+        e.target.value = '';
     });
 }
 
