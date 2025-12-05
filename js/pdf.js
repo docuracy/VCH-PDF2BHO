@@ -435,6 +435,74 @@ function fillMissingPageNumerals(pageNumerals) {
 }
 
 
+/**
+ * Calculate Jenks Natural Breaks for gap clustering.
+ * This finds the optimal split point that minimizes variance within clusters.
+ */
+function calculateJenksBreak(values, numClasses = 2) {
+    if (values.length < 3) return null;
+
+    const n = values.length;
+
+    // Sort values
+    const sorted = [...values].sort((a, b) => a - b);
+
+    // Initialize matrices
+    const lowerClassLimits = Array(n + 1).fill(0).map(() => Array(numClasses + 1).fill(0));
+    const varianceCombinations = Array(n + 1).fill(0).map(() => Array(numClasses + 1).fill(0));
+
+    // Initialize first row
+    for (let i = 1; i <= numClasses; i++) {
+        lowerClassLimits[1][i] = 1;
+        varianceCombinations[1][i] = 0;
+        for (let j = 2; j <= n; j++) {
+            varianceCombinations[j][i] = Infinity;
+        }
+    }
+
+    // Calculate variance for each possible class
+    for (let l = 2; l <= n; l++) {
+        let sum = 0;
+        let sumSquares = 0;
+        let w = 0;
+        let variance = 0;
+
+        for (let m = 1; m <= l; m++) {
+            const lm = l - m + 1;
+            const val = sorted[lm - 1];
+
+            w++;
+            sum += val;
+            sumSquares += val * val;
+
+            variance = sumSquares - (sum * sum) / w;
+            const i4 = lm - 1;
+
+            if (i4 !== 0) {
+                for (let j = 2; j <= numClasses; j++) {
+                    if (varianceCombinations[l][j] >= variance + varianceCombinations[i4][j - 1]) {
+                        lowerClassLimits[l][j] = lm;
+                        varianceCombinations[l][j] = variance + varianceCombinations[i4][j - 1];
+                    }
+                }
+            }
+        }
+
+        lowerClassLimits[l][1] = 1;
+        varianceCombinations[l][1] = variance;
+    }
+
+    // Extract break point (for 2 classes, there's 1 break)
+    const breakIndex = lowerClassLimits[n][numClasses] - 2;
+
+    if (breakIndex >= 0 && breakIndex < sorted.length - 1) {
+        return breakIndex;
+    }
+
+    return null;
+}
+
+
 function headerFooterAndFonts(pageNum, masterFontMap, defaultFont, headerFontSizes) {
     const zones = JSON.parse(
         LZString.decompressFromUTF16(localStorage.getItem(`page-${pageNum}-zones`))
@@ -477,6 +545,112 @@ function headerFooterAndFonts(pageNum, masterFontMap, defaultFont, headerFontSiz
         if (!zone.items) return;
 
         zone.items.forEach(line => {
+            // === PER-LINE GAP ANALYSIS AND MERGING ===
+            if (line.length >= 2) {
+                // Analyze gaps for this line
+                const gaps = [];
+                for (let i = 0; i < line.length - 1; i++) {
+                    const currentItem = line[i];
+                    const nextItem = line[i + 1];
+
+                    if (currentItem.left !== undefined && currentItem.width !== undefined &&
+                        nextItem.left !== undefined) {
+                        const gap = nextItem.left - (currentItem.left + currentItem.width);
+                        if (gap >= 0) {
+                            gaps.push(gap);
+                        }
+                    }
+                }
+
+                let adjacentThreshold = 2; // fallback default
+
+                if (gaps.length >= 5) {
+                    gaps.sort((a, b) => a - b);
+                    const splitIndex = calculateJenksBreak(gaps, 2);
+
+                    if (splitIndex !== null && splitIndex > 0 && splitIndex < gaps.length - 1) {
+                        adjacentThreshold = (gaps[splitIndex] + gaps[splitIndex + 1]) / 2;
+                    } else {
+                        // Fallback to largest jump
+                        let maxJump = 0;
+                        let maxJumpIndex = 0;
+
+                        for (let i = 0; i < gaps.length - 1; i++) {
+                            const jump = gaps[i + 1] - gaps[i];
+                            if (jump > maxJump) {
+                                maxJump = jump;
+                                maxJumpIndex = i;
+                            }
+                        }
+
+                        if (maxJump > gaps[maxJumpIndex] * 0.5 && maxJumpIndex > 0) {
+                            adjacentThreshold = (gaps[maxJumpIndex] + gaps[maxJumpIndex + 1]) / 2;
+                        } else {
+                            adjacentThreshold = gaps[Math.floor(gaps.length * 0.25)];
+                        }
+                    }
+
+                    adjacentThreshold = Math.max(0.5, Math.min(adjacentThreshold, 5));
+
+                } else if (gaps.length >= 3) {
+                    gaps.sort((a, b) => a - b);
+                    let maxJump = 0;
+                    let splitIndex = 0;
+
+                    for (let i = 0; i < gaps.length - 1; i++) {
+                        const jump = gaps[i + 1] - gaps[i];
+                        if (jump > maxJump) {
+                            maxJump = jump;
+                            splitIndex = i;
+                        }
+                    }
+
+                    if (maxJump > gaps[splitIndex] * 0.5 && splitIndex > 0) {
+                        adjacentThreshold = (gaps[splitIndex] + gaps[splitIndex + 1]) / 2;
+                    } else {
+                        adjacentThreshold = gaps[Math.floor(gaps.length * 0.25)];
+                    }
+
+                    adjacentThreshold = Math.max(0.5, Math.min(adjacentThreshold, 5));
+                } else if (gaps.length > 0) {
+                    adjacentThreshold = Math.min(...gaps) * 0.8;
+                }
+
+                // Merge adjacent items on this line
+                let i = 0;
+                while (i < line.length - 1) {
+                    const currentItem = line[i];
+                    const nextItem = line[i + 1];
+
+                    const gap = nextItem.left - (currentItem.left + currentItem.width);
+
+                    // Check if items should be merged:
+                    // 1. Gap is below threshold (adjacent)
+                    // 2. Same font properties
+                    // 3. Same superscript status (will be calculated below, so check after)
+                    const sameFontProps = currentItem.fontName === nextItem.fontName &&
+                        Math.round(currentItem.height) === Math.round(nextItem.height);
+
+                    // We'll check superscript status after it's been calculated
+                    // For now, merge based on font and gap only
+                    const shouldMerge = gap < adjacentThreshold && sameFontProps;
+
+                    if (shouldMerge) {
+                        currentItem.str += nextItem.str;
+                        currentItem.width = (nextItem.left + nextItem.width) - currentItem.left;
+                        currentItem.right = nextItem.right;
+
+                        // Remove nextItem from line
+                        line.splice(i + 1, 1);
+
+                        // Don't increment i - check if we can merge with the new next item
+                    } else {
+                        i++;
+                    }
+                }
+            }
+
+            // Now apply font styles and detect superscripts
             line.forEach((item, index) => {
                 const fontEntry = masterFontMap[item.fontName];
                 if (fontEntry) {
@@ -497,11 +671,7 @@ function headerFooterAndFonts(pageNum, masterFontMap, defaultFont, headerFontSiz
                 const prevItem = index > 0 ? line[index - 1] : null;
 
                 if (prevItem) {
-                    // 1. Is it smaller? (Allow a small tolerance, but generally < previous)
                     const isSmaller = item.height < prevItem.height;
-
-                    // 2. Is it higher? (In standard coordinates, higher visual position = smaller 'bottom' value)
-                    // We use a small buffer (0.5) to avoid jitter on uneven scans
                     const isHigher = item.bottom < (prevItem.bottom - 0.5);
 
                     if (isSmaller && isHigher) {
