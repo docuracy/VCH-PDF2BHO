@@ -29,8 +29,8 @@
             </header>
             <hr class="page-break" data-start="1"/>
             <section>
-                <!-- Find all paragraphs in article, excluding footnotes div -->
-                <xsl:apply-templates select=".//html:p[not(ancestor::html:div[@class='footnotes'])] | .//p[not(ancestor::div[@class='footnotes'])]" mode="content"/>
+                <!-- Process paragraphs and images, excluding footnotes div -->
+                <xsl:apply-templates select=".//*[self::html:p or self::p or self::html:img or self::img][not(ancestor::html:div[@class='footnotes']) and not(ancestor::div[@class='footnotes'])]" mode="content"/>
             </section>
         </article>
     </xsl:template>
@@ -45,6 +45,14 @@
                 </p>
             </xsl:otherwise>
         </xsl:choose>
+    </xsl:template>
+
+    <!-- Process standalone images (outside paragraphs) -->
+    <xsl:template match="html:img | img" mode="content">
+        <figure>
+            <img src="{@src}"/>
+            <figcaption><xsl:value-of select="@title"/></figcaption>
+        </figure>
     </xsl:template>
 
     <!-- Footnote link: convert to data -->
@@ -86,13 +94,6 @@
 
     <xsl:template match="html:sup | sup" mode="inline">
         <sup><xsl:apply-templates mode="inline"/></sup>
-    </xsl:template>
-
-    <xsl:template match="html:img | img" mode="inline">
-        <figure>
-            <img src="{@src}"/>
-            <figcaption><xsl:value-of select="@title"/></figcaption>
-        </figure>
     </xsl:template>
 
     <xsl:template match="*" mode="inline">
