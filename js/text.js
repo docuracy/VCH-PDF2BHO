@@ -1204,6 +1204,33 @@ function mergeTablesAcrossPages(pageResults) {
     return mergedPages;
 }
 
+/**
+ * Extract figure numbers from zones with HTML containing <figure> elements
+ * Returns an array of figure numbers in reading order
+ */
+function extractFigureNumbersFromZones(zones) {
+    const figureNumbers = [];
+
+    zones.forEach(zone => {
+        if (!zone.html) return;
+
+        // Look for <figcaption> with data-start attribute
+        const figcaptionMatch = zone.html.match(/<figcaption[^>]+data-start="(\d+)"/);
+        if (figcaptionMatch) {
+            figureNumbers.push(figcaptionMatch[1]);
+            return;
+        }
+
+        // Also check for img src with figure number
+        const imgSrcMatch = zone.html.match(/<img[^>]+src="figure-(\d+)\.png"/);
+        if (imgSrcMatch) {
+            figureNumbers.push(imgSrcMatch[1]);
+        }
+    });
+
+    return figureNumbers;
+}
+
 async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pageNumeral, isIndex, isNewPageNumeral = true) {
 
     console.info(`Processing page ${pageNum}...`);
@@ -1222,6 +1249,12 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
     mergeZoneItems(zones, defaultFont);
 
     buildTables(zones);
+
+    // Extract figure numbers from captions for image extraction
+    const figureNumbers = extractFigureNumbersFromZones(zones);
+    if (figureNumbers.length > 0) {
+        localStorage.setItem(`page-${pageNum}-figure-numbers`, JSON.stringify(figureNumbers));
+    }
 
     // Iterate zones to generate HTML
     let pageHTML = isNewPageNumeral

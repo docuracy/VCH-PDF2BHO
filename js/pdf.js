@@ -696,14 +696,33 @@ function headerFooterAndFonts(pageNum, masterFontMap, defaultFont, headerFontSiz
         LZString.compressToUTF16(JSON.stringify(zones)));
 }
 
+/**
+ * Get figure numbers for a page from localStorage
+ * These are pre-computed during HTML generation in text.js
+ * Returns an array of figure numbers in reading order
+ */
+function getFigureNumbersForPage(pageNum) {
+    const figureNumbersData = localStorage.getItem(`page-${pageNum}-figure-numbers`);
+    if (!figureNumbersData) return [];
+
+    try {
+        return JSON.parse(figureNumbersData);
+    } catch (e) {
+        console.warn(`Failed to parse figure numbers for page ${pageNum}:`, e);
+        return [];
+    }
+}
+
 async function extractImagesFromPDF(pdf, updateProgress, maxDimension = 4096) {
     if (typeof JSZip === 'undefined') throw new Error("JSZip is not loaded");
 
     const zip = new JSZip();
     const totalPages = pdf.numPages;
-    let figureCount = 0;
+    let figureCount = 0; // Fallback counter for figures without captions
+    let totalExtracted = 0; // Total number of figures extracted
     let nativeCount = 0;
     let renderedCount = 0;
+    const figureExtensions = {}; // Map of figure number -> file extension for XHTML post-processing
 
     for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
         const zonesData = localStorage.getItem(`page-${pageNum}-zones`);
@@ -712,6 +731,9 @@ async function extractImagesFromPDF(pdf, updateProgress, maxDimension = 4096) {
         const zones = JSON.parse(LZString.decompressFromUTF16(zonesData));
         const figureBlocks = zones.filter(z => z.type === "FIGURE");
         if (!figureBlocks.length) continue;
+
+        // Get pre-computed figure numbers from localStorage (computed during HTML generation)
+        const figureNumbers = getFigureNumbersForPage(pageNum);
 
         const page = await pdf.getPage(pageNum);
         const viewport = page.getViewport({ scale: 1 });
@@ -747,18 +769,36 @@ async function extractImagesFromPDF(pdf, updateProgress, maxDimension = 4096) {
             const block = figureBlocks[counter - 1];
             const matchedImage = findMatchingImage(block, embeddedImages);
 
-            let blob;
+            let result;
             if (matchedImage) {
-                blob = await extractNativeImage(matchedImage);
+                result = await extractNativeImage(matchedImage);
                 nativeCount++;
             } else {
-                blob = await cropFromCanvas(fullCanvas, block, renderScale);
+                result = await cropFromCanvas(fullCanvas, block, renderScale);
                 renderedCount++;
             }
 
-            if (blob) {
-                figureCount++;
-                zip.file(`figure-${figureCount}.png`, await blob.arrayBuffer());
+            if (result && result.blob) {
+                // Match by position: 1st figure gets 1st figure number, etc.
+                const figureNumber = figureNumbers[counter - 1];
+                let figNum;
+                let filename;
+
+                if (figureNumber) {
+                    figNum = figureNumber;
+                    filename = `figure-${figureNumber}.${result.extension}`;
+                } else {
+                    // Fallback to sequential numbering if no figure number found
+                    figureCount++;
+                    figNum = figureCount.toString();
+                    filename = `figure-${figureCount}.${result.extension}`;
+                }
+
+                // Store extension mapping for XHTML post-processing
+                figureExtensions[figNum] = result.extension;
+
+                zip.file(filename, await result.blob.arrayBuffer());
+                totalExtracted++;
             }
         }
 
@@ -781,11 +821,14 @@ async function extractImagesFromPDF(pdf, updateProgress, maxDimension = 4096) {
         updateProgress(
             100,
             "Image extraction complete",
-            `Extracted ${figureCount} figures (${nativeCount} native, ${renderedCount} rendered)`
+            `Extracted ${totalExtracted} figures (${nativeCount} native, ${renderedCount} rendered)`
         );
     }
 
-    return await zip.generateAsync({ type: "blob" });
+    const zipBlob = await zip.generateAsync({ type: "blob" });
+
+    // Return both the zip and the extension mapping for XHTML post-processing
+    return { zipBlob, figureExtensions };
 }
 
 async function getEmbeddedImagesWithData(page, viewport) {
@@ -866,6 +909,36 @@ function findMatchingImage(block, embeddedImages, overlapThreshold = 0.5) {
     return null;
 }
 
+/**
+ * Detect if image content is photographic (use JPEG) or graphic (use PNG)
+ * Based on color variance - photos have high variance, diagrams/charts have low variance
+ */
+function isPhotographic(canvas) {
+    const ctx = canvas.getContext("2d");
+    const width = canvas.width;
+    const height = canvas.height;
+
+    // Sample a grid of pixels (not every pixel for performance)
+    const sampleSize = Math.min(100, Math.floor(Math.sqrt(width * height)));
+    const step = Math.floor(Math.max(width, height) / sampleSize);
+
+    const samples = [];
+    for (let y = 0; y < height; y += step) {
+        for (let x = 0; x < width; x += step) {
+            const pixel = ctx.getImageData(x, y, 1, 1).data;
+            samples.push((pixel[0] + pixel[1] + pixel[2]) / 3); // Average brightness
+        }
+    }
+
+    // Calculate variance
+    const mean = samples.reduce((a, b) => a + b, 0) / samples.length;
+    const variance = samples.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / samples.length;
+
+    // High variance = photographic content (use JPEG)
+    // Low variance = graphic content (use PNG)
+    return variance > 1000; // Threshold tuned empirically
+}
+
 async function extractNativeImage(img) {
     const canvas = document.createElement("canvas");
     canvas.width = img.width;
@@ -899,7 +972,16 @@ async function extractNativeImage(img) {
     }
 
     ctx.putImageData(imgData, 0, 0);
-    return new Promise(resolve => canvas.toBlob(resolve, "image/png"));
+
+    // Choose format based on content type
+    const useJpeg = isPhotographic(canvas);
+    const format = useJpeg ? "image/jpeg" : "image/png";
+    const quality = useJpeg ? 0.85 : undefined; // 85% quality for JPEG
+    const extension = useJpeg ? "jpg" : "png";
+
+    return new Promise(resolve => {
+        canvas.toBlob(blob => resolve({ blob, extension }), format, quality);
+    });
 }
 
 function cropFromCanvas(fullCanvas, block, scale) {
@@ -916,5 +998,13 @@ function cropFromCanvas(fullCanvas, block, scale) {
         cropCanvas.width, cropCanvas.height
     );
 
-    return new Promise(resolve => cropCanvas.toBlob(resolve, "image/png"));
+    // Choose format based on content type
+    const useJpeg = isPhotographic(cropCanvas);
+    const format = useJpeg ? "image/jpeg" : "image/png";
+    const quality = useJpeg ? 0.85 : undefined; // 85% quality for JPEG
+    const extension = useJpeg ? "jpg" : "png";
+
+    return new Promise(resolve => {
+        cropCanvas.toBlob(blob => resolve({ blob, extension }), format, quality);
+    });
 }

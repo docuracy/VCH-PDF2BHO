@@ -666,13 +666,23 @@ async function extractPDFToXHTML(file) {
     extractedXHTML = convertHTMLToXHTML(docHTML, file.name);
 
     updateExtractionUI(90, "Extracting images...", "Scanning for figures");
-    const zippedImages = await extractImagesFromPDF(pdf, (percent, status, log) => {
+    const { zipBlob, figureExtensions } = await extractImagesFromPDF(pdf, (percent, status, log) => {
         const mappedPercent = 90 + Math.round(percent * 0.08); // 90-98%
         updateExtractionUI(mappedPercent, status, log);
     });
 
     updateExtractionUI(99, "Finalizing...", "Preparing download");
 
+    // Post-process XHTML to use correct image extensions (jpg/png based on content)
+    if (figureExtensions && Object.keys(figureExtensions).length > 0) {
+        Object.entries(figureExtensions).forEach(([figNum, ext]) => {
+            // Only replace if extension is not .png (since .png is the default)
+            if (ext !== 'png') {
+                const pattern = new RegExp(`figure-${figNum}\\.png`, 'g');
+                extractedXHTML = extractedXHTML.replace(pattern, `figure-${figNum}.${ext}`);
+            }
+        });
+    }
 
     updateExtractionUI(100, "Extraction complete!", `Successfully extracted ${totalPages} pages`);
     const loadBtn = document.getElementById('extraction-load');
@@ -680,7 +690,7 @@ async function extractPDFToXHTML(file) {
     if (loadBtn) loadBtn.style.display = 'inline-block';
     if (closeBtn) closeBtn.style.display = 'inline-block';
 
-    const url = URL.createObjectURL(zippedImages);
+    const url = URL.createObjectURL(zipBlob);
     const a = document.createElement("a");
     a.href = url;
     a.download = "extracted-images.zip";
