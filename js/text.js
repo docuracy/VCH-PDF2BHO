@@ -378,13 +378,20 @@ function flushBuffer(buffer, isHeading = false, fontSignature = null, isCaption 
 
         return `<heading font-signature="${fontSignature}">${finalText}</heading>`;
     } else if (isCaption) {
-        // Get integer part if exists
-        const figNumberMatch = text.match(/^(\d+)\s*/);
-        const figNumber = figNumberMatch ? figNumberMatch[1] : null;
-        const figCaption = figNumberMatch ? text.slice(figNumberMatch[0].length).trim() : text;
-        if (figNumber) {
-            return `<figure><img src="figure-${figNumber}.png" alt="Figure ${figNumber}" /><figcaption data-start="${figNumber}">${figCaption}</figcaption></figure>`;
+        // Parse caption: [OptionalType][.][space][number][.][space][caption text]
+        // Examples: "Figure 5 Map...", "Fig. 3. Text...", "5 Text...", "Chart 12 Data..."
+        const captionPattern = /^(?:([A-Za-z]+)\.?\s+)?(\d+)\.?\s+(.+)/;
+        const match = text.match(captionPattern);
+
+        if (match) {
+            const type = match[1] ? match[1].toLowerCase() : 'figure';  // Default to 'figure'
+            const number = match[2];
+            const caption = match[3];
+
+            return `<figure><img src="${type}-${number}.png" alt="${type.charAt(0).toUpperCase() + type.slice(1)} ${number}" /><figcaption data-type="${type}" data-number="${number}">${caption}</figcaption></figure>`;
         }
+
+        // Fallback for malformed captions
         return `<figure><img src="" alt="Figure" /><figcaption>${text}</figcaption></figure>`;
     } else {
         return `<p>${text}</p>`;
@@ -570,16 +577,32 @@ function mergeZoneItems(zones, defaultFont) {
             const roundedHeight = Math.round(firstItem.height);
             const fontKey = `${firstItem.fontName}@${roundedHeight}`;
 
-            // Detect caption start: non-italic integer followed by italic text
+            // Detect caption start: [OptionalType][.][space][number][.][space][italic text]
+            // Examples: "Figure 5 Text...", "Fig. 3. Text...", "5 Text...", "Chart 12 Text..."
             let isCaptionStart = false;
-            if (!inCaption && !inHeading && /^\d+$/.test(firstItem.str.trim()) && !firstItem.italic && line.length > 1) {
-                const next = line[1];
-                if (next.italic) {
-                    // Enforce adjacency using exact PDF coordinates
-                    const gap = next.left - (firstItem.left + firstItem.width);
-                    if (gap >= 2) {
+            if (!inCaption && !inHeading && line.length > 1) {
+                // Build the line text to check for caption pattern
+                // Use space to join items since PDF items don't have hard-coded spaces
+                const lineText = line.map(i => i.str).join(' ');
+                const captionPattern = /^(?:[A-Za-z]+\.?\s+)?(\d+)\.?\s+/;
+                const match = lineText.match(captionPattern);
+
+                if (match) {
+                    // Check if there's italic text after the number
+                    // Find where the number ends in the line items
+                    let hasItalic = false;
+                    let charCount = 0;
+                    for (const item of line) {
+                        charCount += item.str.length + 1; // +1 for the space we added in join
+                        if (charCount >= match[0].length && item.italic) {
+                            hasItalic = true;
+                            break;
+                        }
+                    }
+
+                    if (hasItalic) {
                         isCaptionStart = true;
-                        console.debug(`Caption start detected at line ${lineIdx}: "${line.map(i => i.str).join(' ').substring(0, 50)}..."`);
+                        console.debug(`Caption start detected at line ${lineIdx}: "${lineText.substring(0, 50)}..."`);
                     }
                 }
             }
@@ -1205,30 +1228,32 @@ function mergeTablesAcrossPages(pageResults) {
 }
 
 /**
- * Extract figure numbers from zones with HTML containing <figure> elements
- * Returns an array of figure numbers in reading order
+ * Extract figure identifiers from zones with HTML containing <figure> elements
+ * Returns an array of 'type-number' strings in reading order (e.g., ['figure-5', 'chart-12', 'fig-3'])
  */
 function extractFigureNumbersFromZones(zones) {
-    const figureNumbers = [];
+    const figureIds = [];
 
     zones.forEach(zone => {
         if (!zone.html) return;
 
-        // Look for <figcaption> with data-start attribute
-        const figcaptionMatch = zone.html.match(/<figcaption[^>]+data-start="(\d+)"/);
-        if (figcaptionMatch) {
-            figureNumbers.push(figcaptionMatch[1]);
+        // Look for <figcaption> with data-type and data-number attributes
+        const typeMatch = zone.html.match(/<figcaption[^>]+data-type="([^"]+)"/);
+        const numberMatch = zone.html.match(/<figcaption[^>]+data-number="(\d+)"/);
+
+        if (typeMatch && numberMatch) {
+            figureIds.push(`${typeMatch[1]}-${numberMatch[1]}`);
             return;
         }
 
-        // Also check for img src with figure number
-        const imgSrcMatch = zone.html.match(/<img[^>]+src="figure-(\d+)\.png"/);
+        // Fallback: check for img src with type-number pattern
+        const imgSrcMatch = zone.html.match(/<img[^>]+src="([a-z]+-\d+)\.png"/);
         if (imgSrcMatch) {
-            figureNumbers.push(imgSrcMatch[1]);
+            figureIds.push(imgSrcMatch[1]);
         }
     });
 
-    return figureNumbers;
+    return figureIds;
 }
 
 async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pageNumeral, isIndex, isNewPageNumeral = true) {

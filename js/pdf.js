@@ -18,11 +18,14 @@ function sortZoneItems(zones, items) {
         zone.bottom = zone.y + zone.height;
     });
 
+    const orphanedItems = []; // Track items not assigned to any zone
+
     items.forEach(item => {
         const midX = item.left + item.width / 2;
         const midY = item.top + item.height / 2;
         item.midY = midY; // Store for later sorting
 
+        let assigned = false;
         for (const zone of zones) {
             if (
                 midX >= zone.x &&
@@ -31,9 +34,32 @@ function sortZoneItems(zones, items) {
                 midY <= zone.bottom
             ) {
                 zone.items.push(item);
+                assigned = true;
                 break;
             }
         }
+
+        if (!assigned) {
+            orphanedItems.push(item);
+        }
+    });
+
+    // Create micro-zones for orphaned items (e.g., isolated caption numbers)
+    // This captures small text elements that fell through the segmentation
+    orphanedItems.forEach(item => {
+        const MARGIN = 2; // Small margin around the item
+        const microZone = {
+            x: item.left - MARGIN,
+            y: item.top - MARGIN,
+            width: item.width + MARGIN * 2,
+            height: item.height + MARGIN * 2,
+            right: item.left + item.width + MARGIN,
+            bottom: item.top + item.height + MARGIN,
+            type: 'BODY', // Default to body text
+            items: [item],
+            isMicroZone: true // Flag for debugging/analysis
+        };
+        zones.push(microZone);
     });
 
     // Sort items within each zone into lines
@@ -83,7 +109,7 @@ function sortZoneItems(zones, items) {
 
 /**
  * Pre-processes a single page:
- * - Runs IdentifyCropMarks (Your function)
+ * - Runs IdentifyCropMarks
  * - Renders to Canvas
  * - Runs RLSA Segmentation (Worker)
  * - Stores classified ZONES
@@ -697,9 +723,9 @@ function headerFooterAndFonts(pageNum, masterFontMap, defaultFont, headerFontSiz
 }
 
 /**
- * Get figure numbers for a page from localStorage
+ * Get figure identifiers for a page from localStorage
  * These are pre-computed during HTML generation in text.js
- * Returns an array of figure numbers in reading order
+ * Returns an array of 'type-number' strings in reading order (e.g., ['figure-5', 'chart-12'])
  */
 function getFigureNumbersForPage(pageNum) {
     const figureNumbersData = localStorage.getItem(`page-${pageNum}-figure-numbers`);
@@ -779,23 +805,22 @@ async function extractImagesFromPDF(pdf, updateProgress, maxDimension = 4096) {
             }
 
             if (result && result.blob) {
-                // Match by position: 1st figure gets 1st figure number, etc.
-                const figureNumber = figureNumbers[counter - 1];
-                let figNum;
+                // Match by position: 1st figure gets 1st figure identifier, etc.
+                // figureId format: 'type-number' (e.g., 'figure-5', 'chart-12', 'fig-3')
+                const figureId = figureNumbers[counter - 1];
                 let filename;
 
-                if (figureNumber) {
-                    figNum = figureNumber;
-                    filename = `figure-${figureNumber}.${result.extension}`;
+                if (figureId) {
+                    // figureId already contains 'type-number', just add extension
+                    filename = `${figureId}.${result.extension}`;
+                    figureExtensions[figureId] = result.extension;
                 } else {
-                    // Fallback to sequential numbering if no figure number found
+                    // Fallback to sequential numbering if no figure identifier found
                     figureCount++;
-                    figNum = figureCount.toString();
-                    filename = `figure-${figureCount}.${result.extension}`;
+                    const fallbackId = `figure-${figureCount}`;
+                    filename = `${fallbackId}.${result.extension}`;
+                    figureExtensions[fallbackId] = result.extension;
                 }
-
-                // Store extension mapping for XHTML post-processing
-                figureExtensions[figNum] = result.extension;
 
                 zip.file(filename, await result.blob.arrayBuffer());
                 totalExtracted++;

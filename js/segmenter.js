@@ -176,14 +176,21 @@ function processPageHybrid(imageData, chartItems, pageNum) {
 
 
     // === STEP 2: FIND FOOTER SEPARATOR ===
-    const searchStart = Math.floor(height * 0.6);
-    const searchEnd = height;
+    // Scan from bottom to top looking for a significantly wide horizontal white gap
+    // This gap separates footnotes from body text
 
-    let maxGapSize = 0;
-    let maxGapEnd = -1;
+    const searchStart = height; // Start from the very bottom
+    const searchEnd = Math.floor(height * 0.1); // Don't scan above 90% of page
+    const HARD_THRESHOLD = 5; // Absolute gap size that's definitely a separator
+    const SIGNIFICANT_INCREASE = 3.5; // Gap must be 3x larger than previous gaps
+    const MIN_GAP_SIZE = 1; // Minimum gap to consider
+
+    const gaps = []; // Track all gaps from bottom up
     let currentGapStart = -1;
+    let currentGapEnd = -1;
 
-    for (let y = searchStart; y < searchEnd; y++) {
+    // Scan from bottom to top
+    for (let y = searchStart - 1; y >= searchEnd; y--) {
         let hasContent = false;
         const rowOffset = y * width;
         for (let x = 0; x < width; x += 10) {
@@ -194,23 +201,65 @@ function processPageHybrid(imageData, chartItems, pageNum) {
         }
 
         if (!hasContent) {
-            if (currentGapStart === -1) currentGapStart = y;
+            // In a gap
+            if (currentGapStart === -1) {
+                currentGapStart = y; // Start of gap (from bottom up)
+            }
+            currentGapEnd = y; // Update end of gap (top edge)
         } else {
+            // Hit content - end of gap
             if (currentGapStart !== -1) {
-                const gapSize = y - currentGapStart;
-                if (gapSize > maxGapSize) {
-                    maxGapSize = gapSize;
-                    maxGapEnd = y;
+                const gapSize = currentGapStart - currentGapEnd + 1;
+                if (gapSize >= MIN_GAP_SIZE) {
+                    gaps.push({
+                        topY: currentGapEnd,
+                        bottomY: currentGapStart,
+                        size: gapSize
+                    });
+
+                    // Skip the first gap - it's the bottom margin
+                    if (gaps.length === 1) {
+                        currentGapStart = -1;
+                        currentGapEnd = -1;
+                        continue;
+                    }
+
+                    // Check if this gap is significantly larger than previous gaps
+                    // or exceeds hard threshold
+                    if (gapSize >= HARD_THRESHOLD) {
+                        // Found a definite separator
+                        break;
+                    }
+
+                    // Compare with previous gaps (excluding first gap which is bottom margin)
+                    if (gaps.length > 2) {
+                        const previousGaps = gaps.slice(1, -1); // Skip first (margin) and last (current)
+                        const maxPreviousGap = Math.max(...previousGaps.map(g => g.size));
+                        if (gapSize >= maxPreviousGap * SIGNIFICANT_INCREASE) {
+                            // This gap is significantly larger - likely the separator
+                            break;
+                        }
+                    }
                 }
                 currentGapStart = -1;
+                currentGapEnd = -1;
             }
         }
     }
 
+    // Determine split point
     let splitY = height;
-    if (maxGapSize > 15) {
-        splitY = maxGapEnd;
-        if (splitY > height - 20) splitY = height;
+    console.debug(`Footer separator gaps found: ${gaps.length}`, gaps);
+    if (gaps.length > 1) {
+        // Use the last gap found (largest/most significant from bottom-up scan)
+        // Skip gaps[0] which is the bottom margin
+        const separatorGap = gaps[gaps.length - 1];
+        splitY = separatorGap.bottomY + 1; // Split just after the gap
+
+        // Don't create a tiny footer zone
+        if (splitY > height - 20) {
+            splitY = height;
+        }
     }
 
     // === STEP 3: SEGMENT BODY (Figures + Tables + RLSA Text) ===
@@ -242,6 +291,7 @@ function processPageHybrid(imageData, chartItems, pageNum) {
 
     // === STEP 7: CLEANUP & SORT ===
     blocks = mergeOverlappingBlocks(blocks);
+    blocks = mergeBlocksOnSameLine(blocks, width);
     sortBlocksByReadingOrder(blocks, width);
 
     let orderCounter = 1;
@@ -891,6 +941,108 @@ function mergeOverlappingBlocks(blocks) {
     return blocks.filter(b => !b.deleted);
 }
 
+/**
+ * Merge blocks that share the same horizontal line (narrow y-bands).
+ * Maintains discrimination between blocks that span center-line vs those that don't.
+ */
+function mergeBlocksOnSameLine(blocks, pageWidth) {
+    const pageCenter = pageWidth / 2;
+    const Y_TOLERANCE = 10; // pixels - blocks within this vertical distance are considered on same line
+    const CENTER_MARGIN = 50; // pixels from center to consider a block as "spanning"
+
+    // Helper: determine if block spans center
+    function spansCenter(block) {
+        return block.x < pageCenter - CENTER_MARGIN && block.right > pageCenter + CENTER_MARGIN;
+    }
+
+    // Helper: check if two blocks are on the same line (overlap in y-dimension)
+    function onSameLine(b1, b2) {
+        const y1Top = b1.y;
+        const y1Bottom = b1.bottom;
+        const y2Top = b2.y;
+        const y2Bottom = b2.bottom;
+
+        // Check if y-ranges overlap with tolerance
+        return (y1Top <= y2Bottom + Y_TOLERANCE) && (y1Bottom >= y2Top - Y_TOLERANCE);
+    }
+
+    // Helper: check if blocks should be merged
+    function shouldMerge(b1, b2) {
+        // Don't merge special types
+        if (b1.type === 'FIGURE' || b2.type === 'FIGURE') return false;
+        if (b1.type === 'IMAGE' || b2.type === 'IMAGE') return false;
+        if (b1.type === 'TABLE' || b2.type === 'TABLE') return false;
+        if (b1.type === 'HEADER' || b2.type === 'HEADER') return false;
+        if (b1.type === 'FOOTER' || b2.type === 'FOOTER') return false;
+
+        // Check if they're on the same line
+        if (!onSameLine(b1, b2)) return false;
+
+        // Get span status
+        const b1Spans = spansCenter(b1);
+        const b2Spans = spansCenter(b2);
+
+        // Only merge if both span or both don't span center
+        if (b1Spans !== b2Spans) return false;
+
+        // If neither spans center, check they're on same side
+        if (!b1Spans && !b2Spans) {
+            const b1Center = b1.x + b1.width / 2;
+            const b2Center = b2.x + b2.width / 2;
+            const b1Left = b1Center < pageCenter;
+            const b2Left = b2Center < pageCenter;
+
+            // Only merge if on same side of page
+            if (b1Left !== b2Left) return false;
+        }
+
+        return true;
+    }
+
+    // Merge blocks
+    let changed = true;
+    let iterations = 0;
+    const MAX_ITERATIONS = 10;
+
+    while (changed && iterations < MAX_ITERATIONS) {
+        changed = false;
+        iterations++;
+
+        // Sort blocks left-to-right, top-to-bottom for consistent merging
+        blocks.sort((a, b) => {
+            const yDiff = a.y - b.y;
+            if (Math.abs(yDiff) > Y_TOLERANCE) return yDiff;
+            return a.x - b.x;
+        });
+
+        for (let i = 0; i < blocks.length; i++) {
+            if (blocks[i].deleted) continue;
+
+            for (let j = i + 1; j < blocks.length; j++) {
+                if (blocks[j].deleted) continue;
+
+                const b1 = blocks[i];
+                const b2 = blocks[j];
+
+                if (shouldMerge(b1, b2)) {
+                    // Merge b2 into b1
+                    b1.x = Math.min(b1.x, b2.x);
+                    b1.y = Math.min(b1.y, b2.y);
+                    b1.right = Math.max(b1.right, b2.right);
+                    b1.bottom = Math.max(b1.bottom, b2.bottom);
+                    b1.width = b1.right - b1.x;
+                    b1.height = b1.bottom - b1.y;
+
+                    b2.deleted = true;
+                    changed = true;
+                }
+            }
+        }
+    }
+
+    return blocks.filter(b => !b.deleted);
+}
+
 function sortBlocksByReadingOrder(blocks, pageW) {
     const pageCenter = pageW / 2;
     const LINE_TOLERANCE = 8; // pixels for vertical alignment
@@ -1156,7 +1308,8 @@ function runStandardRLSA(roi, offsetRect, zoneType, chartItems, hSize, vSize) {
         const cnt = contours.get(i);
         const rect = cv.boundingRect(cnt);
 
-        if (rect.width < 10 || rect.height < 6) continue;
+        // Reduced thresholds to capture small text elements (e.g., single digits in captions)
+        if (rect.width < 4 || rect.height < 4) continue;
 
         const absX = rect.x + offsetRect.x;
         const absY = rect.y + offsetRect.y;

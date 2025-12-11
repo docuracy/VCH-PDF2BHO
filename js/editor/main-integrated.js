@@ -675,11 +675,14 @@ async function extractPDFToXHTML(file) {
 
     // Post-process XHTML to use correct image extensions (jpg/png based on content)
     if (figureExtensions && Object.keys(figureExtensions).length > 0) {
-        Object.entries(figureExtensions).forEach(([figNum, ext]) => {
+        Object.entries(figureExtensions).forEach(([figureId, ext]) => {
+            // figureId format: 'type-number' (e.g., 'figure-5', 'chart-12')
             // Only replace if extension is not .png (since .png is the default)
             if (ext !== 'png') {
-                const pattern = new RegExp(`figure-${figNum}\\.png`, 'g');
-                extractedXHTML = extractedXHTML.replace(pattern, `figure-${figNum}.${ext}`);
+                // Escape hyphens in the figureId for regex
+                const escapedId = figureId.replace(/-/g, '\\-');
+                const pattern = new RegExp(`${escapedId}\\.png`, 'g');
+                extractedXHTML = extractedXHTML.replace(pattern, `${figureId}.${ext}`);
             }
         });
     }
