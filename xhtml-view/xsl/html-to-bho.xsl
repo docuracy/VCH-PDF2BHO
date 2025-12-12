@@ -13,6 +13,9 @@
 
     <!-- Root template -->
     <xsl:template match="/">
+        <xsl:processing-instruction name="xml-stylesheet">
+            <xsl:text>type="text/xsl" href="report.xsl"</xsl:text>
+        </xsl:processing-instruction>
         <xsl:apply-templates select="//article"/>
     </xsl:template>
 

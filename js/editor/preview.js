@@ -90,6 +90,7 @@ export async function generatePreview(xhtml) {
 async function generatePreviewWithSaxonJS(xmlString) {
     // Build sef from XSLT file using:
     // npx xslt3 -t -xsl:xhtml-view/xsl/xhtml.xsl -export:xhtml-view/xsl/xhtml.sef.json -nogo -ns:##html5
+    // npx xslt3 -t -xsl:xhtml-view/xsl/html-to-bho.xsl -export:xhtml-view/xsl/html-to-bho.sef.json -nogo -ns:##html5
 
     const sefUrl = "./xhtml-view/xsl/xhtml.sef.json";
 
