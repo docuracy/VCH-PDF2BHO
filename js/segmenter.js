@@ -175,96 +175,11 @@ function processPageHybrid(imageData, chartItems, pageNum) {
     }
 
 
-    // === STEP 2: FIND FOOTER SEPARATOR ===
-    // Scan from bottom to top looking for a significantly wide horizontal white gap
-    // This gap separates footnotes from body text
-
-    const searchStart = height; // Start from the very bottom
-    const searchEnd = Math.floor(height * 0.1); // Don't scan above 90% of page
-    const HARD_THRESHOLD = 5; // Absolute gap size that's definitely a separator
-    const SIGNIFICANT_INCREASE = 3.5; // Gap must be 3x larger than previous gaps
-    const MIN_GAP_SIZE = 1; // Minimum gap to consider
-
-    const gaps = []; // Track all gaps from bottom up
-    let currentGapStart = -1;
-    let currentGapEnd = -1;
-
-    // Scan from bottom to top
-    for (let y = searchStart - 1; y >= searchEnd; y--) {
-        let hasContent = false;
-        const rowOffset = y * width;
-        for (let x = 0; x < width; x += 10) {
-            if (rawData[rowOffset + x] > 0) {
-                hasContent = true;
-                break;
-            }
-        }
-
-        if (!hasContent) {
-            // In a gap
-            if (currentGapStart === -1) {
-                currentGapStart = y; // Start of gap (from bottom up)
-            }
-            currentGapEnd = y; // Update end of gap (top edge)
-        } else {
-            // Hit content - end of gap
-            if (currentGapStart !== -1) {
-                const gapSize = currentGapStart - currentGapEnd + 1;
-                if (gapSize >= MIN_GAP_SIZE) {
-                    gaps.push({
-                        topY: currentGapEnd,
-                        bottomY: currentGapStart,
-                        size: gapSize
-                    });
-
-                    // Skip the first gap - it's the bottom margin
-                    if (gaps.length === 1) {
-                        currentGapStart = -1;
-                        currentGapEnd = -1;
-                        continue;
-                    }
-
-                    // Check if this gap is significantly larger than previous gaps
-                    // or exceeds hard threshold
-                    if (gapSize >= HARD_THRESHOLD) {
-                        // Found a definite separator
-                        break;
-                    }
-
-                    // Compare with previous gaps (excluding first gap which is bottom margin)
-                    if (gaps.length > 2) {
-                        const previousGaps = gaps.slice(1, -1); // Skip first (margin) and last (current)
-                        const maxPreviousGap = Math.max(...previousGaps.map(g => g.size));
-                        if (gapSize >= maxPreviousGap * SIGNIFICANT_INCREASE) {
-                            // This gap is significantly larger - likely the separator
-                            break;
-                        }
-                    }
-                }
-                currentGapStart = -1;
-                currentGapEnd = -1;
-            }
-        }
-    }
-
-    // Determine split point
-    let splitY = height;
-    console.debug(`Footer separator gaps found: ${gaps.length}`, gaps);
-    if (gaps.length > 1) {
-        // Use the last gap found (largest/most significant from bottom-up scan)
-        // Skip gaps[0] which is the bottom margin
-        const separatorGap = gaps[gaps.length - 1];
-        splitY = separatorGap.bottomY + 1; // Split just after the gap
-
-        // Don't create a tiny footer zone
-        if (splitY > height - 20) {
-            splitY = height;
-        }
-    }
-
-    // === STEP 3: SEGMENT BODY (Figures + Tables + RLSA Text) ===
-    if (splitY > headerBottom) {
-        const bodyHeight = splitY - headerBottom;
+    // === STEP 2: SEGMENT ENTIRE PAGE BODY ===
+    // Note: Footnotes will be identified later based on font analysis
+    // We no longer use gap-based footer detection
+    if (height > headerBottom) {
+        const bodyHeight = height - headerBottom;
         if (bodyHeight > 0) {
             const bodyRect = new cv.Rect(0, headerBottom, width, bodyHeight);
 
@@ -274,29 +189,25 @@ function processPageHybrid(imageData, chartItems, pageNum) {
         }
     }
 
-    // === STEP 4: SEGMENT FOOTER ===
-    if (splitY < height) {
-        const footHeight = height - splitY;
-        const footRect = new cv.Rect(0, splitY, width, footHeight);
-        const footBlocks = segmentFooterZone(binary, footRect, chartItems);
-        blocks.push(...footBlocks);
-    }
 
-    // === STEP 5: DETECT HEADINGS ===
+    // === STEP 3: DETECT HEADINGS ===
     const headingBlocks = detectHeadings(gray, blocks, width);
     blocks = applyHeadingResults(blocks, headingBlocks);
 
-    // === STEP 6: SEGMENT TABLES INTO CELLS ===
+    // === STEP 4: SEGMENT TABLES INTO CELLS ===
     blocks = segmentTableCells(binary, blocks);
 
-    // === STEP 7: CLEANUP & SORT ===
+    // === STEP 5: CLEANUP & SORT ===
     blocks = mergeOverlappingBlocks(blocks);
     blocks = mergeBlocksOnSameLine(blocks, width);
+    blocks = removeHeaderOverlaps(blocks);
     sortBlocksByReadingOrder(blocks, width);
 
+    // === STEP 6: ASSIGN READING ORDER ===
+    // Note: FOOTNOTE zones will be identified later based on font analysis
     let orderCounter = 1;
     blocks.forEach(b => {
-        if (b.type !== 'HEADER' && b.type !== 'FOOTER') {
+        if (b.type !== 'HEADER') {
             b.order = orderCounter++;
         }
     });
@@ -973,7 +884,7 @@ function mergeBlocksOnSameLine(blocks, pageWidth) {
         if (b1.type === 'IMAGE' || b2.type === 'IMAGE') return false;
         if (b1.type === 'TABLE' || b2.type === 'TABLE') return false;
         if (b1.type === 'HEADER' || b2.type === 'HEADER') return false;
-        if (b1.type === 'FOOTER' || b2.type === 'FOOTER') return false;
+        if (b1.type === 'FOOTNOTE' || b2.type === 'FOOTNOTE') return false;
 
         // Check if they're on the same line
         if (!onSameLine(b1, b2)) return false;
@@ -1043,6 +954,64 @@ function mergeBlocksOnSameLine(blocks, pageWidth) {
     return blocks.filter(b => !b.deleted);
 }
 
+/**
+ * Remove zones that overlap with HEADER zones.
+ * Note: HEADER is different from HEADING - we only check for HEADER overlaps.
+ * These overlapping zones are typically OCR noise or misdetected content within the header area.
+ */
+function removeHeaderOverlaps(blocks) {
+    // Find only HEADER zones (not HEADING zones)
+    const headerZones = blocks.filter(b => b.type === 'HEADER');
+
+    if (headerZones.length === 0) {
+        return blocks;
+    }
+
+    console.debug(`All blocks`, blocks);
+
+    // Remove non-header blocks that overlap with header zones
+    const filtered = blocks.filter(block => {
+        // Keep HEADER zones themselves
+        if (block.type === 'HEADER') {
+            return true;
+        }
+
+
+        // Check if this block overlaps with any HEADER zone
+        for (const header of headerZones) {
+            // Calculate bounds
+            const blockRight = block.x + block.width;
+            const blockBottom = block.y + block.height;
+            const headerRight = header.x + header.width;
+            const headerBottom = header.y + header.height;
+
+            const xOverlap = Math.max(0,
+                Math.min(blockRight, headerRight) - Math.max(block.x, header.x)
+            );
+            const yOverlap = Math.max(0,
+                Math.min(blockBottom, headerBottom) - Math.max(block.y, header.y)
+            );
+
+            console.debug(`Checking block at y=${block.y} (type=${block.type}) against HEADER at y=${header.y}: xOverlap=${xOverlap}, yOverlap=${yOverlap}`);
+
+            // If there's overlap, discard this block
+            if (xOverlap > 0 && yOverlap > 0) {
+                console.log(`Discarding zone at y=${block.y} (type=${block.type}) - overlaps with HEADER at y=${header.y}`);
+                return false;
+            }
+        }
+
+        return true;
+    });
+
+    const removed = blocks.length - filtered.length;
+    if (removed > 0) {
+        console.log(`removeHeaderOverlaps: removed ${removed} zones that overlapped with HEADER`);
+    }
+
+    return filtered;
+}
+
 function sortBlocksByReadingOrder(blocks, pageW) {
     const pageCenter = pageW / 2;
     const LINE_TOLERANCE = 8; // pixels for vertical alignment
@@ -1050,7 +1019,7 @@ function sortBlocksByReadingOrder(blocks, pageW) {
     // Step 0: assign column type
     blocks.forEach(b => {
         const bCenter = b.x + (b.width / 2);
-        if (b.type.match(/HEADER|HEADING|FOOTER|TITLE/) || (b.x < pageCenter - 50 && b.x + b.width > pageCenter + 50)) {
+        if (b.type.match(/HEADER|HEADING|FOOTNOTE|TITLE/) || (b.x < pageCenter - 50 && b.x + b.width > pageCenter + 50)) {
             b.colType = 'SPAN';
         } else if (bCenter < pageCenter) {
             b.colType = 'LEFT';
@@ -1357,7 +1326,7 @@ function detectHeadings(pageMat, blocks) {
     //----------------------------------------
     // 0. Filter only unclassified blocks
     //----------------------------------------
-    const relevantBlocks = blocks.filter(b => !['FOOTER','HEADER','FIGURE','TABLE'].includes(b.type));
+    const relevantBlocks = blocks.filter(b => !['FOOTNOTE','HEADER','FIGURE','TABLE'].includes(b.type));
 
     if (relevantBlocks.length === 0) return [];
 

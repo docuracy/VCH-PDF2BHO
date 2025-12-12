@@ -561,6 +561,45 @@ async function extractPDFToXHTML(file) {
         const [pageFontMap, pageNumeral] = await storePageData(pdf, pageNum);
         pageNumerals.push(pageNumeral);
 
+        // Identify footnote zones immediately after processing (before visualization)
+        // Use page-level font as preliminary default
+        const pageDefaultFont = Object.entries(pageFontMap).reduce((mostCommon, [fontName, fontEntry]) => {
+            Object.entries(fontEntry.sizes).forEach(([size, sizeEntry]) => {
+                if (sizeEntry.area > mostCommon.maxArea) {
+                    mostCommon = { fontName, fontSize: parseFloat(size), maxArea: sizeEntry.area };
+                }
+            });
+            return mostCommon;
+        }, { fontName: null, fontSize: null, maxArea: 0 });
+
+        if (pageDefaultFont.fontName) {
+            await revalidateFooterZonesWithFootFont(pageNum, pageDefaultFont, null);
+        }
+
+        // EXPERIMENTAL: Discard micro-zones as they capture nothing useful
+        const zonesData = localStorage.getItem(`page-${pageNum}-zones`);
+        if (zonesData) {
+            const zones = JSON.parse(LZString.decompressFromUTF16(zonesData));
+            const originalCount = zones.length;
+            const filteredZones = zones.filter(z => !z.isMicroZone);
+            const discardedCount = originalCount - filteredZones.length;
+
+            if (discardedCount > 0) {
+                console.log(`Discarded ${discardedCount} micro-zones (${originalCount} → ${filteredZones.length} zones)`);
+
+                // Reassign reading order to eliminate gaps from removed micro-zones
+                let orderCounter = 1;
+                filteredZones.forEach(zone => {
+                    if (zone.type !== 'HEADER' && zone.order !== undefined) {
+                        zone.order = orderCounter++;
+                    }
+                });
+                console.log(`Renumbered zones: 1-${orderCounter - 1} (no gaps)`);
+
+                localStorage.setItem(`page-${pageNum}-zones`, LZString.compressToUTF16(JSON.stringify(filteredZones)));
+            }
+        }
+
         // === VISUAL DEBUG PAUSE ===
         if (isDebugMode) {
             const zones = JSON.parse(
@@ -612,19 +651,14 @@ async function extractPDFToXHTML(file) {
         })
     )).sort((a, b) => b - a);
 
-    const footFont = Object.entries(masterFontMap).reduce((mostCommon, [fontName, fontEntry]) => {
-        Object.entries(fontEntry.sizes).forEach(([size, sizeEntry]) => {
-            if (sizeEntry.footarea > mostCommon.maxFootArea) {
-                mostCommon = { fontName, fontSize: parseFloat(size), maxFootArea: sizeEntry.footarea };
-            }
-        });
-        return mostCommon;
-    }, { fontName: null, fontSize: null, maxFootArea: 0 });
 
     // Header tagging pass
     for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
         headerFooterAndFonts(pageNum, masterFontMap, defaultFont, headerFontSizes);
     }
+
+    // Note: FOOTNOTE zones are now identified per-page during pre-processing,
+    // before the visualization, so they can be seen in the segmentation debugger
 
     // Build Content
     let maxEndnote = 0;
@@ -645,7 +679,7 @@ async function extractPDFToXHTML(file) {
         const isNewPageNumeral = (pageNum === 1) || isNaN(lastNum) || isNaN(currentNum) || (currentNum !== lastNum + 1);
 
         let pageHTML, firstContinuationTableMetadata, lastContentTableMetadata;
-        [maxEndnote, pageHTML, firstContinuationTableMetadata, lastContentTableMetadata] = await processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, currentPageNumeral, false, isNewPageNumeral);
+        [maxEndnote, pageHTML, firstContinuationTableMetadata, lastContentTableMetadata] = await processItems(pageNum, defaultFont, maxEndnote, pdf, currentPageNumeral, false, isNewPageNumeral);
 
         pageResults.push({
             html: pageHTML,
@@ -796,39 +830,53 @@ async function showSegmentationVisualizer(pdf, pageNum, zones) {
             ctx.lineWidth = 2;
             let label = zone.type;
 
-            switch (zone.type) {
-                case 'HEADER':
-                    ctx.strokeStyle = 'red';
-                    ctx.fillStyle = 'rgba(255, 0, 0, 0.2)';
-                    break;
-                case 'HEADING':
-                    ctx.strokeStyle = 'gold';
-                    ctx.fillStyle = 'rgba(255, 215, 0, 0.3)';
-                    break;
+            // Check if this is a micro-zone first
+            if (zone.isMicroZone) {
+                // Micro-zones get a distinct bright pink/magenta color
+                ctx.strokeStyle = 'magenta';
+                ctx.fillStyle = 'rgba(255, 0, 255, 0.4)';
+                ctx.lineWidth = 3; // Thicker border to stand out
+            } else {
+                // Regular zone coloring
+                switch (zone.type) {
+                    case 'HEADER':
+                        ctx.strokeStyle = 'red';
+                        ctx.fillStyle = 'rgba(255, 0, 0, 0.2)';
+                        break;
+                    case 'HEADING':
+                        ctx.strokeStyle = 'gold';
+                        ctx.fillStyle = 'rgba(255, 215, 0, 0.3)';
+                        break;
                 case 'FOOTER':
                     ctx.strokeStyle = 'blue';
                     ctx.fillStyle = 'rgba(0, 0, 255, 0.2)';
                     break;
-                case 'IMAGE':
-                    ctx.strokeStyle = 'orange';
-                    ctx.fillStyle = 'rgba(255, 165, 0, 0.3)';
+                case 'FOOTNOTE':
+                    ctx.strokeStyle = 'navy';
+                    ctx.fillStyle = 'rgba(0, 0, 128, 0.3)';
                     break;
-                case 'FIGURE':
-                    ctx.strokeStyle = 'purple';
-                    ctx.fillStyle = 'rgba(128, 0, 128, 0.2)';
-                    break;
-                case 'TABLE':
-                    ctx.strokeStyle = 'teal';
-                    ctx.fillStyle = 'rgba(0, 255, 255, 0.2)';
-                    break;
-                case 'UNKNOWN':
-                    ctx.strokeStyle = '#666';
-                    ctx.fillStyle = 'rgba(100, 100, 100, 0.1)';
-                    break;
-                default: // BODY
-                    ctx.strokeStyle = 'green';
-                    ctx.fillStyle = 'rgba(0, 255, 0, 0.1)';
-                    break;
+                    case 'IMAGE':
+                        ctx.strokeStyle = 'orange';
+                        ctx.fillStyle = 'rgba(255, 165, 0, 0.3)';
+                        break;
+                    case 'FIGURE':
+                        ctx.strokeStyle = 'purple';
+                        ctx.fillStyle = 'rgba(128, 0, 128, 0.2)';
+                        break;
+                    case 'TABLE':
+                        ctx.strokeStyle = 'teal';
+                        ctx.fillStyle = 'rgba(0, 255, 255, 0.2)';
+                        break;
+                    case 'UNKNOWN':
+                        ctx.strokeStyle = '#666';
+                        ctx.fillStyle = 'rgba(100, 100, 100, 0.1)';
+                        break;
+                    default: // BODY
+                        ctx.strokeStyle = 'green';
+                        ctx.fillStyle = 'rgba(0, 255, 0, 0.1)';
+                        break;
+                }
+                ctx.lineWidth = 2; // Normal border width
             }
 
             // Draw Box
@@ -859,7 +907,24 @@ async function showSegmentationVisualizer(pdf, pageNum, zones) {
     // 3. Show Overlay
     container.innerHTML = '';
     container.appendChild(canvas);
-    info.textContent = `Page ${pageNum} Analysis - (${zones ? zones.length : 0} zones detected)`;
+
+    // Count zones by type
+    const zoneCounts = {};
+    let zonesWithOrder = 0;
+    let microZoneCount = 0;
+    if (zones) {
+        zones.forEach(z => {
+            zoneCounts[z.type] = (zoneCounts[z.type] || 0) + 1;
+            if (z.order) zonesWithOrder++;
+            if (z.isMicroZone) microZoneCount++;
+        });
+    }
+    const countStr = Object.entries(zoneCounts)
+        .map(([type, count]) => `${type}:${count}`)
+        .join(', ');
+
+    const microZoneStr = microZoneCount > 0 ? ` | MICRO-ZONES: ${microZoneCount} (magenta)` : '';
+    info.textContent = `Page ${pageNum} - Total: ${zones ? zones.length : 0} zones [${countStr}] - ${zonesWithOrder} with reading order${microZoneStr}`;
     overlay.style.display = 'flex';
 
     // 4. Wait for user to click Continue

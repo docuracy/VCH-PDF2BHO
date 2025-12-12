@@ -1,6 +1,9 @@
 // /js/text.js
 // Description: Contains functions for extracting text from PDFs.
 
+// Caption type whitelist
+const CAPTION_TYPES = ['figure', 'fig', 'plate'];
+
 function escapeHTML(str) {
     return str
         .replace(/&/g, '&amp;')
@@ -86,11 +89,33 @@ function mergeConsecutiveTags(html, tags = ['b','i','u', 'data']) {
 }
 
 function buildFootnoteLookup(zones) {
+    console.log('\n=== buildFootnoteLookup: Start ===');
+
+    // Debug: Show FOOTNOTE zones and their items
+    const footnoteZones = zones.filter(z => z.type === 'FOOTNOTE');
+    console.log(`Found ${footnoteZones.length} FOOTNOTE zones`);
+    footnoteZones.forEach((zone, idx) => {
+        console.log(`\nFOOTNOTE Zone ${idx + 1}:`);
+        console.log(`  Order: ${zone.order}, Y: ${zone.y?.toFixed(1)}`);
+        console.log(`  Items: ${zone.items ? zone.items.length : 0} lines`);
+        if (zone.items && zone.items.length > 0) {
+            zone.items.forEach((line, lineIdx) => {
+                const lineText = Array.isArray(line) ? line.map(i => i.str).join(' ') : 'NOT AN ARRAY';
+                console.log(`    Line ${lineIdx}: [${line.length} items] "${lineText.substring(0, 80)}${lineText.length > 80 ? '...' : ''}"`);
+                if (lineIdx === 0 && Array.isArray(line) && line.length > 0) {
+                    console.log(`      First item: str="${line[0].str}", height=${line[0].height}, fontName=${line[0].fontName}`);
+                }
+            });
+        } else {
+            console.log(`    ⚠️ NO ITEMS IN THIS ZONE`);
+        }
+    });
+
     // Find superscripts in relevant zones and mark them
     let foundFootnoteIndices = new Set();
     let foundFootnoteItems = [];
     zones.forEach(zone => {
-        if (['FOOTER', 'TABLE', 'FIGURE'].includes(zone.type)) return;
+        if (['FOOTNOTE', 'TABLE', 'FIGURE'].includes(zone.type)) return;
         zone.items.forEach(line => {
             line.forEach((item, index) => {
                 if (item.bottom < line[index - 1]?.bottom && /^\d+$/.test(item.str)) {
@@ -104,10 +129,12 @@ function buildFootnoteLookup(zones) {
     });
     foundFootnoteIndices = Array.from(foundFootnoteIndices).sort((a, b) => a - b);
 
-    // Concatenate FOOTER zone items
+    // Concatenate FOOTNOTE zone items
     const footnoteLines = zones
-        .filter(z => z.type === 'FOOTER')
+        .filter(z => z.type === 'FOOTNOTE')
         .flatMap(z => z.items);
+
+    console.log(`\nProcessing ${footnoteLines.length} footnote lines`);
 
     // Process footnoteLines into lookup table
     const footnoteLookup = new Map();
@@ -115,45 +142,89 @@ function buildFootnoteLookup(zones) {
     let currentFootnoteText = [];
     let expectedNextIndex = 1;
 
+    console.log('Processing footnote lines:');
     footnoteLines.forEach((line, lineIdx) => {
-        // Check if first item in line is a footnote number
+        // Check if first item in line starts with a footnote number
         const firstItem = line[0];
-        const match = firstItem?.str.match(/^(\d+)$/);
+        const lineText = line.map(i => i.str).join(' ');
+
+        // Try to match footnote number at start of first item's text
+        // Pattern: start of string, digit(s), followed by space or end
+        const match = firstItem?.str.match(/^(\d+)(?:\s|$)/);
 
         if (match) {
             const potentialIndex = parseInt(match[1]);
+            console.log(`  Line ${lineIdx}: First item="${firstItem.str.substring(0, 60)}..." (potential footnote ${potentialIndex}), expected=${expectedNextIndex}`);
 
             // Only treat as new footnote if it's the expected next index
             if (potentialIndex === expectedNextIndex) {
                 // Found a new footnote marker
                 // Save previous footnote if exists
                 if (currentFootnoteIndex !== null) {
+                    const prevText = currentFootnoteText.map(i => i.str).join(' ');
+                    console.log(`    ✓ Saved footnote ${currentFootnoteIndex}: "${prevText.substring(0, 60)}${prevText.length > 60 ? '...' : ''}"`);
                     footnoteLookup.set(currentFootnoteIndex, currentFootnoteText);
                 }
 
                 // Start new footnote
                 currentFootnoteIndex = potentialIndex;
                 expectedNextIndex = potentialIndex + 1;
-                // Collect items from rest of line (skip the number)
-                currentFootnoteText = line.slice(1);
+
+                // Remove the footnote number from the first item's text
+                // If the number is the entire item, use rest of line
+                // If the number is part of the item, split it
+                if (firstItem.str === match[0].trim()) {
+                    // Number is the entire item (e.g., "1")
+                    currentFootnoteText = line.slice(1);
+                } else {
+                    // Number is part of the item (e.g., "1  For the history...")
+                    // Create a new item with the text after the number
+                    const textAfterNumber = firstItem.str.substring(match[0].length).trim();
+                    if (textAfterNumber) {
+                        const newItem = {...firstItem, str: textAfterNumber};
+                        currentFootnoteText = [newItem, ...line.slice(1)];
+                    } else {
+                        currentFootnoteText = line.slice(1);
+                    }
+                }
+                console.log(`    → Start footnote ${potentialIndex}: "${lineText.substring(0, 60)}${lineText.length > 60 ? '...' : ''}"`);
             } else {
                 // Integer exists but not the expected footnote number
                 // Treat as continuation of current footnote
+                console.log(`    ⚠️ Number ${potentialIndex} found but expected ${expectedNextIndex} - treating as continuation`);
                 if (currentFootnoteIndex !== null) {
                     currentFootnoteText.push(...line);
                 } else {
-                    console.warn(`Line ${lineIdx} starts with ${potentialIndex} but no footnote context exists`);
+                    console.warn(`    ❌ Line ${lineIdx} starts with ${potentialIndex} but no footnote context exists`);
                 }
             }
-        } else if (currentFootnoteIndex !== null) {
-            // Continuation of current footnote
-            currentFootnoteText.push(...line);
+        } else {
+            if (currentFootnoteIndex !== null) {
+                // Continuation of current footnote
+                console.log(`  Line ${lineIdx}: Continuation of footnote ${currentFootnoteIndex}: "${lineText.substring(0, 60)}${lineText.length > 60 ? '...' : ''}"`);
+                currentFootnoteText.push(...line);
+            } else {
+                console.log(`  Line ${lineIdx}: ⚠️ No footnote started yet, first item="${firstItem?.str}"`);
+            }
         }
     });
 
     // Don't forget the last footnote
     if (currentFootnoteIndex !== null) {
+        const lastText = currentFootnoteText.map(i => i.str).join(' ');
+        console.log(`  ✓ Saved last footnote ${currentFootnoteIndex}: "${lastText.substring(0, 60)}${lastText.length > 60 ? '...' : ''}"`);
         footnoteLookup.set(currentFootnoteIndex, currentFootnoteText);
+    }
+
+    console.log(`\n=== buildFootnoteLookup: Summary ===`);
+    console.log(`Total footnotes found: ${footnoteLookup.size}`);
+    if (footnoteLookup.size > 0) {
+        console.log(`Footnote indices: ${Array.from(footnoteLookup.keys()).join(', ')}`);
+    } else {
+        console.warn('⚠️ NO FOOTNOTES WERE ADDED TO THE LOOKUP!');
+        if (footnoteZones.length > 0) {
+            console.warn(`   But ${footnoteZones.length} FOOTNOTE zones exist - check if items are formatted correctly`);
+        }
     }
 
     // Check for missing footnotes
@@ -318,6 +389,7 @@ function flushBuffer(buffer, isHeading = false, fontSignature = null, isCaption 
     // Process URLs BEFORE escaping to avoid mangling href attributes
     const urlPlaceholders = [];
     buffer.forEach(item => {
+        if (!item.str) return; // Skip items without str property
         if (!item.str.startsWith('<')) { // Don't process if already HTML
             const urlRegex = /(https?:\/\/[^\s<>"')\]]+)/g;
             item.str = item.str.replace(urlRegex, (url) => {
@@ -338,6 +410,7 @@ function flushBuffer(buffer, isHeading = false, fontSignature = null, isCaption 
 
     // Escape HTML entities in the raw text
     buffer.forEach(item => {
+        if (!item.str) return; // Skip items without str property
         if (!item.str.startsWith('<')) { // Don't escape if already HTML
             item.str = escapeHTML(item.str);
         }
@@ -388,7 +461,7 @@ function flushBuffer(buffer, isHeading = false, fontSignature = null, isCaption 
             const number = match[2];
             const caption = match[3];
 
-            return `<figure><img src="${type}-${number}.png" alt="${type.charAt(0).toUpperCase() + type.slice(1)} ${number}" /><figcaption data-type="${type}" data-number="${number}">${caption}</figcaption></figure>`;
+            return `<figure><img src="${type}-${number}.png" alt="${type.charAt(0).toUpperCase() + type.slice(1)} ${number}" /><figcaption data-start="${number}">${caption}</figcaption></figure>`;
         }
 
         // Fallback for malformed captions
@@ -520,29 +593,38 @@ function mergeZoneItems(zones, defaultFont) {
     const defaultFontKey = `${defaultFont.fontName}@${Math.round(defaultFont.fontSize)}`;
 
     zones.forEach(zone => {
-        if (['FOOTER', 'FIGURE'].includes(zone.type)) {
+        if (['FOOTNOTE', 'FIGURE'].includes(zone.type)) {
             zone.html = '';
             return;
         }
 
         // Handle TABLE zones with simplified processing
-        // BUT preserve items for 'notes' sections - they need special parsing in buildTables
         if (zone.type === 'TABLE') {
             if (zone.section === 'notes') {
-                // Don't process notes yet - buildTables will handle them with parseTableNotes
                 zone.html = '';
-                // Keep zone.items for later parsing
             } else {
                 zone.html = mergeTableZoneItems(zone);
                 delete zone.items;
             }
+            processedZones.add(zone);
             return;
         }
 
         if (!zone.items || zone.items.length === 0) {
             zone.html = '';
             delete zone.items;
+            processedZones.add(zone);
             return;
+        }
+
+        // Check if this zone starts with a heading that might continue into following zones
+        if (zone.type === 'BODY' && zone.startsWithHeading) {
+            console.log(`\n>>> Calling processHeadingSequence for zone #${zone.order}`);
+            // Process this zone and any following zones as a heading sequence
+            processHeadingSequence(zone, zones, zoneIdx, defaultFont, defaultFontKey, processedZones);
+            return;
+        } else if (zone.type === 'BODY') {
+            console.log(`Zone #${zone.order}: BODY but not startsWithHeading (${zone.startsWithHeading})`);
         }
 
         // Calculate zone metrics for paragraph and caption detection
@@ -578,31 +660,55 @@ function mergeZoneItems(zones, defaultFont) {
             const fontKey = `${firstItem.fontName}@${roundedHeight}`;
 
             // Detect caption start: [OptionalType][.][space][number][.][space][italic text]
-            // Examples: "Figure 5 Text...", "Fig. 3. Text...", "5 Text...", "Chart 12 Text..."
+            // Examples: "Figure 5 Text...", "Fig. 3. Text...", "Plate 12 Text..."
             let isCaptionStart = false;
             if (!inCaption && !inHeading && line.length > 1) {
                 // Build the line text to check for caption pattern
                 // Use space to join items since PDF items don't have hard-coded spaces
                 const lineText = line.map(i => i.str).join(' ');
-                const captionPattern = /^(?:[A-Za-z]+\.?\s+)?(\d+)\.?\s+/;
+
+                // Build pattern from whitelist - match any variant with at least one capital letter
+                // Create alternatives like: (?:Figure|FIG|FIGURE|Fig|...)
+                const typeAlternatives = CAPTION_TYPES.map(type => {
+                    // Generate common capitalization variants that have at least one capital
+                    const lower = type.toLowerCase();
+                    const upper = type.toUpperCase();
+                    const title = lower.charAt(0).toUpperCase() + lower.slice(1);
+                    // Return unique variants (using Set to dedupe)
+                    return [title, upper].filter((v, i, arr) => arr.indexOf(v) === i).join('|');
+                }).join('|');
+
+                // Pattern: optional type (from whitelist, with capital), optional period, space, number, optional period, space
+                const captionPattern = new RegExp(`^(?:(${typeAlternatives})\\.?\\s+)?(\\d+)\\.?\\s+`);
                 const match = lineText.match(captionPattern);
 
                 if (match) {
-                    // Check if there's italic text after the number
-                    // Find where the number ends in the line items
-                    let hasItalic = false;
-                    let charCount = 0;
-                    for (const item of line) {
-                        charCount += item.str.length + 1; // +1 for the space we added in join
-                        if (charCount >= match[0].length && item.italic) {
-                            hasItalic = true;
-                            break;
-                        }
+                    // If there's a type prefix, verify it has at least one capital letter
+                    const typePrefix = match[1];
+                    if (typePrefix && !/[A-Z]/.test(typePrefix)) {
+                        // Type exists but has no capital letters - reject
+                        // This shouldn't happen with our generated pattern, but safety check
+                        match[0] = null;
                     }
 
-                    if (hasItalic) {
-                        isCaptionStart = true;
-                        console.debug(`Caption start detected at line ${lineIdx}: "${lineText.substring(0, 50)}..."`);
+                    if (match[0]) {
+                        // Check if there's italic text after the number
+                        // Find where the number ends in the line items
+                        let hasItalic = false;
+                        let charCount = 0;
+                        for (const item of line) {
+                            charCount += item.str.length + 1; // +1 for the space we added in join
+                            if (charCount >= match[0].length && item.italic) {
+                                hasItalic = true;
+                                break;
+                            }
+                        }
+
+                        if (hasItalic) {
+                            isCaptionStart = true;
+                            const typeName = typePrefix || '(no type)';
+                            console.debug(`Caption start detected at line ${lineIdx}: type="${typeName}", number=${match[2]}, text="${lineText.substring(0, 50)}..."`);
+                        }
                     }
                 }
             }
@@ -1237,26 +1343,27 @@ function extractFigureNumbersFromZones(zones) {
     zones.forEach(zone => {
         if (!zone.html) return;
 
-        // Look for <figcaption> with data-type and data-number attributes
-        const typeMatch = zone.html.match(/<figcaption[^>]+data-type="([^"]+)"/);
-        const numberMatch = zone.html.match(/<figcaption[^>]+data-number="(\d+)"/);
-
-        if (typeMatch && numberMatch) {
-            figureIds.push(`${typeMatch[1]}-${numberMatch[1]}`);
-            return;
-        }
-
-        // Fallback: check for img src with type-number pattern
+        // Look for img src with type-number pattern (primary method)
         const imgSrcMatch = zone.html.match(/<img[^>]+src="([a-z]+-\d+)\.png"/);
         if (imgSrcMatch) {
             figureIds.push(imgSrcMatch[1]);
+            return;
+        }
+
+        // Fallback: look for data-start attribute and try to extract type from img src or alt
+        const dataStartMatch = zone.html.match(/<figcaption[^>]+data-start="(\d+)"/);
+        if (dataStartMatch) {
+            // Try to get type from img src or default to 'figure'
+            const imgMatch = zone.html.match(/<img[^>]+src="([a-z]+)-\d+\./);
+            const type = imgMatch ? imgMatch[1] : 'figure';
+            figureIds.push(`${type}-${dataStartMatch[1]}`);
         }
     });
 
     return figureIds;
 }
 
-async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pageNumeral, isIndex, isNewPageNumeral = true) {
+async function processItems(pageNum, defaultFont, maxEndnote, pdf, pageNumeral, isIndex, isNewPageNumeral = true) {
 
     console.info(`Processing page ${pageNum}...`);
 
@@ -1332,6 +1439,7 @@ async function processItems(pageNum, defaultFont, footFont, maxEndnote, pdf, pag
                 break;
 
             case 'FOOTER':
+            case 'FOOTNOTE':
                 break;
 
             default:

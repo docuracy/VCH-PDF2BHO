@@ -10,7 +10,75 @@ const operatorNames = Object.keys(pdfjsLib.OPS).reduce((acc, key) => {
     return acc;
 }, {});
 
+
+/**
+ * Merge micro-zones with overlapping BODY zones.
+ * Extends the bounds of BODY zones to include overlapping micro-zones.
+ */
+function mergeMicroZonesWithBodyZones(zones) {
+    const microZones = zones.filter(z => z.isMicroZone);
+    const bodyZones = zones.filter(z => z.type === 'BODY' && !z.isMicroZone);
+
+    if (microZones.length === 0) return;
+
+    let mergedCount = 0;
+
+    microZones.forEach(microZone => {
+        // Find BODY zones that overlap with this micro-zone
+        for (const bodyZone of bodyZones) {
+            const bodyRight = bodyZone.x + bodyZone.width;
+            const bodyBottom = bodyZone.y + bodyZone.height;
+            const microRight = microZone.x + microZone.width;
+            const microBottom = microZone.y + microZone.height;
+
+            const xOverlap = Math.max(0,
+                Math.min(microRight, bodyRight) - Math.max(microZone.x, bodyZone.x)
+            );
+            const yOverlap = Math.max(0,
+                Math.min(microBottom, bodyBottom) - Math.max(microZone.y, bodyZone.y)
+            );
+
+            // If there's overlap, merge micro-zone into body zone
+            if (xOverlap > 0 && yOverlap > 0) {
+                // Extend body zone bounds to include micro-zone
+                const newX = Math.min(bodyZone.x, microZone.x);
+                const newY = Math.min(bodyZone.y, microZone.y);
+                const newRight = Math.max(bodyRight, microRight);
+                const newBottom = Math.max(bodyBottom, microBottom);
+
+                bodyZone.x = newX;
+                bodyZone.y = newY;
+                bodyZone.width = newRight - newX;
+                bodyZone.height = newBottom - newY;
+                bodyZone.right = newRight;
+                bodyZone.bottom = newBottom;
+
+                // Transfer items from micro-zone to body zone
+                if (microZone.items && microZone.items.length > 0) {
+                    bodyZone.items = bodyZone.items || [];
+                    bodyZone.items.push(...microZone.items);
+                }
+
+                // Mark micro-zone for deletion
+                microZone.deleted = true;
+                mergedCount++;
+
+                console.log(`Merged micro-zone at y=${microZone.y.toFixed(1)} into BODY zone at y=${bodyZone.y.toFixed(1)}`);
+                break; // Move to next micro-zone
+            }
+        }
+    });
+
+    // Remove merged micro-zones from zones array
+    if (mergedCount > 0) {
+        const originalCount = zones.length;
+        zones.splice(0, zones.length, ...zones.filter(z => !z.deleted));
+        console.log(`Merged ${mergedCount} micro-zones with BODY zones (${originalCount} -> ${zones.length} zones)`);
+    }
+}
+
 function sortZoneItems(zones, items) {
+
     // Move items to zones
     zones.forEach(zone => {
         zone.items = [];
@@ -46,6 +114,17 @@ function sortZoneItems(zones, items) {
 
     // Create micro-zones for orphaned items (e.g., isolated caption numbers)
     // This captures small text elements that fell through the segmentation
+    // But skip items that overlap with HEADER zones
+    const headerZones = zones.filter(z => z.type === 'HEADER');
+
+    if (headerZones.length > 0) {
+        console.log(`Found ${headerZones.length} HEADER zones for overlap checking:`,
+            headerZones.map(h => `y=${h.y}-${h.y + h.height}`));
+    }
+
+    let microZonesCreated = 0;
+    let microZonesSkipped = 0;
+
     orphanedItems.forEach(item => {
         const MARGIN = 2; // Small margin around the item
         const microZone = {
@@ -59,8 +138,41 @@ function sortZoneItems(zones, items) {
             items: [item],
             isMicroZone: true // Flag for debugging/analysis
         };
-        zones.push(microZone);
+
+        // Check if micro-zone overlaps with any HEADER zone
+        let overlapsHeader = false;
+        for (const header of headerZones) {
+            const headerRight = header.x + header.width;
+            const headerBottom = header.y + header.height;
+
+            const xOverlap = Math.max(0,
+                Math.min(microZone.right, headerRight) - Math.max(microZone.x, header.x)
+            );
+            const yOverlap = Math.max(0,
+                Math.min(microZone.bottom, headerBottom) - Math.max(microZone.y, header.y)
+            );
+
+            if (xOverlap > 0 && yOverlap > 0) {
+                overlapsHeader = true;
+                console.log(`✗ Skipping micro-zone at y=${microZone.y.toFixed(1)}-${microZone.bottom.toFixed(1)} - overlaps with HEADER at y=${header.y.toFixed(1)}-${headerBottom.toFixed(1)} (xOverlap=${xOverlap.toFixed(1)}, yOverlap=${yOverlap.toFixed(1)})`);
+                microZonesSkipped++;
+                break;
+            }
+        }
+
+        // Only add micro-zone if it doesn't overlap with header
+        if (!overlapsHeader) {
+            zones.push(microZone);
+            microZonesCreated++;
+        }
     });
+
+    if (orphanedItems.length > 0) {
+        console.log(`Micro-zones: ${microZonesCreated} created, ${microZonesSkipped} skipped (overlapped HEADER)`);
+    }
+
+    // Merge micro-zones with overlapping BODY zones
+    mergeMicroZonesWithBodyZones(zones);
 
     // Sort items within each zone into lines
     zones.forEach(zone => {
@@ -114,6 +226,217 @@ function sortZoneItems(zones, items) {
  * - Runs RLSA Segmentation (Worker)
  * - Stores classified ZONES
  */
+/**
+ * Reassign reading order to zones, ensuring reclassified zones and micro-zones get proper ordering.
+ * This is needed because:
+ * 1. segmenter.js assigns order to all zones except HEADER
+ * 2. FOOTNOTE zones are identified after segmentation based on font size
+ * 3. micro-zones are created after segmentation and need to be integrated
+ *
+ * Uses column-aware sorting similar to sortBlocksByReadingOrder in segmenter.js
+ */
+function reassignReadingOrder(zones) {
+    // Get HEADER zones for overlap checking
+    const headerZones = zones.filter(z => z.type === 'HEADER');
+
+    let headerOverlapFiltered = 0;
+
+    // Get all zones that need ordering (not HEADER, not FOOTNOTE)
+    // Also filter out any zones that overlap with HEADER (safety check for micro-zones)
+    const contentZones = zones.filter(z => {
+        if (z.type === 'HEADER' || z.type === 'FOOTNOTE') return false;
+
+        // Check if this zone overlaps with any HEADER zone
+        for (const header of headerZones) {
+            const headerRight = header.x + header.width;
+            const headerBottom = header.y + header.height;
+            const zRight = z.x + z.width;
+            const zBottom = z.y + z.height;
+
+            const xOverlap = Math.max(0,
+                Math.min(zRight, headerRight) - Math.max(z.x, header.x)
+            );
+            const yOverlap = Math.max(0,
+                Math.min(zBottom, headerBottom) - Math.max(z.y, header.y)
+            );
+
+            if (xOverlap > 0 && yOverlap > 0) {
+                console.warn(`✗ reassignReadingOrder: Filtering zone at y=${z.y.toFixed(1)}-${zBottom.toFixed(1)} (type=${z.type}, isMicroZone=${z.isMicroZone}) - overlaps with HEADER at y=${header.y.toFixed(1)}-${headerBottom.toFixed(1)}`);
+                headerOverlapFiltered++;
+                return false;
+            }
+        }
+
+        return true;
+    });
+
+    if (headerOverlapFiltered > 0) {
+        console.warn(`⚠ reassignReadingOrder removed ${headerOverlapFiltered} zones that overlapped with HEADER`);
+    }
+
+    if (contentZones.length === 0) return;
+
+    // Estimate page center from zones
+    const minX = Math.min(...contentZones.map(z => z.x));
+    const maxX = Math.max(...contentZones.map(z => z.x + z.width));
+    const pageCenter = (minX + maxX) / 2;
+
+    const LINE_TOLERANCE = 8;
+
+    // Assign column types
+    contentZones.forEach(z => {
+        const zCenter = z.x + (z.width / 2);
+        const zSpans = (z.x < pageCenter - 50 && z.x + z.width > pageCenter + 50);
+
+        if (z.type === 'HEADING' || z.type === 'TITLE') {
+            // Headings only span if they actually cross center
+            z.colType = zSpans ? 'SPAN' : (zCenter < pageCenter ? 'LEFT' : 'RIGHT');
+        } else if (zSpans) {
+            z.colType = 'SPAN';
+        } else if (zCenter < pageCenter) {
+            z.colType = 'LEFT';
+        } else {
+            z.colType = 'RIGHT';
+        }
+    });
+
+    // Group into lines
+    const lines = [];
+    const sortedByY = contentZones.slice().sort((a, b) => a.y - b.y);
+
+    for (const z of sortedByY) {
+        let placed = false;
+        for (const line of lines) {
+            const lineTop = Math.min(...line.map(x => x.y));
+            const lineBottom = Math.max(...line.map(x => x.y + x.height));
+
+            const vOverlap = z.y <= lineBottom + LINE_TOLERANCE && z.y + z.height >= lineTop - LINE_TOLERANCE;
+
+            if (vOverlap) {
+                // Check for horizontal overlap with same-column blocks
+                const sameColBlocks = line.filter(x => x.colType === z.colType);
+                if (sameColBlocks.length > 0) {
+                    const hasHOverlap = sameColBlocks.some(x => {
+                        const xOverlap = Math.min(z.x + z.width, x.x + x.width) - Math.max(z.x, x.x);
+                        return xOverlap > 0;
+                    });
+                    if (!hasHOverlap) {
+                        continue; // Don't group vertically stacked blocks in same column
+                    }
+                }
+
+                line.push(z);
+                placed = true;
+                break;
+            }
+        }
+        if (!placed) lines.push([z]);
+    }
+
+    // Sort blocks within each line: LEFT → RIGHT → SPAN
+    lines.forEach(line => {
+        const sortByPosition = (a, b) => {
+            const xDiff = a.x - b.x;
+            return xDiff !== 0 ? xDiff : a.y - b.y;
+        };
+
+        const lefts = line.filter(z => z.colType === 'LEFT').sort(sortByPosition);
+        const rights = line.filter(z => z.colType === 'RIGHT').sort(sortByPosition);
+        const spans = line.filter(z => z.colType === 'SPAN').sort(sortByPosition);
+        line.splice(0, line.length, ...lefts, ...rights, ...spans);
+    });
+
+    // Sort lines top-to-bottom
+    lines.sort((a, b) => Math.min(...a.map(x => x.y)) - Math.min(...b.map(x => x.y)));
+
+    // Assign sequential order to content zones
+    let orderCounter = 1;
+    lines.flat().forEach(zone => {
+        zone.order = orderCounter++;
+    });
+
+    // Assign order to FOOTNOTE zones (after content zones, in Y order)
+    const footnoteZones = zones.filter(z => z.type === 'FOOTNOTE');
+    footnoteZones.sort((a, b) => a.y - b.y); // Sort by Y position
+    footnoteZones.forEach(zone => {
+        zone.order = orderCounter++;
+    });
+
+    const microZoneCount = contentZones.filter(z => z.isMicroZone).length;
+    console.log(`Reassigned reading order to ${contentZones.length} content zones + ${footnoteZones.length} footnote zones (${microZoneCount} micro-zones integrated)`);
+}
+
+/**
+ * LEGACY: Validate that FOOTER zones contain predominantly smaller font sizes (footnotes).
+ * Reclassify zones as BODY if they don't meet the criteria.
+ * NOTE: This function is no longer used. FOOTNOTE zones are now identified by
+ * revalidateFooterZonesWithFootFont using step-change detection.
+ */
+function validateFooterZones(zones, allItems) {
+    // Calculate median font size for non-footer zones (body text)
+    const bodyZones = zones.filter(z => z.type !== 'FOOTNOTE' && z.type !== 'HEADER');
+    const bodyFontSizes = [];
+
+    bodyZones.forEach(zone => {
+        if (zone.items && zone.items.length > 0) {
+            zone.items.forEach(item => {
+                if (item.height && item.str) { // Only count actual text, not drawings
+                    bodyFontSizes.push(item.height);
+                }
+            });
+        }
+    });
+
+    if (bodyFontSizes.length === 0) {
+        // No body text to compare against - can't validate
+        return;
+    }
+
+    // Calculate median body font size
+    bodyFontSizes.sort((a, b) => a - b);
+    const medianBodyFontSize = bodyFontSizes[Math.floor(bodyFontSizes.length / 2)];
+
+    // Also get the most common body font size
+    const fontSizeCounts = {};
+    bodyFontSizes.forEach(size => {
+        fontSizeCounts[size] = (fontSizeCounts[size] || 0) + 1;
+    });
+    const mostCommonBodyFontSize = parseFloat(
+        Object.entries(fontSizeCounts).sort((a, b) => b[1] - a[1])[0][0]
+    );
+
+    // Use the most common font size as reference (more reliable than median)
+    const referenceFontSize = mostCommonBodyFontSize;
+
+    console.log(`Reference body font size: ${referenceFontSize}px (median: ${medianBodyFontSize}px)`);
+
+    // Check each FOOTNOTE zone
+    zones.forEach(zone => {
+        if (zone.type !== 'FOOTNOTE') return;
+        if (!zone.items || zone.items.length === 0) return;
+
+        // Calculate average font size in this footer zone
+        const footerFontSizes = zone.items
+            .filter(item => item.height && item.str)
+            .map(item => item.height);
+
+        if (footerFontSizes.length === 0) return;
+
+        const avgFooterFontSize = footerFontSizes.reduce((a, b) => a + b, 0) / footerFontSizes.length;
+
+        // Footer fonts should be notably smaller (at least 10% smaller)
+        const threshold = referenceFontSize * 0.90;
+
+        if (avgFooterFontSize >= threshold) {
+            // Font size is not smaller - this is likely not a footnote zone
+            console.warn(`FOOTNOTE zone at y=${zone.y} has font size ${avgFooterFontSize.toFixed(1)}px (reference: ${referenceFontSize.toFixed(1)}px) - reclassifying as BODY`);
+            zone.type = 'BODY';
+        } else {
+            console.log(`FOOTNOTE zone validated: ${avgFooterFontSize.toFixed(1)}px < ${threshold.toFixed(1)}px`);
+        }
+    });
+}
+
 async function storePageData(pdf, pageNum) {
     appendLogMessage(`Pre-processing page ${pageNum}...`);
     console.info(`Pre-processing page ${pageNum}...`);
@@ -173,6 +496,12 @@ async function storePageData(pdf, pageNum) {
     // 4. Sort items into zones and embed them
     sortZoneItems(result.blocks, content.items);
 
+    // 5. LEGACY: Validate zones (no longer used - FOOTNOTE detection now happens per-page before visualization)
+    // validateFooterZones(result.blocks, content.items);
+
+    // 6. Reassign reading order for any reclassified zones
+    reassignReadingOrder(result.blocks);
+
     // Store raw items for text.js
     localStorage.setItem(`page-${pageNum}-zones`, LZString.compressToUTF16(JSON.stringify(result.blocks)));
     localStorage.setItem(`page-${pageNum}-nullTexts`, JSON.stringify(findNullTexts(operatorList)));
@@ -189,7 +518,7 @@ async function storePageData(pdf, pageNum) {
         if (item.fontName in fontMap) {
             const size = item.height;
             if (!fontMap[item.fontName].sizes[size]) {
-                fontMap[item.fontName].sizes[size] = { 'area': 0, 'footarea': 0 };
+                fontMap[item.fontName].sizes[size] = { 'area': 0 };
             }
             fontMap[item.fontName].sizes[size].area += item.area;
         }
@@ -231,7 +560,7 @@ function segmentPage(page, viewport, operatorList, chartItems, pageNum) {
         const embeddedImages = getEmbeddedImages(operatorList, viewport);
 
         const canvas = await renderPageToCanvas(page, viewport);
-        const context = canvas.getContext("2d");
+        const context = canvas.getContext("2d", { willReadFrequently: true });
         const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
 
         // 2. Clean up visual data for Segmenter
@@ -529,6 +858,204 @@ function calculateJenksBreak(values, numClasses = 2) {
 }
 
 
+/**
+ * Identify FOOTNOTE zones by detecting step change in mean font size.
+ * Works backwards through zones looking for a significant decrease in font size
+ * that indicates the transition from body text to footnotes.
+ */
+async function revalidateFooterZonesWithFootFont(pageNum, defaultFont) {
+    const zones = JSON.parse(
+        LZString.decompressFromUTF16(localStorage.getItem(`page-${pageNum}-zones`))
+    );
+
+    if (!zones) {
+        console.warn(`Page ${pageNum}: No zones found in localStorage`);
+        return;
+    }
+
+    console.log(`\n=== Page ${pageNum}: Footnote Detection ===`);
+    console.log(`Default font: ${defaultFont.fontName} @ ${defaultFont.fontSize}pt`);
+
+    // Debug: Show all zone types and counts
+    const zoneCounts = {};
+    const zonesWithItems = [];
+    zones.forEach(z => {
+        zoneCounts[z.type] = (zoneCounts[z.type] || 0) + 1;
+        if (z.items && z.items.length > 0) {
+            const itemCount = z.items.flat().filter(i => i.str).length;
+            if (itemCount > 0) {
+                zonesWithItems.push({
+                    type: z.type,
+                    order: z.order,
+                    itemCount: itemCount,
+                    y: z.y
+                });
+            }
+        }
+    });
+    console.log(`Zone types on page: ${Object.entries(zoneCounts).map(([t, c]) => `${t}:${c}`).join(', ')}`);
+    console.log(`Zones with text items:`, zonesWithItems);
+
+    // Get zones with reading order, sorted in reverse (highest order first)
+    const orderedZones = zones
+        .filter(z => z.order !== undefined && z.type !== 'HEADER' && z.type !== 'HEADING')
+        .sort((a, b) => b.order - a.order);
+
+    console.log(`Total zones to analyze (with reading order): ${orderedZones.length}`);
+
+    if (orderedZones.length < 2) {
+        console.log(`Not enough zones (${orderedZones.length}) to detect footnotes`);
+        return;
+    }
+
+    // Calculate median font size for each zone (more robust than mean)
+    console.log('Processing zones for font size calculation:');
+    const zoneFontSizes = orderedZones.map((zone, idx) => {
+        if (!zone.items || zone.items.length === 0) {
+            console.log(`  Zone #${zone.order} (${zone.type}): ❌ No items`);
+            return null;
+        }
+
+        const allItems = zone.items.flat();
+        const textItems = allItems.filter(item => item.str && item.height);
+
+        if (textItems.length === 0) {
+            console.log(`  Zone #${zone.order} (${zone.type}): ❌ No text items (${allItems.length} items total)`);
+            return null;
+        }
+
+        // Get all font sizes and sort them
+        const fontSizes = textItems.map(item => item.height).sort((a, b) => a - b);
+
+        // Calculate median
+        const medianSize = fontSizes.length % 2 === 0
+            ? (fontSizes[fontSizes.length / 2 - 1] + fontSizes[fontSizes.length / 2]) / 2
+            : fontSizes[Math.floor(fontSizes.length / 2)];
+
+        console.log(`  Zone #${zone.order} (${zone.type}): ✓ median=${medianSize.toFixed(2)}pt from ${textItems.length} items`);
+
+        return {
+            zone: zone,
+            medianFontSize: medianSize,
+            itemCount: textItems.length
+        };
+    }).filter(z => z !== null);
+
+    if (zoneFontSizes.length < 2) {
+        console.log(`Not enough zones with text (${zoneFontSizes.length}) to detect footnotes`);
+        return;
+    }
+
+    // Debug: Show all zone font sizes
+    console.log('Zone font sizes (reading order, bottom to top):');
+    zoneFontSizes.forEach((zd, idx) => {
+        console.log(`  [${idx}] Zone #${zd.zone.order} @ y=${zd.zone.y.toFixed(1)}: ${zd.medianFontSize.toFixed(2)}pt (${zd.itemCount} items)`);
+    });
+
+    // Work backwards looking for significant step change in font size
+    const STEP_CHANGE_THRESHOLD = 0.08; // 8% increase when going backwards (was 15%)
+    const MIN_FOOTNOTE_SIZE_RATIO = 0.92; // Footnotes should be at most 92% of body text size (was 85%)
+    const MAX_HEADING_SIZE = 1.15; // Don't consider changes to headings (> 115% of default, was 110%)
+    const MIN_INTEGER_START_RATIO = 0.25; // 25% of lines must start with integer
+
+    let footnoteStartIndex = -1;
+
+    console.log('Scanning for step changes:');
+    for (let i = 0; i < zoneFontSizes.length - 1; i++) {
+        const currentZone = zoneFontSizes[i];
+        const nextZone = zoneFontSizes[i + 1];
+
+        console.log(`  [${i}→${i+1}] Zone #${currentZone.zone.order} (${currentZone.medianFontSize.toFixed(2)}pt) → Zone #${nextZone.zone.order} (${nextZone.medianFontSize.toFixed(2)}pt)`);
+
+        // EARLY STOP: If current zone has default font size or larger, it's not a footnote
+        if (defaultFont.fontSize && currentZone.medianFontSize >= defaultFont.fontSize) {
+            console.log(`    🛑 STOP: current zone has default/body font size (${currentZone.medianFontSize.toFixed(2)}pt ≥ ${defaultFont.fontSize.toFixed(2)}pt)`);
+            break;
+        }
+
+        // Skip if current zone has heading-sized text (too large)
+        if (defaultFont.fontSize && currentZone.medianFontSize > defaultFont.fontSize * MAX_HEADING_SIZE) {
+            console.log(`    ❌ Skipped: current zone font too large (${currentZone.medianFontSize.toFixed(2)}pt > ${(defaultFont.fontSize * MAX_HEADING_SIZE).toFixed(2)}pt)`);
+            continue;
+        }
+
+        // Calculate step change (going backwards, so next is actually earlier in reading order)
+        const sizeIncrease = (nextZone.medianFontSize - currentZone.medianFontSize) / currentZone.medianFontSize;
+        console.log(`    Change: ${(sizeIncrease * 100).toFixed(1)}%`);
+
+        // Check for significant step up in font size (going backwards = transition from footnotes to body)
+        if (sizeIncrease >= STEP_CHANGE_THRESHOLD) {
+            console.log(`    ✓ Step change detected (${(sizeIncrease * 100).toFixed(1)}% ≥ ${(STEP_CHANGE_THRESHOLD * 100)}%)`);
+
+            // Verify that current zones are actually smaller (footnote-sized)
+            if (defaultFont.fontSize && currentZone.medianFontSize <= defaultFont.fontSize * MIN_FOOTNOTE_SIZE_RATIO) {
+                console.log(`    ✓ Font size small enough (${currentZone.medianFontSize.toFixed(2)}pt ≤ ${(defaultFont.fontSize * MIN_FOOTNOTE_SIZE_RATIO).toFixed(2)}pt)`);
+                footnoteStartIndex = i;
+                break;
+            } else {
+                console.log(`    ❌ Font size too large (${currentZone.medianFontSize.toFixed(2)}pt > ${(defaultFont.fontSize * MIN_FOOTNOTE_SIZE_RATIO).toFixed(2)}pt)`);
+            }
+        } else {
+            console.log(`    ❌ Change too small (${(sizeIncrease * 100).toFixed(1)}% < ${(STEP_CHANGE_THRESHOLD * 100)}%)`);
+        }
+    }
+
+    if (footnoteStartIndex >= 0) {
+        console.log(`\nCandidate footnote zones: indices 0-${footnoteStartIndex}`);
+
+        // Validate: Check that candidate zones have at least 25% of lines starting with an integer
+        let totalLines = 0;
+        let linesStartingWithInteger = 0;
+
+        for (let i = 0; i <= footnoteStartIndex; i++) {
+            const zoneData = zoneFontSizes[i];
+            const zone = zoneData.zone;
+
+            if (zone.items && zone.items.length > 0) {
+                zone.items.forEach(line => {
+                    if (Array.isArray(line) && line.length > 0) {
+                        totalLines++;
+                        const firstItem = line[0];
+                        if (firstItem && firstItem.str) {
+                            // Check if line starts with an integer
+                            const startsWithInt = /^\d+/.test(firstItem.str.trim());
+                            if (startsWithInt) {
+                                linesStartingWithInteger++;
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        const integerStartRatio = totalLines > 0 ? linesStartingWithInteger / totalLines : 0;
+        console.log(`Integer-start validation: ${linesStartingWithInteger}/${totalLines} lines (${(integerStartRatio * 100).toFixed(1)}%) start with integer`);
+
+        if (integerStartRatio >= MIN_INTEGER_START_RATIO) {
+            console.log(`✓ Validation passed (${(integerStartRatio * 100).toFixed(1)}% ≥ ${(MIN_INTEGER_START_RATIO * 100)}%)`);
+
+            // Mark all zones from start to footnoteStartIndex as FOOTNOTE
+            let footnoteZonesFound = 0;
+            for (let i = 0; i <= footnoteStartIndex; i++) {
+                const zoneData = zoneFontSizes[i];
+                zoneData.zone.type = 'FOOTNOTE';
+                footnoteZonesFound++;
+                console.log(`  Zone #${zoneData.zone.order} at y=${zoneData.zone.y.toFixed(1)} → FOOTNOTE (${zoneData.medianFontSize.toFixed(2)}pt)`);
+            }
+
+            // Store updated zones
+            localStorage.setItem(`page-${pageNum}-zones`, LZString.compressToUTF16(JSON.stringify(zones)));
+            console.log(`\n✓ Identified ${footnoteZonesFound} FOOTNOTE zones`);
+        } else {
+            console.log(`✗ Validation failed: not enough lines start with integers (${(integerStartRatio * 100).toFixed(1)}% < ${(MIN_INTEGER_START_RATIO * 100)}%)`);
+            console.log('No footnotes identified');
+        }
+    } else {
+        console.log('\nNo significant font size step change detected');
+        console.log('No footnotes identified');
+    }
+}
+
 function headerFooterAndFonts(pageNum, masterFontMap, defaultFont, headerFontSizes) {
     const zones = JSON.parse(
         LZString.decompressFromUTF16(localStorage.getItem(`page-${pageNum}-zones`))
@@ -539,25 +1066,6 @@ function headerFooterAndFonts(pageNum, masterFontMap, defaultFont, headerFontSiz
     // Flatten items from zones for analysis
     const allItems = zones.flatMap(z => z.items || []).flat();
 
-    // Find bottom of lowest instance of default font (to assist in footnote detection)
-    const defaultFontItems = allItems.filter(item =>
-        item.fontName === defaultFont.fontName && item.height === defaultFont.fontSize
-    );
-    const defaultFontBottom = defaultFontItems.length > 0
-        ? Math.max(...defaultFontItems.map(item => item.bottom))
-        : 0;
-
-    // Accumulate foot area for items below the default font's lowest position
-    allItems
-        .filter(item => item.top > defaultFontBottom)
-        .forEach(item => {
-            const fontEntry = masterFontMap[item.fontName];
-            const fontSize = item.height;
-
-            if (fontEntry && fontEntry.sizes[fontSize]) {
-                fontEntry.sizes[fontSize].footarea += item.area;
-            }
-        });
 
     // Identify font styles
     const fontStyles = {
@@ -939,7 +1447,7 @@ function findMatchingImage(block, embeddedImages, overlapThreshold = 0.5) {
  * Based on color variance - photos have high variance, diagrams/charts have low variance
  */
 function isPhotographic(canvas) {
-    const ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
     const width = canvas.width;
     const height = canvas.height;
 
