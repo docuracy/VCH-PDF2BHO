@@ -4,6 +4,15 @@
 // Caption type whitelist
 const CAPTION_TYPES = ['figure', 'fig', 'plate'];
 
+const CAPTION_TYPE_ALTERNATIVES = CAPTION_TYPES.map(type => {
+    // Generate common capitalization variants that have at least one capital
+    const lower = type.toLowerCase();
+    const upper = type.toUpperCase();
+    const title = lower.charAt(0).toUpperCase() + lower.slice(1);
+    // Return unique variants (using Set to dedupe)
+    return [title, upper].filter((v, i, arr) => arr.indexOf(v) === i).join('|');
+}).join('|');
+
 function escapeHTML(str) {
     return str
         .replace(/&/g, '&amp;')
@@ -667,27 +676,17 @@ function mergeZoneItems(zones, defaultFont) {
                 // Use space to join items since PDF items don't have hard-coded spaces
                 const lineText = line.map(i => i.str).join(' ');
 
-                // Build pattern from whitelist - match any variant with at least one capital letter
-                // Create alternatives like: (?:Figure|FIG|FIGURE|Fig|...)
-                const typeAlternatives = CAPTION_TYPES.map(type => {
-                    // Generate common capitalization variants that have at least one capital
-                    const lower = type.toLowerCase();
-                    const upper = type.toUpperCase();
-                    const title = lower.charAt(0).toUpperCase() + lower.slice(1);
-                    // Return unique variants (using Set to dedupe)
-                    return [title, upper].filter((v, i, arr) => arr.indexOf(v) === i).join('|');
-                }).join('|');
-
                 // Pattern: optional type (from whitelist, with capital), optional period, space, number, optional period, space
-                const captionPattern = new RegExp(`^(?:(${typeAlternatives})\\.?\\s+)?(\\d+)\\.?\\s+`);
+                const captionPattern = new RegExp(`^(?:(${CAPTION_TYPE_ALTERNATIVES})\\.?\\s+)?(\\d+)\\.?\\s+`);
                 const match = lineText.match(captionPattern);
 
                 if (match) {
-                    // If there's a type prefix, verify it has at least one capital letter
                     const typePrefix = match[1];
+                    const captionNumber = match[2];
+
+                    // If there's a type prefix, verify it has at least one capital letter
                     if (typePrefix && !/[A-Z]/.test(typePrefix)) {
                         // Type exists but has no capital letters - reject
-                        // This shouldn't happen with our generated pattern, but safety check
                         match[0] = null;
                     }
 
@@ -696,18 +695,46 @@ function mergeZoneItems(zones, defaultFont) {
                         // Find where the number ends in the line items
                         let hasItalic = false;
                         let charCount = 0;
+                        let charsAfterMatch = 0; // Track how many chars until italic starts
+                        let italicCharCount = 0; // Count consecutive italic characters
+
                         for (const item of line) {
                             charCount += item.str.length + 1; // +1 for the space we added in join
-                            if (charCount >= match[0].length && item.italic) {
-                                hasItalic = true;
-                                break;
+                            if (charCount >= match[0].length) {
+                                if (item.italic) {
+                                    hasItalic = true;
+                                    italicCharCount += item.str.length;
+                                } else if (hasItalic) {
+                                    // We've found italic text and now hit non-italic, stop counting
+                                    break;
+                                }
+                                // Track non-italic characters after the match
+                                if (!item.italic) {
+                                    charsAfterMatch += item.str.length + 1;
+                                    // If we have no type prefix and hit non-italic text that looks like it's
+                                    // part of a word (like "s.-worth"), reject it as not a caption
+                                    if (!typePrefix && charsAfterMatch > 10) {
+                                        // Too much non-italic text after number without type prefix
+                                        break;
+                                    }
+                                }
                             }
+                        }
+
+                        // // Reject if italics stop too soon after number (likely not a caption)
+                        // if (hasItalic && italicCharCount < 3) {
+                        //     hasItalic = false; // Reject this as a caption
+                        // }
+
+                        // Reject if not first line and no large gap from previous line
+                        if (lineIdx > 0 && metrics && gapFromPrevLine < metrics.captionGapThreshold) {
+                            hasItalic = false;
                         }
 
                         if (hasItalic) {
                             isCaptionStart = true;
                             const typeName = typePrefix || '(no type)';
-                            console.debug(`Caption start detected at line ${lineIdx}: type="${typeName}", number=${match[2]}, text="${lineText.substring(0, 50)}..."`);
+                            console.debug(`Caption start detected at line ${lineIdx}: type="${typeName}", number=${captionNumber}, text="${lineText.substring(0, 50)}..."`);
                         }
                     }
                 }
