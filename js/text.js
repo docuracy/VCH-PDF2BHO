@@ -598,10 +598,95 @@ function mergeTableZoneItems(zone) {
     return flushTableCellBuffer(buffer);
 }
 
+function processHeadingSequence(startZone, zones, startIdx, defaultFont, defaultFontKey, processedZones) {
+    // Defensive checks
+    if (!startZone || typeof startIdx !== 'number' || !Array.isArray(zones)) return;
+
+    let buffer = [];
+    let currentFontSignature = null;
+    let consumedUpToIdx = startIdx; // inclusive index of last zone we consumed heading lines from
+
+    for (let zi = startIdx; zi < zones.length; zi++) {
+        const z = zones[zi];
+        if (!z || z.type !== 'BODY' || !Array.isArray(z.items) || z.items.length === 0) break;
+
+        const remainingLines = [];
+        let consumedAnyLineFromThisZone = false;
+
+        for (let li = 0; li < z.items.length; li++) {
+            const line = z.items[li];
+            if (!Array.isArray(line) || line.length === 0) {
+                // Empty line - stop heading consumption at this point
+                remainingLines.push(...z.items.slice(li));
+                break;
+            }
+
+            const firstItem = line[0];
+            const roundedHeight = Math.round(firstItem.height);
+            const fontKey = `${firstItem.fontName}@${roundedHeight}`;
+
+            // Determine if this line qualifies as heading line (same rules as mergeZoneItems)
+            const allSameFont = line.every(item =>
+                item.fontName === firstItem.fontName && Math.round(item.height) === roundedHeight
+            );
+
+            const isHeadingLine = (fontKey !== defaultFontKey) && allSameFont;
+
+            if (isHeadingLine) {
+                // If font signature hasn't been set, set it
+                if (!currentFontSignature) currentFontSignature = fontKey;
+                // If signature differs, stop consuming further heading lines
+                if (currentFontSignature !== fontKey) {
+                    // push remainder of lines and break
+                    remainingLines.push(...z.items.slice(li));
+                    break;
+                }
+                // Consume this line into buffer
+                buffer.push(...line);
+                consumedAnyLineFromThisZone = true;
+            } else {
+                // Not a heading line - put the rest of lines into remaining and stop
+                remainingLines.push(...z.items.slice(li));
+                break;
+            }
+        }
+
+        // Replace zone.items with remainingLines
+        if (remainingLines.length > 0) {
+            z.items = remainingLines;
+        } else {
+            // We consumed whole zone
+            delete z.items;
+            z.html = ''; // will be replaced by heading attached to startZone
+            processedZones.add(z);
+        }
+
+        if (!consumedAnyLineFromThisZone) {
+            // No heading lines consumed from this zone, stop scanning further zones
+            break;
+        }
+
+        consumedUpToIdx = zi;
+    }
+
+    // If we captured any heading content, flush it into heading HTML and attach to startZone
+    if (buffer.length > 0) {
+        const headingHtml = flushBuffer(buffer, true, currentFontSignature, false);
+        // Attach to the start zone's html (prepend if existing content)
+        startZone.html = (startZone.html || '') + headingHtml;
+        // Ensure startZone.items is removed if we consumed its lines
+        if (startZone.items && startZone.items.length === 0) delete startZone.items;
+        processedZones.add(startZone);
+    }
+}
+
 function mergeZoneItems(zones, defaultFont) {
     const defaultFontKey = `${defaultFont.fontName}@${Math.round(defaultFont.fontSize)}`;
 
-    zones.forEach(zone => {
+    // Track zones we've already processed to avoid duplicate work
+    const processedZones = new Set();
+
+    zones.forEach((zone, zoneIdx) => {
         if (['FOOTNOTE', 'FIGURE'].includes(zone.type)) {
             zone.html = '';
             return;
@@ -1555,3 +1640,4 @@ async function processItems(pageNum, defaultFont, maxEndnote, pdf, pageNumeral, 
         lastContentTableMetadata
     ];
 }
+
