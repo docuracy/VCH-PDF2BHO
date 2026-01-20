@@ -189,7 +189,6 @@ function processPageHybrid(imageData, chartItems, pageNum) {
         }
     }
 
-
     // === STEP 3: DETECT HEADINGS ===
     const headingBlocks = detectHeadings(gray, blocks, width);
     blocks = applyHeadingResults(blocks, headingBlocks);
@@ -211,6 +210,9 @@ function processPageHybrid(imageData, chartItems, pageNum) {
             b.order = orderCounter++;
         }
     });
+
+    // Debug by showing x position of blocks in order
+    console.debug(`Sorted blocks by reading order:`, blocks.map(b => `${b.x} ${b.order} (${b.type})`));
 
     src.delete(); gray.delete(); binary.delete();
 
@@ -1013,30 +1015,47 @@ function removeHeaderOverlaps(blocks) {
 }
 
 function sortBlocksByReadingOrder(blocks, pageW) {
-    const pageCenter = pageW / 2;
     const LINE_TOLERANCE = 8; // pixels for vertical alignment
+    const colWidth = pageW / 3;
 
-    // Step 0: assign column type
+    // Step 0: Assign column type (Dynamic for 1, 2, or 3 columns)
     blocks.forEach(b => {
         const bCenter = b.x + (b.width / 2);
-        if (b.type.match(/HEADER|HEADING|FOOTNOTE|TITLE/) || (b.x < pageCenter - 50 && b.x + b.width > pageCenter + 50)) {
+
+        // A block is a "SPAN" if it's a specific type OR if it's wider than 60% of the page
+        const isWide = b.width > (pageW * 0.6);
+        const isHeaderType = b.type.match(/HEADER|HEADING|FOOTNOTE|TITLE/);
+
+        if (isHeaderType || isWide) {
             b.colType = 'SPAN';
-        } else if (bCenter < pageCenter) {
-            b.colType = 'LEFT';
+            b.colIndex = 0; // Spans take priority
         } else {
-            b.colType = 'RIGHT';
+            // Determine column index: 1 (Left), 2 (Center), or 3 (Right)
+            if (bCenter < colWidth) {
+                b.colType = 'COL1';
+                b.colIndex = 1;
+            } else if (bCenter < colWidth * 2) {
+                b.colType = 'COL2';
+                b.colIndex = 2;
+            } else {
+                b.colType = 'COL3';
+                b.colIndex = 3;
+            }
         }
     });
 
-    // Step 1: group blocks into vertical lines with tolerance
+    // Step 1: Group blocks into vertical lines
     const lines = [];
-    const sortedByY = blocks.slice().sort((a,b) => a.y - b.y);
+    const sortedByY = [...blocks].sort((a, b) => a.y - b.y);
+
     for (const b of sortedByY) {
         let placed = false;
         for (const line of lines) {
             const lineTop = Math.min(...line.map(x => x.y));
             const lineBottom = Math.max(...line.map(x => x.y + x.height));
-            if (b.y <= lineBottom + LINE_TOLERANCE && b.y + b.height >= lineTop - LINE_TOLERANCE) {
+
+            // Check if block overlaps with current line vertical space
+            if (b.y <= lineBottom + LINE_TOLERANCE && (b.y + b.height) >= lineTop - LINE_TOLERANCE) {
                 line.push(b);
                 placed = true;
                 break;
@@ -1045,22 +1064,31 @@ function sortBlocksByReadingOrder(blocks, pageW) {
         if (!placed) lines.push([b]);
     }
 
-    // Step 2: sort blocks within each line: LEFT → RIGHT → SPAN
+    // Step 2: Sort blocks within each line
     lines.forEach(line => {
-        const lefts = line.filter(b => b.colType === 'LEFT').sort((a,b) => a.x - b.x);
-        const rights = line.filter(b => b.colType === 'RIGHT').sort((a,b) => a.x - b.x);
-        const spans = line.filter(b => b.colType === 'SPAN').sort((a,b) => a.x - b.x);
-        line.splice(0, line.length, ...lefts, ...rights, ...spans);
+        line.sort((a, b) => {
+            // First, prioritize by column index (SPAN -> COL1 -> COL2 -> COL3)
+            if (a.colIndex !== b.colIndex) {
+                return a.colIndex - b.colIndex;
+            }
+            // If in the same column zone, sort by X position
+            return a.x - b.x;
+        });
     });
 
-    // Step 3: sort lines top-to-bottom by the top of the line
-    lines.sort((a,b) => Math.min(...a.map(x => x.y)) - Math.min(...b.map(x => x.y)));
+    // Step 3: Sort lines top-to-bottom
+    lines.sort((a, b) => {
+        const aTop = Math.min(...a.map(x => x.y));
+        const bTop = Math.min(...b.map(x => x.y));
+        return aTop - bTop;
+    });
 
-    // Step 4: flatten
+    // Step 4 & 5: Flatten and Update
     const sorted = lines.flat();
-
-    // Step 5: overwrite original array
     blocks.splice(0, blocks.length, ...sorted);
+
+    // Debug by showing x position of blocks in order
+    console.debug(`Sorted blocks by reading order:`, blocks.map(b => `${b.x} (${b.type})`));
 }
 
 
@@ -1326,7 +1354,7 @@ function detectHeadings(pageMat, blocks) {
     //----------------------------------------
     // 0. Filter only unclassified blocks
     //----------------------------------------
-    const relevantBlocks = blocks.filter(b => !['FOOTNOTE','HEADER','FIGURE','TABLE'].includes(b.type));
+    const relevantBlocks = blocks.filter(b => !['FOOTNOTE','HEADER','FIGURE','TABLE','BODY'].includes(b.type));
 
     if (relevantBlocks.length === 0) return [];
 

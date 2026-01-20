@@ -579,23 +579,35 @@ async function extractPDFToXHTML(file) {
         // EXPERIMENTAL: Discard micro-zones as they capture nothing useful
         const zonesData = localStorage.getItem(`page-${pageNum}-zones`);
         if (zonesData) {
-            const zones = JSON.parse(LZString.decompressFromUTF16(zonesData));
-            const originalCount = zones.length;
-            const filteredZones = zones.filter(z => !z.isMicroZone);
-            const discardedCount = originalCount - filteredZones.length;
+            let zones = JSON.parse(LZString.decompressFromUTF16(zonesData));
 
-            if (discardedCount > 0) {
-                console.log(`Discarded ${discardedCount} micro-zones (${originalCount} → ${filteredZones.length} zones)`);
+            // 1. Identify which order numbers are being removed
+            const removedOrders = zones
+                .filter(z => z.isMicroZone && typeof z.order === 'number')
+                .map(z => z.order)
+                .sort((a, b) => b - a); // Sort descending to handle shifts correctly if done manually
 
-                // Reassign reading order to eliminate gaps from removed micro-zones
-                let orderCounter = 1;
-                filteredZones.forEach(zone => {
-                    if (zone.type !== 'HEADER' && zone.order !== undefined) {
-                        zone.order = orderCounter++;
-                    }
+            if (removedOrders.length > 0) {
+                // 2. Filter the array
+                let filteredZones = zones.filter(z => !z.isMicroZone);
+
+                // 3. For each removed order, decrement all orders higher than it
+                // We sort removedOrders descending so we don't "double-decrement"
+                // the same zone accidentally in a single pass logic.
+                removedOrders.sort((a, b) => b - a).forEach(removedVal => {
+                    filteredZones.forEach(zone => {
+                        if (typeof zone.order === 'number' && zone.order > removedVal) {
+                            zone.order -= 1;
+                        }
+                    });
                 });
-                console.log(`Renumbered zones: 1-${orderCounter - 1} (no gaps)`);
 
+                console.log(`Removed orders: ${removedOrders.join(', ')}. Remaining zones adjusted.`);
+
+                localStorage.setItem(`page-${pageNum}-zones`, LZString.compressToUTF16(JSON.stringify(filteredZones)));
+            } else {
+                // Just filter if no orders were affected
+                let filteredZones = zones.filter(z => !z.isMicroZone);
                 localStorage.setItem(`page-${pageNum}-zones`, LZString.compressToUTF16(JSON.stringify(filteredZones)));
             }
         }
