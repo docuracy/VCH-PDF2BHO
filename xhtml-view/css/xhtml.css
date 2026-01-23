@@ -253,3 +253,30 @@ table tbody tr:nth-child(even) {
 li.footnote a {
     margin-right: 0.3em;
 }
+
+/* 1. Make the entry a block so it starts on a new line */
+entry {
+    display: block;
+    margin-bottom: 2px; /* Adds space between entries */
+    margin-left: 20px;  /* Indents the entry (and the key inside it) */
+}
+
+/* 2. Hide the meta tags to clean up the view */
+meta {
+    display: none;
+}
+
+/* 3. Style the Key (optional: makes it bold to stand out) */
+key {
+    font-weight: bold;
+    /* We keep this inline so the page numbers (, 101, 108) sit next to it */
+}
+
+/* 4. Handle the sub-entries (like 'abbey', 'earl of') */
+sub {
+    display: block;      /* Forces sub-entries to their own new line */
+    margin-left: 20px;   /* Indents them further than the main key */
+    margin-top: -6px;    /* Adjusts spacing to be closer to the main entry */
+    font-size: 1em;      /* Resets font size (subs are usually small) */
+    vertical-align: baseline; /* Resets vertical alignment */
+}
