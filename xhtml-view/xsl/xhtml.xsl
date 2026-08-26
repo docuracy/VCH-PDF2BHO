@@ -196,8 +196,35 @@
                 </xsl:element>
             </xsl:if>
 
-            <!-- Process remaining content, skipping the header -->
-            <xsl:apply-templates select="node()[not(self::xhtml:header)]"/>
+            <!-- Process remaining content, skipping the header.
+
+                 Text and inline markup sitting directly in the section rather than inside a <p>
+                 is valid XHTML and occurs in hand-edited files. Each unbroken run of it is
+                 wrapped in a <p> here, so that it reaches the BHO transform as an ordinary
+                 paragraph and takes its place in the normal p1, p2, p3 numbering - and so that
+                 the preview and the published XML agree about it. Runs of pure whitespace are
+                 passed through untouched, to preserve formatting between block elements. -->
+            <xsl:for-each-group select="node()[not(self::xhtml:header)]"
+                                group-adjacent="boolean(self::xhtml:p or self::xhtml:section or self::xhtml:table
+                                                        or self::xhtml:figure or self::xhtml:hr or self::xhtml:div
+                                                        or self::xhtml:ul or self::xhtml:ol or self::xhtml:entry
+                                                        or self::xhtml:blockquote or self::xhtml:h1 or self::xhtml:h2
+                                                        or self::xhtml:h3 or self::xhtml:h4 or self::xhtml:h5
+                                                        or self::xhtml:h6)">
+                <xsl:choose>
+                    <xsl:when test="current-grouping-key()">
+                        <xsl:apply-templates select="current-group()"/>
+                    </xsl:when>
+                    <xsl:when test="normalize-space(string-join(current-group()/string(), '')) != ''">
+                        <p>
+                            <xsl:apply-templates select="current-group()"/>
+                        </p>
+                    </xsl:when>
+                    <xsl:otherwise>
+                        <xsl:apply-templates select="current-group()"/>
+                    </xsl:otherwise>
+                </xsl:choose>
+            </xsl:for-each-group>
         </section>
     </xsl:template>
 

@@ -95,52 +95,15 @@
                  followed a sub-section - which put page markers out of sequence wherever a page
                  break fell just after one (Poling in Sussex 5 pt 2). Headings are skipped: the
                  first became <head> above. -->
-            <xsl:for-each select="node()[not(self::h2 or self::h3 or self::h4 or self::h5 or self::h6)]">
+            <xsl:for-each select="*[not(self::h2 or self::h3 or self::h4 or self::h5 or self::h6)]">
                 <xsl:choose>
                     <xsl:when test="self::section[not(@class='footnotes')]">
                         <xsl:apply-templates select="."/>
                     </xsl:when>
                     <!-- footnote sections are collected separately, at report level -->
                     <xsl:when test="self::section"/>
-                    <xsl:when test="self::p or self::table or self::figure or self::div or self::entry
-                                    or self::header or self::nav or self::ul or self::ol">
-                        <xsl:apply-templates select="." mode="section-content"/>
-                    </xsl:when>
                     <xsl:otherwise>
-                        <!-- Text or inline markup sitting directly in the section, not wrapped in
-                             a <p>. Valid XHTML, and it happens in hand-edited files, but iterating
-                             elements alone dropped it silently along with any footnote references
-                             it carried. Each unbroken run becomes one paragraph, so an inline
-                             footnote marker stays attached to its sentence. -->
-                        <xsl:variable name="blocks-before"
-                                      select="count(preceding-sibling::*[self::p or self::section or self::table
-                                              or self::figure or self::div or self::entry or self::header
-                                              or self::nav or self::ul or self::ol or self::h1 or self::h2
-                                              or self::h3 or self::h4 or self::h5 or self::h6])"/>
-                        <xsl:variable name="run"
-                                      select="../node()[not(self::p or self::section or self::table or self::figure
-                                              or self::div or self::entry or self::header or self::nav or self::ul
-                                              or self::ol or self::h1 or self::h2 or self::h3 or self::h4
-                                              or self::h5 or self::h6)]
-                                             [count(preceding-sibling::*[self::p or self::section or self::table
-                                              or self::figure or self::div or self::entry or self::header
-                                              or self::nav or self::ul or self::ol or self::h1 or self::h2
-                                              or self::h3 or self::h4 or self::h5 or self::h6]) = $blocks-before]"/>
-                        <!-- emit once per run, at its first node -->
-                        <xsl:if test="count($run[1] | .) = 1 and normalize-space(string($run)) != ''">
-                            <para>
-                                <!-- counted, not xsl:number: the current node is not itself a <p>,
-                                     and xsl:number yields NaN when nothing matching precedes it -->
-                                <xsl:attribute name="id">
-                                    <xsl:text>p</xsl:text>
-                                    <xsl:value-of select="count(preceding::p[not(@class='page-break' or @id='subtitle' or @class='footnote')])
-                                                          + count(preceding::br[ancestor::p[not(@class='page-break' or @id='subtitle' or @class='footnote')]])"/>
-                                    <xsl:text>s</xsl:text>
-                                    <xsl:value-of select="$blocks-before"/>
-                                </xsl:attribute>
-                                <xsl:apply-templates select="$run"/>
-                            </para>
-                        </xsl:if>
+                        <xsl:apply-templates select="." mode="section-content"/>
                     </xsl:otherwise>
                 </xsl:choose>
             </xsl:for-each>
