@@ -207,7 +207,10 @@
     <!-- Helper template to extract filename from path -->
     <xsl:function name="local:get-filename" as="xs:string">
         <xsl:param name="path" as="xs:string"/>
-        <xsl:sequence select="tokenize($path, '/')[last()]"/>
+        <!-- tokenize('', '/') is an empty sequence, which breaks the declared cardinality and
+             aborts the whole transform. An <img> with no src is normal while editing - it is how
+             template.xhtml ships - so fall back to an empty filename instead of failing. -->
+        <xsl:sequence select="(tokenize($path, '/')[last()], '')[1]"/>
     </xsl:function>
 
     <!-- Convert <data> in text to inline footnote link with title attribute -->
@@ -241,15 +244,19 @@
                 </xsl:when>
                 <!-- Fall back to expensive calculation -->
                 <xsl:otherwise>
+                    <!-- data-start may be the literal string "null": the PDF extractor writes it
+                         when it cannot read a page numeral, which is common in front matter with
+                         roman or unnumbered pages. Treat any non-numeric value as absent, rather
+                         than aborting the transform or emitting <page start="NaN"/>. -->
                     <xsl:choose>
-                        <xsl:when test="@data-start">
+                        <xsl:when test="@data-start castable as xs:integer">
                             <xsl:value-of select="@data-start"/>
                         </xsl:when>
                         <xsl:otherwise>
-                            <xsl:variable name="last-reset" select="preceding::xhtml:hr[@class='page-break'][@data-start][1]/@data-start"/>
+                            <xsl:variable name="last-reset" select="preceding::xhtml:hr[@class='page-break'][@data-start castable as xs:integer][1]/@data-start"/>
                             <xsl:choose>
-                                <xsl:when test="$last-reset">
-                                    <xsl:variable name="pages-since-reset" select="count(preceding::xhtml:hr[@class='page-break'][preceding::xhtml:hr[@class='page-break'][@data-start][1]/@data-start = $last-reset]) + 1"/>
+                                <xsl:when test="$last-reset castable as xs:integer">
+                                    <xsl:variable name="pages-since-reset" select="count(preceding::xhtml:hr[@class='page-break'][preceding::xhtml:hr[@class='page-break'][@data-start castable as xs:integer][1]/@data-start = $last-reset]) + 1"/>
                                     <xsl:value-of select="xs:integer($last-reset) + $pages-since-reset"/>
                                 </xsl:when>
                                 <xsl:otherwise>

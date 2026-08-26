@@ -205,12 +205,17 @@ if (previewTab) {
             e.stopPropagation();
             console.log("Convert to BHO button clicked");
 
-            const bhoXml = await convertToBHO();
+            const source = editor.state.doc.toString();
+            if (!validateXML(source)) {
+                return;
+            }
+
+            const bhoXml = await convertToBHO(source);
 
             if (bhoXml) {
                 // Download BHO XML with filename based on current file
                 const currentFilename = getCurrentFilename();
-                const bhoFilename = currentFilename.replace(/\.(xhtml|xml|html)$/i, '.xml');
+                const bhoFilename = currentFilename.replace(/\.(xhtml|xml|html?|txt|pdf)$/i, '') + '.xml';
 
                 const blob = new Blob([bhoXml], { type: 'application/xml' });
                 const url = URL.createObjectURL(blob);
@@ -781,9 +786,14 @@ function loadExtractedXHTML() {
 // ===== DOWNLOAD FUNCTIONS =====
 function downloadXML() {
     const xhtml = editor.state.doc.toString();
-    const filename = getCurrentFilename();
 
-    const blob = new Blob([xhtml], {type: 'application/xml'});
+    // Always save the editor source as .xhtml. Previously this reused the displayed filename
+    // verbatim, so loading a file named *.xml (or renaming one) meant the editor source could be
+    // saved over the same .xml extension used by "Save as BHO XML" - making an untransformed
+    // XHTML file indistinguishable from a converted BHO XML file.
+    const filename = getCurrentFilename().replace(/\.(xhtml|xml|html?|txt|pdf)$/i, '') + '.xhtml';
+
+    const blob = new Blob([xhtml], {type: 'application/xhtml+xml'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;

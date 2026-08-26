@@ -3,13 +3,30 @@
                 xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
                 exclude-result-prefixes="xsl">
 
+    <!-- UTF-8, not iso-8859-1: the browser writes the serialised result to a Blob, which always
+         encodes as UTF-8. Declaring iso-8859-1 made every latin-1 character (£, æ, ½, ç, é ...)
+         mis-declared, so a conforming parser read it as mojibake. -->
     <xsl:output method="xml"
-                encoding="iso-8859-1"
+                encoding="UTF-8"
                 indent="yes"
                 standalone="no"
                 doctype-system="dtd/report.dtd"/>
 
     <xsl:strip-space elements="*"/>
+
+    <!-- Content sitting directly inside <article> before the first <section>: the author line,
+         the opening paragraph(s), leading page breaks, and any leading figure. This used to be
+         dropped entirely, because the article template only processed <section> children. It is
+         now emitted inside a leading <section> with no <head>, which keeps <report>'s children
+         to the title/page/section shapes BHO already accepts, and keeps the untitled section out
+         of BHO's table of contents (which is keyed on section/head). -->
+    <xsl:variable name="preamble"
+                  select="//article/*[not(self::header) and not(self::title) and not(self::section)
+                                      and not(self::footer) and not(self::p[@id='subtitle'])]
+                                    [count(preceding-sibling::section) = 0]"/>
+
+    <!-- 1 when a preamble section is emitted, so top-level section numbering allows for it. -->
+    <xsl:variable name="preamble-offset" select="count($preamble[1])"/>
 
     <!-- Root template -->
     <xsl:template match="/">
@@ -32,10 +49,13 @@
             <!-- Subtitle if present -->
             <xsl:apply-templates select="p[@id='subtitle']" mode="subtitle"/>
 
-            <!-- Get first page number from first page break -->
-            <xsl:variable name="first-page" select="normalize-space(substring-before(substring-after((p[@class='page-break'])[1], '[Page '), ']'))"/>
-            <xsl:if test="$first-page">
-                <page start="{$first-page}"/>
+            <!-- Pre-section content, in document order, in an untitled leading section. The page
+                 breaks it contains become <page> markers via section-content mode, so the first
+                 page number no longer needs extracting separately. -->
+            <xsl:if test="$preamble">
+                <section id="s1">
+                    <xsl:apply-templates select="$preamble" mode="section-content"/>
+                </section>
             </xsl:if>
 
             <!-- Process top-level sections -->
@@ -70,18 +90,51 @@
                 </head>
             </xsl:if>
 
-            <!-- Process content, excluding headings and nested sections -->
-            <xsl:apply-templates select="*[not(self::h2 or self::h3 or self::h4 or self::h5 or self::h6 or self::section)]" mode="section-content"/>
+            <!-- Content and nested sections in a single document-order pass. Emitting all the
+                 content first and all the nested sections afterwards reordered any content that
+                 followed a sub-section - which put page markers out of sequence wherever a page
+                 break fell just after one (Poling in Sussex 5 pt 2). Headings are skipped: the
+                 first became <head> above. -->
+            <xsl:for-each select="*[not(self::h2 or self::h3 or self::h4 or self::h5 or self::h6)]">
+                <xsl:choose>
+                    <xsl:when test="self::section[not(@class='footnotes')]">
+                        <xsl:apply-templates select="."/>
+                    </xsl:when>
+                    <!-- footnote sections are collected separately, at report level -->
+                    <xsl:when test="self::section"/>
+                    <xsl:otherwise>
+                        <xsl:apply-templates select="." mode="section-content"/>
+                    </xsl:otherwise>
+                </xsl:choose>
+            </xsl:for-each>
 
-            <!-- Process nested sections -->
-            <xsl:apply-templates select="section[not(@class='footnotes')]"/>
+            <!-- Article-level content sitting between this top-level section and the next one
+                 (typically a page break at a section boundary). It is emitted at the end of this
+                 section, which is where it falls in reading order - it must not be hoisted into
+                 the leading preamble section, which would move it out of document order. -->
+            <xsl:if test="parent::article">
+                <xsl:variable name="index" select="count(preceding-sibling::section) + 1"/>
+                <xsl:apply-templates mode="section-content"
+                    select="../*[not(self::section) and not(self::header) and not(self::title)
+                                 and not(self::footer) and not(self::p[@id='subtitle'])]
+                               [count(preceding-sibling::section) = $index]"/>
+            </xsl:if>
         </section>
     </xsl:template>
 
     <!-- Generate hierarchical section numbering -->
     <xsl:template name="section-number">
         <xsl:for-each select="ancestor-or-self::section[not(@class='footnotes')]">
-            <xsl:value-of select="count(preceding-sibling::section[not(@class='footnotes')]) + 1"/>
+            <xsl:variable name="n" select="count(preceding-sibling::section[not(@class='footnotes')]) + 1"/>
+            <xsl:choose>
+                <!-- position() = 1 is the outermost section, which follows any preamble section -->
+                <xsl:when test="position() = 1">
+                    <xsl:value-of select="$n + $preamble-offset"/>
+                </xsl:when>
+                <xsl:otherwise>
+                    <xsl:value-of select="$n"/>
+                </xsl:otherwise>
+            </xsl:choose>
             <xsl:if test="position() != last()">
                 <xsl:text>-</xsl:text>
             </xsl:if>
@@ -97,15 +150,57 @@
                 <page start="{$page-num}"/>
             </xsl:when>
 
-            <!-- Regular paragraphs -->
+            <!-- Regular paragraphs. A <br/> is a hard line break in the source and is rendered as
+                 one in the HTML preview, but BHO XML has no line-break element, so a paragraph
+                 containing them becomes one <para> per line - the form the published Oxfordshire
+                 19 donor and source lists take. Without this the lines ran together ("All Souls
+                 College, OxfordThe Barnsbury Charitable Trust"), and the preview misrepresented
+                 what BHO would publish.
+
+                 Numbering counts <br/> alongside <p> so the split paragraphs stay sequential.
+                 Documents with no <br/> are numbered exactly as before. -->
             <xsl:when test="self::p[not(@class='page-break' or @id='subtitle')]">
-                <para>
-                    <xsl:attribute name="id">
-                        <xsl:text>p</xsl:text>
-                        <xsl:number count="p[not(@class='page-break' or @id='subtitle' or @class='footnote')]" level="any"/>
-                    </xsl:attribute>
-                    <xsl:apply-templates/>
-                </para>
+                <xsl:choose>
+                    <xsl:when test="br">
+                        <!-- text before the first <br/> -->
+                        <xsl:variable name="lead" select="node()[not(self::br)][count(preceding-sibling::br) = 0]"/>
+                        <xsl:if test="normalize-space(.) != '' and count($lead) &gt; 0 and normalize-space(string($lead)) != ''">
+                            <para>
+                                <xsl:attribute name="id">
+                                    <xsl:text>p</xsl:text>
+                                    <xsl:number count="p[not(@class='page-break' or @id='subtitle' or @class='footnote')] | br[ancestor::p[not(@class='page-break' or @id='subtitle' or @class='footnote')]]" level="any"/>
+                                </xsl:attribute>
+                                <xsl:apply-templates select="$lead"/>
+                            </para>
+                        </xsl:if>
+                        <!-- one paragraph per line thereafter -->
+                        <xsl:for-each select="br">
+                            <xsl:variable name="k" select="position()"/>
+                            <xsl:variable name="line" select="../node()[not(self::br)][count(preceding-sibling::br) = $k]"/>
+                            <xsl:if test="normalize-space(string($line)) != '' or normalize-space(string(.)) != ''">
+                                <para>
+                                    <xsl:attribute name="id">
+                                        <xsl:text>p</xsl:text>
+                                        <xsl:number count="p[not(@class='page-break' or @id='subtitle' or @class='footnote')] | br[ancestor::p[not(@class='page-break' or @id='subtitle' or @class='footnote')]]" level="any"/>
+                                    </xsl:attribute>
+                                    <!-- text may sit inside the <br> (XHTML source) or after it
+                                         (HTML preview, where <br/> is void) -->
+                                    <xsl:apply-templates select="node()"/>
+                                    <xsl:apply-templates select="$line"/>
+                                </para>
+                            </xsl:if>
+                        </xsl:for-each>
+                    </xsl:when>
+                    <xsl:otherwise>
+                        <para>
+                            <xsl:attribute name="id">
+                                <xsl:text>p</xsl:text>
+                                <xsl:number count="p[not(@class='page-break' or @id='subtitle' or @class='footnote')] | br[ancestor::p[not(@class='page-break' or @id='subtitle' or @class='footnote')]]" level="any"/>
+                            </xsl:attribute>
+                            <xsl:apply-templates/>
+                        </para>
+                    </xsl:otherwise>
+                </xsl:choose>
             </xsl:when>
 
             <!-- Tables: wrap in div.table-wrap and extract caption -->
@@ -132,6 +227,14 @@
                         <xsl:apply-templates select="*[not(self::caption)]"/>
                     </table>
                 </div>
+            </xsl:when>
+
+            <!-- Index entries pass through as-is. BHO's accepted index format (see the published
+                 Oxfordshire 19 index) uses the same <entry>/<head>/<key>/<sub> structure as the
+                 VCH XHTML, differing only in <i>/<b> becoming <emph>, which the inline templates
+                 below already handle. Without this branch the whole index was discarded. -->
+            <xsl:when test="self::entry">
+                <xsl:apply-templates select="."/>
             </xsl:when>
 
             <!-- Figures -->
@@ -213,6 +316,17 @@
 
     <xsl:template match="sub">
         <emph type="sub"><xsl:apply-templates/></emph>
+    </xsl:template>
+
+    <!-- Index entry structure, copied through verbatim. Matched at any depth inside <entry>,
+         because sub-entries nest (a <sub> inside a <sub> for "his w. Mary, 122" and the like, as
+         in the published Oxfordshire 19 index). A <sub> here is an index sub-entry, not an HTML
+         subscript, so this must out-rank the generic sub template above - the predicate gives it
+         the higher priority. -->
+    <xsl:template match="entry | head[ancestor::entry] | key[ancestor::entry] | sub[ancestor::entry]">
+        <xsl:element name="{local-name()}">
+            <xsl:apply-templates/>
+        </xsl:element>
     </xsl:template>
 
     <!-- Footnote references from <a class="footnote"> -->

@@ -112,8 +112,12 @@ async function generatePreviewWithSaxonJS(xmlString) {
         let pageNum = 1;
         const pages = doc.querySelectorAll('hr[class="page-break"]');
         pages.forEach(hr => {
-            if (hr.hasAttribute('data-start')) {
-                pageNum = parseInt(hr.getAttribute('data-start'));
+            // data-start can be the literal string "null" (the extractor writes it when a page
+            // numeral can't be read, common in front matter). parseInt("null") is NaN, which used
+            // to propagate all the way into <page start="NaN"/> in the delivered BHO XML.
+            const start = parseInt(hr.getAttribute('data-start'), 10);
+            if (Number.isFinite(start)) {
+                pageNum = start;
             }
             hr.setAttribute('data-page-num', pageNum);
             pageNum++;
@@ -311,8 +315,36 @@ ${htmlOutput}
     }
 }
 
-export async function convertToBHO() {
+/**
+ * Convert the current document to BHO XML.
+ *
+ * `xhtml` is the live editor content. It must be supplied: the conversion reads the preview
+ * iframe, and without regenerating that preview first the iframe may be empty (the user never
+ * opened the Preview tab) or hold a stale render of a previously-loaded document. Either case
+ * used to produce a silently wrong download rather than an error.
+ */
+export async function convertToBHO(xhtml) {
     console.log("=== BHO CONVERSION START ===");
+
+    if (typeof xhtml !== 'string' || !xhtml.trim()) {
+        alert("Nothing to convert: the editor is empty.");
+        return null;
+    }
+
+    // The source must be VCH XHTML. Converting anything else - most importantly an already-
+    // converted BHO XML file loaded back into the editor - cannot produce a valid <report>.
+    if (!/<article[\s>]/.test(xhtml)) {
+        alert(
+            "This does not look like VCH XHTML.\n\n" +
+            "BHO XML is produced from a document with an <article> element (see the Template). " +
+            "If you have loaded a BHO XML file into the editor, it has already been converted."
+        );
+        return null;
+    }
+
+    // Always rebuild the preview from the current editor content, so the BHO XML can never be
+    // generated from an empty or stale iframe.
+    await generatePreview(xhtml);
 
     // Get the HTML from the preview iframe
     const iframe = document.getElementById("preview-frame");
@@ -376,6 +408,19 @@ export async function convertToBHO() {
         let bhoXml = result.principalResult;
         console.log("BHO XML length:", bhoXml.length);
         console.log("BHO XML preview:", bhoXml.substring(0, 500));
+
+        // Refuse to hand back anything that is not a BHO report. The transform emits its
+        // processing instruction and DOCTYPE unconditionally, so an input that matched no
+        // templates yields a well-formed but empty shell - which previously downloaded silently.
+        if (!/<report[\s>]/.test(bhoXml)) {
+            console.error("Transformation produced no <report> element:", bhoXml.substring(0, 1000));
+            alert(
+                "BHO conversion produced no <report> element.\n\n" +
+                "The document was not converted. Check that the Preview tab renders correctly, " +
+                "then try again."
+            );
+            return null;
+        }
 
         return bhoXml;
 
