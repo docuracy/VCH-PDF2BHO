@@ -1,6 +1,5 @@
 # "Report" XML Format — Specification
 
-**Version:** 2.0 (revision of, and correction to, v1.0)
 **Status:** Grounded in BHO's own DTD, which is publicly readable at
 <https://www.british-history.ac.uk/dtd/report.dtd>. Every content model
 quoted below is copied from it verbatim.
@@ -17,45 +16,49 @@ produce it.
 
 ---
 
-## 0. What changed in this revision, and why
+## 0. Sources, and how to read this
 
-v1.0 was written by inspecting the output of one converter. It is accurate
-about that output, but it describes a subset of the format, and several of
-its rules produce documents that BHO's DTD rejects. Four sources settle the
-questions it left open:
+BHO publishes no prose specification of the format, and for a long time
+none of us could find the DTD either, so what documentation existed was
+inferred from sample files. It need not be. Four sources settle almost
+every question, in this order of authority:
 
 1. **`report.dtd`** — <https://www.british-history.ac.uk/dtd/report.dtd>
-   (7,654 bytes). The normative grammar.
+   (7,654 bytes). The normative grammar. The `SYSTEM` identifier in a
+   published file, `dtd/report.dtd`, resolves against the site root rather
+   than against the directory holding the XML, which is why it is easy to
+   miss.
 2. **`index.dtd`** — <https://www.british-history.ac.uk/dtd/index.dtd>.
    A second, separate document type, for volume indexes.
 3. **BHO's display stylesheet** ("Report 2"), which turns this XML into the
    published page. It decides what is *rendered*; the DTD decides what is
-   *accepted*. The two do not entirely agree, and both matter.
+   *accepted*. The two do not entirely agree, and both matter — a document
+   can be perfectly valid and still render as something you did not intend.
 4. **Published files**, e.g. Nettlebed, VCH Oxfordshire XVIII
    (`/sites/default/files/publications/pubid-1516/155040.xml`, rendered at
    `/vch/oxon/vol18/pp275-302`). This validates cleanly against the DTD and
    is the model followed throughout.
 
-| # | v1.0 said | Correction | Consequence |
+### Twelve things that are easy to get wrong
+
+Each of these is a plausible reading of the sample files that the DTD or
+the live site contradicts. They are collected here because every one of
+them has been made in earnest, in more than one converter.
+
+| # | The plausible assumption | What is actually the case | Consequence |
 |---|---|---|---|
 | 1 | `title` and `subtitle` are optional | **Both are mandatory**, in that order | A file with no `<subtitle/>` is invalid |
 | 2 | Sections are a flat sequence | **Sections nest**, and nesting sets heading level | Flat files render every heading as `h2` and lose the hierarchy |
 | 3 | A section may have 0, 1 or more `head` | **Exactly one `head`, first** | Headless and two-head sections are invalid |
 | 4 | `<li>` sits inside `<para>` | `<li>` sits inside **`<list>`**, which needs its own `<head>` | `<li>` in `<para>` is invalid and renders unbulleted |
 | 5 | `<table>` contains `<tbody>` | **There is no `tbody`** — `table` holds `tr` directly | Invalid, and it breaks BHO's per-cell anchors |
-| 6 | `tr` ids restart at `tr1` per table | `tr/@id` is **`ID`** — unique document-wide, and optional | Restarting produces duplicate IDs: invalid |
-| 7 | `figure/@alt` is required | **`@alt` is not declared**; `@number` is required | `@alt` is invalid; BHO never reads it |
+| 6 | `tr` ids may restart at `tr1` per table | `tr/@id` is **`ID`** — unique document-wide, and optional | Restarting produces duplicate IDs: invalid |
+| 7 | `figure/@alt` carries the alt text | **`@alt` is not declared**; `@number` is required | `@alt` is invalid, and BHO never reads it |
 | 8 | `emph` is `i` or `b` | **`(b\|i\|p\|d\|c\|k\|u)`**, required | Anything else is invalid |
 | 9 | Notes go in a trailing footnote-only section | Notes may appear in **any** section; published files put them at the end of the outermost section | A notes-only section still needs a `head` |
-| 10 | The visible footnote number comes from `@number` / the `ref` text | **Both are ignored by the renderer**; it prints the number in the *id* | See §8 |
-| 11 | Page number = source number + 1 | A property of one body of source material, not of the format | See Appendix B |
-| 12 | Every non-ASCII character as a numeric reference | Safe, but not required: the ISO entity sets are declared | See §9 |
-
-Everything else in v1.0 stands. Two of its observations are worth
-underlining because they are correct and non-obvious: `<title>` is never
-rendered, so the title must also appear as a `<head>`; and `@graphic` must
-be exactly `/images/<file>`, because BHO takes `substring(@graphic, 9)` and
-re-prefixes it with the publication path.
+| 10 | The visible footnote number comes from `@number` or the `ref` text | **Both are ignored by the renderer**; it prints the number in the *id* | See §8 |
+| 11 | `<title>` can be omitted, since it is not rendered | It is mandatory — and the title must *also* appear as the outermost `<head>` | Otherwise the article publishes with no visible title |
+| 12 | `@graphic` may hold the full image path | It must be exactly `/images/<file>` | BHO takes `substring(@graphic, 9)` and re-prefixes it; anything longer doubles the path |
 
 ---
 
@@ -551,11 +554,13 @@ Points of difference from `report.dtd`:
 - BHO renders `/index/section/head` as `h1` and the next level as `h2`,
   a level higher than in a report.
 
-## Appendix B — Conventions of a particular converter
+## Appendix B — Conventions that are not part of the format
 
-These are properties of one converter and the material it was written
-against, not of the format. They are recorded here so that they are not
-mistaken for rules.
+Practices that a converter may reasonably adopt, and that turn up in
+files, but that the format itself does not require. They are recorded
+here so that they are not mistaken for rules — and so that nobody
+reverse-engineering a specification from a batch of files writes them
+down as such.
 
 **Page numbers.** Where the source is OCR of a printed page whose number
 appears as a running foot, the marker read from the page belongs to the
@@ -569,9 +574,9 @@ Either is valid, provided `@id` is unique and `@number` is present.
 
 **Figure filenames.** `/images/[chapter]_[figure id].jpg`, where
 `[chapter]` is a three-digit run delimited by underscores in the source
-filename, is one converter's naming scheme. The format requires
-only that `@graphic` begins `/images/` and that the file of that name
-exists in the publication's image directory.
+filename, is one such naming scheme. The format requires only that
+`@graphic` begins `/images/` and that a file of that name exists in the
+publication's image directory.
 
 **CSV manifest.** A sidecar CSV (`Chapter, FigID, FigNumber, OldFilename,
 NewFilename`) mapping original image filenames to their new names is a
