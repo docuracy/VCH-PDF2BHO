@@ -296,6 +296,11 @@
                 </table>
             </xsl:when>
 
+            <!-- Lists. <section> allows <list>, so it is emitted in place. -->
+            <xsl:when test="self::ul or self::ol">
+                <xsl:apply-templates select="."/>
+            </xsl:when>
+
             <!-- Index entries pass through as-is. BHO's accepted index format (see the published
                  Oxfordshire 19 index) uses the same <entry>/<head>/<key>/<sub> structure as the
                  VCH XHTML, differing only in <i>/<b> becoming <emph>, which the inline templates
@@ -409,14 +414,32 @@
         </td>
     </xsl:template>
 
-    <!-- Text that escaped its cell - a stray "400" or ")" left in the row by segmentation.
-         <tr> is (th|td)* and cannot hold it, so it is appended to the cell it follows, which
-         keeps the value and leaves the column count alone. Text before any cell gets a cell
-         of its own. -->
+    <!-- Text that escaped its cell - a stray "400" left in the row by segmentation. <tr> is
+         (th|td)* and cannot hold it, so it is folded into a neighbouring cell, which keeps the
+         value and leaves the column count alone. Text before any cell gets a cell of its own. -->
+    <!-- A lone closing bracket stranded between cells belongs to whichever cell holds the
+         matching opener, which may be the one after it: Kirby-le-Soken has
+         <td/>)<td>1 (free</td>, where the ")" closes the cell that follows. Anything else is
+         appended to the cell it follows. -->
     <xsl:template name="absorb-tail">
         <xsl:variable name="tail" select="following-sibling::node()[1][self::text()]"/>
-        <xsl:if test="normalize-space($tail) != '' and not(contains($tail, '[Page '))">
+        <xsl:variable name="next" select="following-sibling::*[1][self::td or self::th]"/>
+        <xsl:variable name="belongs-to-next"
+                      select="string-length(normalize-space($tail)) = 1
+                              and contains(')]}', normalize-space($tail))
+                              and contains($next, '(') and not(contains($next, ')'))"/>
+        <xsl:if test="normalize-space($tail) != '' and not(contains($tail, '[Page '))
+                      and not($belongs-to-next)">
             <xsl:value-of select="$tail"/>
+        </xsl:if>
+    </xsl:template>
+
+    <xsl:template name="absorb-closer">
+        <xsl:variable name="lead" select="preceding-sibling::node()[1][self::text()]"/>
+        <xsl:if test="string-length(normalize-space($lead)) = 1
+                      and contains(')]}', normalize-space($lead))
+                      and contains(., '(') and not(contains(., ')'))">
+            <xsl:value-of select="normalize-space($lead)"/>
         </xsl:if>
     </xsl:template>
 
@@ -437,6 +460,7 @@
                 </xsl:attribute>
             </xsl:if>
             <xsl:apply-templates/>
+            <xsl:call-template name="absorb-closer"/>
             <xsl:call-template name="absorb-tail"/>
         </td>
     </xsl:template>
@@ -515,8 +539,36 @@
         </note>
     </xsl:template>
 
-    <!-- Skip elements that shouldn't appear in output -->
-    <xsl:template match="nav | header[@class='header'] | ul | code | hr"/>
+    <!-- Skip elements that shouldn't appear in output. <ul> used to be in this list, which
+         silently discarded every content list in the document along with the table of contents
+         it was meant to suppress - the contents list is inside <nav>, which is dropped anyway.
+         <code> used to be here too, taking its text with it. -->
+    <xsl:template match="nav | header[@class='header'] | hr"/>
+
+    <!-- No <code> in the DTD, but the text inside it is content. -->
+    <xsl:template match="code">
+        <xsl:apply-templates/>
+    </xsl:template>
+
+    <!-- list is (head,(li|page)+) with a required id. The head has no source in HTML, so it is
+         emitted empty: BHO renders it as the list's anchor, and an empty one is harmless. -->
+    <xsl:template match="ul[li] | ol[li]" name="list">
+        <list>
+            <xsl:attribute name="id">
+                <xsl:text>l</xsl:text>
+                <xsl:number count="ul[not(ancestor::nav)] | ol[not(ancestor::nav)]" level="any"/>
+            </xsl:attribute>
+            <head/>
+            <xsl:apply-templates select="li"/>
+        </list>
+    </xsl:template>
+
+    <!-- li is (#PCDATA|page|ref|emph|br)*: it cannot hold a nested list, so the items of one are
+         flattened out alongside their parent rather than dropped. -->
+    <xsl:template match="li[not(@class='footnote')]">
+        <li><xsl:apply-templates select="node()[not(self::ul or self::ol)]"/></li>
+        <xsl:apply-templates select="ul/li | ol/li"/>
+    </xsl:template>
 
     <!-- Skip links unless they're footnote references -->
     <xsl:template match="a[not(@class='footnote')]">

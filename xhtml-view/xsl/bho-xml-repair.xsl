@@ -115,19 +115,37 @@
     </xsl:template>
 
     <!-- Text that escaped its cell - a stray "400" or ")" left in the row by segmentation.
-         <tr> is (th|td)* and cannot hold it, so it is appended to the cell it follows, which
-         keeps the value and leaves the column count alone. Text before any cell, or loose in
-         the table itself, gets a cell (and a row) of its own. -->
+         <tr> is (th|td)* and cannot hold it, so it is folded into a neighbouring cell. -->
+    <!-- A lone closing bracket stranded between cells belongs to whichever cell holds the
+         matching opener, which may be the one after it: Kirby-le-Soken has
+         <td/>)<td>1 (free</td>, where the ")" closes the cell that follows. Anything else is
+         appended to the cell it follows. -->
     <xsl:template name="absorb-tail">
         <xsl:variable name="tail" select="following-sibling::node()[1][self::text()]"/>
-        <xsl:if test="normalize-space($tail) != '' and not(contains($tail, '[Page '))">
+        <xsl:variable name="next" select="following-sibling::*[1][self::td or self::th]"/>
+        <xsl:variable name="belongs-to-next"
+                      select="string-length(normalize-space($tail)) = 1
+                              and contains(')]}', normalize-space($tail))
+                              and contains($next, '(') and not(contains($next, ')'))"/>
+        <xsl:if test="normalize-space($tail) != '' and not(contains($tail, '[Page '))
+                      and not($belongs-to-next)">
             <xsl:value-of select="$tail"/>
+        </xsl:if>
+    </xsl:template>
+
+    <xsl:template name="absorb-closer">
+        <xsl:variable name="lead" select="preceding-sibling::node()[1][self::text()]"/>
+        <xsl:if test="string-length(normalize-space($lead)) = 1
+                      and contains(')]}', normalize-space($lead))
+                      and contains(., '(') and not(contains(., ')'))">
+            <xsl:value-of select="normalize-space($lead)"/>
         </xsl:if>
     </xsl:template>
 
     <xsl:template match="td | th">
         <xsl:copy>
             <xsl:apply-templates select="@*|node()"/>
+            <xsl:call-template name="absorb-closer"/>
             <xsl:call-template name="absorb-tail"/>
         </xsl:copy>
     </xsl:template>
