@@ -237,21 +237,58 @@
                 <xsl:apply-templates select="."/>
             </xsl:when>
 
-            <!-- Figures -->
+            <!-- Figures.
+
+                 BHO rebuilds the image URL itself: its stylesheet takes substring(@graphic, 9),
+                 which strips exactly "/images/", and re-prefixes the result with the site path and
+                 the real publication id. So @graphic must be "/images/<filename>". Emitting the
+                 full "/sites/default/files/publications/pubid-xxxxxx/images/..." path that the
+                 preview needs produced a doubled, broken URL once published.
+
+                 @number is what BHO keys the figure label on, and @id is "fig" plus the figure's
+                 own number rather than its position in the document. Both match the published
+                 Oxfordshire 19 volume, which renders correctly. -->
             <xsl:when test="self::figure">
+                <xsl:variable name="fig-num" select="normalize-space(substring-after(@aria-label, 'Figure '))"/>
+                <xsl:variable name="src" select="string(.//img/@src)"/>
+                <xsl:variable name="filename">
+                    <xsl:choose>
+                        <xsl:when test="contains($src, '/images/')">
+                            <xsl:value-of select="substring-after($src, '/images/')"/>
+                        </xsl:when>
+                        <xsl:otherwise>
+                            <xsl:value-of select="$src"/>
+                        </xsl:otherwise>
+                    </xsl:choose>
+                </xsl:variable>
                 <figure>
                     <xsl:attribute name="id">
                         <xsl:text>fig</xsl:text>
-                        <xsl:number count="figure" level="any"/>
+                        <xsl:choose>
+                            <xsl:when test="$fig-num != ''">
+                                <xsl:value-of select="$fig-num"/>
+                            </xsl:when>
+                            <xsl:otherwise>
+                                <xsl:number count="figure" level="any"/>
+                            </xsl:otherwise>
+                        </xsl:choose>
                     </xsl:attribute>
-                    <xsl:if test="@data-number">
+                    <xsl:if test="$fig-num != ''">
                         <xsl:attribute name="number">
-                            <xsl:value-of select="@data-number"/>
+                            <xsl:value-of select="$fig-num"/>
                         </xsl:attribute>
                     </xsl:if>
-                    <xsl:if test=".//img/@src">
+                    <xsl:if test="$src != ''">
                         <xsl:attribute name="graphic">
-                            <xsl:value-of select=".//img/@src"/>
+                            <xsl:choose>
+                                <xsl:when test="starts-with($src, 'data:')">
+                                    <xsl:value-of select="$src"/>
+                                </xsl:when>
+                                <xsl:otherwise>
+                                    <xsl:text>/images/</xsl:text>
+                                    <xsl:value-of select="$filename"/>
+                                </xsl:otherwise>
+                            </xsl:choose>
                         </xsl:attribute>
                     </xsl:if>
                     <xsl:if test="figcaption">

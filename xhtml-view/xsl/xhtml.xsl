@@ -363,8 +363,12 @@
             </xsl:for-each>
 
             <xsl:if test="xhtml:figcaption">
+                <!-- "107. caption", not "Figure 107: caption". This is how BHO renders a figure
+                     title from the <title> element (verified against the published Oxfordshire 19
+                     volume), so the preview now shows what will actually be published. -->
                 <figcaption>
-                    <strong>Figure <xsl:value-of select="$fig-num"/>: </strong>
+                    <xsl:value-of select="$fig-num"/>
+                    <xsl:text>. </xsl:text>
                     <xsl:apply-templates select="xhtml:figcaption/node()"/>
                 </figcaption>
             </xsl:if>
