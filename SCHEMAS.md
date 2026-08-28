@@ -2,9 +2,22 @@
 
 ## BHO XML SCHEMA
 
-Part of the difficulty in implementing this project has been the lack of adequate documentation on the BHO XML schema.
-It appears to follow a hierarchical structure rooted in a `<report>` element, relying heavily on recursive `<section>`
-tags for structure, and a linked reference/note system for citations.
+Part of the difficulty in implementing this project was the lack of adequate documentation on the BHO XML schema. It
+follows a hierarchical structure rooted in a `<report>` element, relying heavily on recursive `<section>` tags for
+structure, and a linked reference/note system for citations.
+
+**The DTD is in fact public**, at <https://www.british-history.ac.uk/dtd/report.dtd> (and
+<https://www.british-history.ac.uk/dtd/index.dtd> for volume indexes) — the `SYSTEM` identifier in a published file,
+`dtd/report.dtd`, resolves against the site root rather than against the directory holding the XML, which is why it took
+so long to find. It is normative, and files can be validated against it directly:
+
+```bash
+xmllint --noout --dtdvalid dtd/report.dtd yourfile.xml
+```
+
+See [`docs/bho-report-xml-specification.md`](docs/bho-report-xml-specification.md) for the format written up against the
+DTD, and [`docs/bho-schema-references.md`](docs/bho-schema-references.md) for where everything lives. The notes below
+predate the DTD and record what could be inferred from BHO's display stylesheet; where the two differ, the DTD wins.
 
 For example, a minimal valid BHO XML document might look like this:
 
