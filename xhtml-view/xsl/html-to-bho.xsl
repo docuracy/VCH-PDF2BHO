@@ -355,6 +355,14 @@
         <emph type="super"><xsl:apply-templates/></emph>
     </xsl:template>
 
+    <!-- A <sup> holding nothing but footnote references is just how the marker is rendered in
+         HTML. BHO produces its own "(fn. N)" marker from <ref>, so the superscript wrapper is
+         redundant - it does not appear in previously accepted XML. Superscripts carrying anything
+         else (table note markers, for instance) keep their <emph type="super">. -->
+    <xsl:template match="sup[a[@class='footnote']][not(*[not(self::a[@class='footnote'])])]">
+        <xsl:apply-templates/>
+    </xsl:template>
+
     <xsl:template match="sub">
         <emph type="sub"><xsl:apply-templates/></emph>
     </xsl:template>
