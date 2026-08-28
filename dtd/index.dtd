@@ -1,0 +1,115 @@
+<!ELEMENT index (title, subtitle, (intro|section|entry|page|note|figure)*)>
+<!ATTLIST index id CDATA #REQUIRED>
+<!ATTLIST index pubid CDATA #REQUIRED>
+<!ATTLIST index publish CDATA #IMPLIED>
+<!--         publish (false|true) "true"> -->
+
+
+<!ELEMENT section (head,(para|section|entry|page|note|figure)*)>
+<!ATTLIST section id CDATA #REQUIRED>
+
+<!ELEMENT entry (head|sub|page|table)*>
+<!ELEMENT title (#PCDATA|emph|ref)*>
+<!ELEMENT subtitle (#PCDATA)>
+<!ELEMENT intro (#PCDATA|emph|para|table)*>
+<!ELEMENT para (#PCDATA|emph|br)*>
+<!ATTLIST para id CDATA #REQUIRED>
+<!ELEMENT head (#PCDATA|key|emph|addenda|ref|page|plt)*>
+<!ELEMENT key (#PCDATA|emph|addenda|ref)*>
+<!ELEMENT sub (#PCDATA|emph|sub|page|addenda|ref|plt)*>
+<!ELEMENT emph (#PCDATA|emph)*>
+<!ATTLIST emph type (b|i|p|c|d) #REQUIRED>
+<!ELEMENT br EMPTY>
+<!ELEMENT caption (#PCDATA|ref|emph|br)*>
+
+<!-- page added Jan 25th 2007 -->
+<!ELEMENT page EMPTY>
+<!ATTLIST page start CDATA #REQUIRED>
+
+<!-- English Heritage only-->
+<!ELEMENT plt (#PCDATA)>
+<!ATTLIST plt target CDATA #REQUIRED>
+
+<!-- Addenda added Nov 24th 2005 for Survey of London -->
+<!ELEMENT addenda (#PCDATA|emph)*>
+<!ATTLIST entry type (addenda) #IMPLIED>
+
+<!-- table copied in from report June 5th, 2006 for Statutes of the Realm-->
+<!ELEMENT table (head?,(tr|page)+)>
+<!ATTLIST table 
+         id CDATA #REQUIRED
+         caption CDATA #IMPLIED
+         number CDATA #IMPLIED>
+<!ELEMENT tr (th|td)*>
+<!ATTLIST th
+         cols CDATA #IMPLIED
+         rows CDATA #IMPLIED>
+<!ATTLIST td
+         cols CDATA #IMPLIED
+         rows CDATA #IMPLIED>
+<!ELEMENT th (#PCDATA|ref|emph|br)*>
+<!ELEMENT td (#PCDATA|ref|emph|br|page)*>
+
+
+<!ELEMENT ref (#PCDATA)>
+<!ATTLIST ref idref IDREF #IMPLIED>
+<!ATTLIST ref type (footnote|reference|addenda) "footnote">
+
+<!ELEMENT note (#PCDATA|ref|emph|br|table)*>
+<!ATTLIST note 
+         id ID #REQUIRED
+         number CDATA #REQUIRED
+         type (footnote|reference|addenda) "footnote">
+
+<!-- in text graphics -->
+<!ELEMENT figure (title|caption)*>
+<!ATTLIST figure 
+         id ID #REQUIRED
+         number CDATA #REQUIRED
+         graphic CDATA #REQUIRED>
+
+
+
+
+
+<!ENTITY % ent-isoamsa SYSTEM "isoamsa.ent">
+%ent-isoamsa;
+<!ENTITY % ent-isoamsb SYSTEM "isoamsb.ent">
+%ent-isoamsb;
+<!ENTITY % ent-isoamsc SYSTEM "isoamsc.ent">
+%ent-isoamsc;
+<!ENTITY % ent-isoamsn SYSTEM "isoamsn.ent">
+%ent-isoamsn;
+<!ENTITY % ent-isoamso SYSTEM "isoamso.ent">
+%ent-isoamso;
+<!ENTITY % ent-isoamsr SYSTEM "isoamsr.ent">
+%ent-isoamsr;
+<!ENTITY % ent-isobox SYSTEM "isobox.ent">
+%ent-isobox;
+<!ENTITY % ent-isocyr1 SYSTEM "isocyr1.ent">
+%ent-isocyr1;
+<!ENTITY % ent-isocyr2 SYSTEM "isocyr2.ent">
+%ent-isocyr2;
+<!ENTITY % ent-isodia SYSTEM "isodia.ent">
+%ent-isodia;
+<!ENTITY % ent-isogrk1 SYSTEM "isogrk1.ent">
+%ent-isogrk1;
+<!ENTITY % ent-isogrk2 SYSTEM "isogrk2.ent">
+%ent-isogrk2;
+<!ENTITY % ent-isogrk3 SYSTEM "isogrk3.ent">
+%ent-isogrk3;
+<!ENTITY % ent-isogrk4 SYSTEM "isogrk4.ent">
+%ent-isogrk4;
+<!ENTITY % ent-isolat1 SYSTEM "isolat1.ent">
+%ent-isolat1;
+<!ENTITY % ent-isolat2 SYSTEM "isolat2.ent">
+%ent-isolat2;
+<!ENTITY % ent-isonum SYSTEM "isonum.ent">
+%ent-isonum;
+<!ENTITY % ent-isopub SYSTEM "isopub.ent">
+%ent-isopub;
+<!ENTITY % ent-isotech SYSTEM "isotech.ent">
+%ent-isotech;
+
+<!ENTITY % ent-bhoa SYSTEM "bhoa.ent">
+%ent-bhoa;

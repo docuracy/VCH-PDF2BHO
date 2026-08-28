@@ -25,8 +25,28 @@
                                       and not(self::footer) and not(self::p[@id='subtitle'])]
                                     [count(preceding-sibling::section) = 0]"/>
 
-    <!-- 1 when a preamble section is emitted, so top-level section numbering allows for it. -->
-    <xsl:variable name="preamble-offset" select="count($preamble[1])"/>
+    <!-- 1 when a leading section is emitted, so top-level section numbering allows for it. One is
+         emitted whenever there is pre-section content, and also when there are no sections at all,
+         because <report> must hold the footnotes somewhere and every <section> needs a <head>. -->
+    <xsl:variable name="preamble-offset">
+        <xsl:choose>
+            <xsl:when test="$preamble">1</xsl:when>
+            <xsl:when test="not(//article/section[not(@class='footnotes')])">1</xsl:when>
+            <xsl:otherwise>0</xsl:otherwise>
+        </xsl:choose>
+    </xsl:variable>
+
+    <!-- Index volumes are a different document type: <entry>, <key> and <sub> are declared in
+         index.dtd, with an <index> root, and do not exist in report.dtd at all. Emitting them
+         inside a <report> made the whole index invalid. The DOCTYPE is switched to match by the
+         caller (convertToBHO in preview.js, and scripts/xhtml-to-bho.js), because XSLT 1.0 cannot
+         vary xsl:output. -->
+    <xsl:variable name="root-element">
+        <xsl:choose>
+            <xsl:when test="//entry">index</xsl:when>
+            <xsl:otherwise>report</xsl:otherwise>
+        </xsl:choose>
+    </xsl:variable>
 
     <!-- Root template -->
     <xsl:template match="/">
@@ -38,32 +58,68 @@
 
     <!-- Article becomes report -->
     <xsl:template match="article">
-        <report id="" publish="false">
+        <xsl:element name="{$root-element}">
+            <xsl:attribute name="id"/>
+            <xsl:attribute name="publish">false</xsl:attribute>
             <xsl:attribute name="pubid">
                 <xsl:value-of select="@data-pubid"/>
             </xsl:attribute>
 
-            <!-- Title from first header/h1 -->
-            <xsl:apply-templates select="header[@id='title']/h1" mode="title"/>
+            <!-- Title from first header/h1. <title> is mandatory, so a document without one
+                 falls back to its first heading rather than omitting the element. -->
+            <xsl:choose>
+                <xsl:when test="header[@id='title']/h1">
+                    <xsl:apply-templates select="header[@id='title']/h1" mode="title"/>
+                </xsl:when>
+                <xsl:otherwise>
+                    <title><xsl:value-of select="(.//h2 | .//h3)[1]"/></title>
+                </xsl:otherwise>
+            </xsl:choose>
 
-            <!-- Subtitle if present -->
-            <xsl:apply-templates select="p[@id='subtitle']" mode="subtitle"/>
+            <!-- <subtitle> is mandatory - report is (title, subtitle, (page*,section*,geodata?)) -
+                 so an article without one still needs an empty element. Omitting it made every
+                 file we have ever exported invalid. -->
+            <xsl:choose>
+                <xsl:when test="p[@id='subtitle']">
+                    <xsl:apply-templates select="p[@id='subtitle']" mode="subtitle"/>
+                </xsl:when>
+                <xsl:otherwise>
+                    <subtitle/>
+                </xsl:otherwise>
+            </xsl:choose>
 
             <!-- Pre-section content, in document order, in an untitled leading section. The page
                  breaks it contains become <page> markers via section-content mode, so the first
                  page number no longer needs extracting separately. -->
-            <xsl:if test="$preamble">
+            <xsl:if test="$preamble-offset = 1">
                 <section id="s1">
+                    <!-- Every section needs exactly one <head>, first: the content model is
+                         (head, (para|list|table|note|figure|...)*). This one used to have none.
+                         The document title is the right head for it, and it is also the only
+                         place the title becomes visible - BHO's stylesheet never renders
+                         <title>, so an article whose title appears nowhere else publishes
+                         untitled. Published files (e.g. Nettlebed, Oxon. XVIII) repeat the
+                         title as the first section's head in exactly this way. -->
+                    <head>
+                        <xsl:choose>
+                            <xsl:when test="header[@id='title']/h1">
+                                <xsl:apply-templates select="header[@id='title']/h1/node()"/>
+                            </xsl:when>
+                            <xsl:otherwise><xsl:value-of select="(.//h2 | .//h3)[1]"/></xsl:otherwise>
+                        </xsl:choose>
+                    </head>
                     <xsl:apply-templates select="$preamble" mode="section-content"/>
+                    <!-- Nowhere else to put them if the document has no sections of its own. -->
+                    <xsl:if test="not(section[not(@class='footnotes')])">
+                        <xsl:apply-templates select="//footer//section[@class='footnotes']" mode="footnotes"/>
+                    </xsl:if>
                 </section>
             </xsl:if>
 
-            <!-- Process top-level sections -->
+            <!-- Process top-level sections. The footnotes are emitted at the end of the last of
+                 them, by the section template below. -->
             <xsl:apply-templates select="section[not(@class='footnotes')]"/>
-
-            <!-- Process footnotes section if it exists -->
-            <xsl:apply-templates select="//footer//section[@class='footnotes']" mode="footnotes-section"/>
-        </report>
+        </xsl:element>
     </xsl:template>
 
     <!-- Title and subtitle -->
@@ -118,6 +174,15 @@
                     select="../*[not(self::section) and not(self::header) and not(self::title)
                                  and not(self::footer) and not(self::p[@id='subtitle'])]
                                [count(preceding-sibling::section) = $index]"/>
+            </xsl:if>
+
+            <!-- The document's footnotes close the last top-level section. <note> is legal
+                 anywhere in a section, and this is where the published volumes put them. They
+                 used to go in a section of their own, which is invalid without a <head> - and
+                 giving it one would publish a spurious "Footnotes" heading, since BHO renders
+                 the footnote list itself from //note. -->
+            <xsl:if test="parent::article and not(following-sibling::section[not(@class='footnotes')])">
+                <xsl:apply-templates select="//footer//section[@class='footnotes']" mode="footnotes"/>
             </xsl:if>
         </section>
     </xsl:template>
@@ -209,24 +274,26 @@
                     <xsl:number count="table" level="any"/>
                 </xsl:variable>
 
-                <div class="table-wrap">
-                    <!-- Extract caption and put it in a p.table-caption before the table -->
+                <!-- table is (head?,(tr|page)+). The caption is the <head> child and the label
+                     comes from @number, which BHO renders as a bold "Table N" above it. This
+                     used to emit an HTML <div class="table-wrap"> wrapper and a
+                     <p class="table-caption">, neither of which is declared anywhere in
+                     report.dtd - BHO wraps the table in div.table-wrap itself. -->
+                <table>
+                    <xsl:attribute name="id">
+                        <xsl:text>t</xsl:text>
+                        <xsl:value-of select="$table-num"/>
+                    </xsl:attribute>
                     <xsl:if test="caption">
-                        <p class="table-caption">
-                            <strong>Table <xsl:value-of select="$table-num"/>: </strong>
-                            <xsl:apply-templates select="caption/node()"/>
-                        </p>
-                    </xsl:if>
-
-                    <table>
-                        <xsl:attribute name="id">
-                            <xsl:text>t</xsl:text>
+                        <xsl:attribute name="number">
                             <xsl:value-of select="$table-num"/>
                         </xsl:attribute>
-                        <!-- Process table content except caption -->
-                        <xsl:apply-templates select="*[not(self::caption)]"/>
-                    </table>
-                </div>
+                        <head><xsl:apply-templates select="caption/node()"/></head>
+                    </xsl:if>
+                    <!-- Elements only: loose text between rows is not allowed in <table>, and a
+                         page break landing there used to serialise as a bare "[Page 1]". -->
+                    <xsl:apply-templates select="*[not(self::caption)]"/>
+                </table>
             </xsl:when>
 
             <!-- Index entries pass through as-is. BHO's accepted index format (see the published
@@ -273,10 +340,14 @@
                             </xsl:otherwise>
                         </xsl:choose>
                     </xsl:attribute>
-                    <xsl:if test="$fig-num != ''">
-                        <xsl:attribute name="number">
-                            <xsl:value-of select="$fig-num"/>
-                        </xsl:attribute>
+                    <!-- @number and @graphic are both #REQUIRED. An unnumbered figure takes
+                         number="", which is the empty value BHO's stylesheet tests for before
+                         deciding whether to print a "Figure N:" label. -->
+                    <xsl:attribute name="number">
+                        <xsl:value-of select="$fig-num"/>
+                    </xsl:attribute>
+                    <xsl:if test="$src = ''">
+                        <xsl:attribute name="graphic"/>
                     </xsl:if>
                     <xsl:if test="$src != ''">
                         <xsl:attribute name="graphic">
@@ -318,8 +389,39 @@
                      Oxfordshire 20 abbreviations list). -->
                 <xsl:number count="tr" level="any"/>
             </xsl:attribute>
-            <xsl:apply-templates/>
+            <!-- tr is (th|td)* - nothing else, text included. A page break falling between two
+                 cells used to leak into the row as bare text; it is kept, in a cell of its own,
+                 because <td> does allow <page> and BHO renders a marker for it there. -->
+            <xsl:apply-templates select="td | th | p[@class='page-break']
+                                         | text()[normalize-space()][not(preceding-sibling::td or preceding-sibling::th)]"/>
         </tr>
+    </xsl:template>
+
+    <!-- A page break between rows sits directly in the table, where <page> is allowed. -->
+    <xsl:template match="p[@class='page-break']">
+        <page start="{normalize-space(substring-before(substring-after(., '[Page '), ']'))}"/>
+    </xsl:template>
+
+    <!-- ... but inside a row it needs a cell to live in. -->
+    <xsl:template match="tr/p[@class='page-break']">
+        <td>
+            <page start="{normalize-space(substring-before(substring-after(., '[Page '), ']'))}"/>
+        </td>
+    </xsl:template>
+
+    <!-- Text that escaped its cell - a stray "400" or ")" left in the row by segmentation.
+         <tr> is (th|td)* and cannot hold it, so it is appended to the cell it follows, which
+         keeps the value and leaves the column count alone. Text before any cell gets a cell
+         of its own. -->
+    <xsl:template name="absorb-tail">
+        <xsl:variable name="tail" select="following-sibling::node()[1][self::text()]"/>
+        <xsl:if test="normalize-space($tail) != '' and not(contains($tail, '[Page '))">
+            <xsl:value-of select="$tail"/>
+        </xsl:if>
+    </xsl:template>
+
+    <xsl:template match="tr/text()[normalize-space()][not(preceding-sibling::td or preceding-sibling::th)]">
+        <td><xsl:value-of select="."/></td>
     </xsl:template>
 
     <xsl:template match="td | th">
@@ -335,6 +437,7 @@
                 </xsl:attribute>
             </xsl:if>
             <xsl:apply-templates/>
+            <xsl:call-template name="absorb-tail"/>
         </td>
     </xsl:template>
 
@@ -351,8 +454,10 @@
         <emph type="u"><xsl:apply-templates/></emph>
     </xsl:template>
 
+    <!-- emph/@type is an enumeration: (b|i|p|d|c|k|u). "p" is BHO's small superscript; "super"
+         was invalid and fell through its stylesheet's otherwise branch as plain text. -->
     <xsl:template match="sup">
-        <emph type="super"><xsl:apply-templates/></emph>
+        <emph type="p"><xsl:apply-templates/></emph>
     </xsl:template>
 
     <!-- A <sup> holding nothing but footnote references is just how the marker is rendered in
@@ -363,8 +468,10 @@
         <xsl:apply-templates/>
     </xsl:template>
 
+    <!-- There is no subscript in the enumeration, and "sub" was invalid. The text is kept
+         unwrapped rather than marked up wrongly. -->
     <xsl:template match="sub">
-        <emph type="sub"><xsl:apply-templates/></emph>
+        <xsl:apply-templates/>
     </xsl:template>
 
     <!-- Index entry structure, copied through verbatim. Matched at any depth inside <entry>,
@@ -372,6 +479,13 @@
          in the published Oxfordshire 19 index). A <sub> here is an index sub-entry, not an HTML
          subscript, so this must out-rank the generic sub template above - the predicate gives it
          the higher priority. -->
+    <!-- index.dtd has head as (#PCDATA|key|emph|addenda|ref|page|plt)* - a <sub> nested inside
+         it is a sub-entry that belongs to the entry, as a sibling of the head. -->
+    <xsl:template match="head[ancestor::entry][sub]">
+        <head><xsl:apply-templates select="node()[not(self::sub)]"/></head>
+        <xsl:apply-templates select="sub"/>
+    </xsl:template>
+
     <xsl:template match="entry | head[ancestor::entry] | key[ancestor::entry] | sub[ancestor::entry]">
         <xsl:element name="{local-name()}">
             <xsl:apply-templates/>
@@ -386,18 +500,9 @@
         </ref>
     </xsl:template>
 
-    <!-- Footnotes section -->
-    <xsl:template match="section[@class='footnotes']" mode="footnotes-section">
-        <section>
-            <xsl:attribute name="id">
-                <xsl:text>s</xsl:text>
-                <xsl:number count="section[not(@class='footnotes')]" level="any"/>
-                <xsl:text>notes</xsl:text>
-            </xsl:attribute>
-
-            <!-- Process footnotes from ul/li structure -->
-            <xsl:apply-templates select=".//li[@class='footnote']" mode="footnote"/>
-        </section>
+    <!-- Footnotes, emitted as the closing children of whichever section called for them. -->
+    <xsl:template match="section[@class='footnotes']" mode="footnotes">
+        <xsl:apply-templates select=".//li[@class='footnote']" mode="footnote"/>
     </xsl:template>
 
     <!-- Process individual footnotes from li elements -->

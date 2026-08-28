@@ -1,0 +1,256 @@
+<!ELEMENT report (title, subtitle, (page*,section*,geodata?))>
+<!ATTLIST report 
+         id CDATA #REQUIRED
+         pubid CDATA #REQUIRED
+         publish CDATA #IMPLIED>
+<!--         publish (false|true) "true"> -->
+
+<!ELEMENT subtitle (#PCDATA|emph|ref)*>
+
+<!-- narrative content -->
+<!ELEMENT section (head,(para|list|table|note|figure|plate|quote|section|fig|name|business|dataset|catalogue|mapset|page)*)>
+<!ATTLIST section 
+         id CDATA #REQUIRED
+         title CDATA #IMPLIED
+         type CDATA #IMPLIED>
+<!ELEMENT head (#PCDATA|ref|emph|plt|a)*>
+<!ELEMENT para (#PCDATA|ref|emph|person|glink|plt|br|page|mdr|a)*>
+<!ATTLIST para id CDATA #REQUIRED>
+<!ELEMENT person (#PCDATA)>
+<!ELEMENT glink (#PCDATA)>
+<!ELEMENT quote (quotext|quosource)*>
+<!ATTLIST quote id ID #REQUIRED>
+<!ELEMENT quotext (quoline)*>
+<!ELEMENT quoline (#PCDATA|ref|emph|page)*>
+<!ELEMENT quosource (#PCDATA|ref|emph)*>
+<!ELEMENT emph (#PCDATA|emph|ref|page|br|mdr)*>
+<!ATTLIST emph type (b|i|p|d|c|k|u) #REQUIRED>
+<!ELEMENT fig (#PCDATA)>
+<!ATTLIST fig idref IDREF #IMPLIED>
+<!ELEMENT a (#PCDATA)>
+<!ATTLIST a href CDATA #REQUIRED>
+
+<!-- English Heritage only-->
+<!ELEMENT plt (#PCDATA)>
+<!ATTLIST plt target CDATA #REQUIRED>
+
+<!-- in text markers to footnotes-->
+<!ELEMENT ref (#PCDATA)>
+<!ATTLIST ref idref IDREF #IMPLIED>
+<!ATTLIST ref type (footnote|reference|addenda) "footnote">
+
+<!-- in text graphics -->
+<!ELEMENT figure (title|caption)*>
+<!ATTLIST figure 
+         id ID #REQUIRED
+         number CDATA #REQUIRED
+         graphic CDATA #REQUIRED>
+
+<!-- English Heritage only-->
+<!ELEMENT plate (title|caption)*>
+<!ATTLIST plate 
+         id ID #REQUIRED
+         number CDATA #REQUIRED
+         graphic CDATA #REQUIRED>
+
+<!ELEMENT title (#PCDATA|emph|ref)*>
+<!ELEMENT caption (#PCDATA|ref|emph|br)*>
+
+<!-- footnotes, referenced using ref tag-->
+<!ELEMENT note (#PCDATA|ref|emph|br|plt|figure|table|para|page)*>
+<!ATTLIST note 
+         id ID #REQUIRED
+         number CDATA #REQUIRED
+         type (footnote|reference|addenda) "footnote">
+
+<!-- Table, dervied from html-->
+<!ELEMENT table (head?,(tr|page)+)>
+<!ATTLIST table 
+         id CDATA #REQUIRED
+         caption CDATA #IMPLIED
+         number CDATA #IMPLIED>
+<!ELEMENT tr (th|td)*>
+<!ATTLIST tr 
+         id ID #IMPLIED>
+
+
+
+<!ELEMENT th (#PCDATA|ref|emph|br|plt)*>
+<!ELEMENT td (#PCDATA|ref|emph|br|plt|page|mdr|list)*>
+
+<!ATTLIST th
+         cols CDATA #IMPLIED
+         rows CDATA #IMPLIED>
+<!ATTLIST td
+         cols CDATA #IMPLIED
+         rows CDATA #IMPLIED>
+
+
+<!ELEMENT name (nhead|nsub)*>
+<!ELEMENT nhead (#PCDATA|nkey|emph|place)*>
+<!ELEMENT nkey (#PCDATA)>
+<!ELEMENT nsub (#PCDATA|emph|place)*>
+
+<!ELEMENT place (#PCDATA)>
+<!ATTLIST place id CDATA #REQUIRED>
+
+<!-- list, derived from html-->
+<!ELEMENT list (head,(li|page)+)>
+<!ELEMENT li (#PCDATA|page|ref|emph|br)*>
+<!ATTLIST list id CDATA #REQUIRED>
+
+<!-- in-text line break-->
+<!ELEMENT br EMPTY>
+
+<!-- new page tokens -->
+<!ELEMENT page EMPTY>
+<!ATTLIST page start CDATA #REQUIRED>
+<!ATTLIST page pubid CDATA #IMPLIED>
+
+<!-- CSP modern document references -->
+<!ELEMENT mdr (#PCDATA)>
+<!ATTLIST mdr id CDATA #REQUIRED>
+
+<!-- depracted business directory -->
+<!ELEMENT business (house,street,ward,occupier,trade, (staff*))>
+<!ELEMENT house (#PCDATA)>
+<!ELEMENT street (#PCDATA)>
+<!ELEMENT ward (#PCDATA)>
+<!ELEMENT occupier (#PCDATA)>
+<!ELEMENT trade (#PCDATA)>
+<!ELEMENT staff (#PCDATA)>
+
+<!-- 1st generation dataset structure -->
+<!ELEMENT geodata (geoclass+,geolocation+,geoitem+)>
+
+<!ELEMENT geoclass (label,description,shortdesc,scale)>
+<!ELEMENT label (#PCDATA)>
+<!ELEMENT description (#PCDATA|emph)*>
+<!ELEMENT shortdesc (#PCDATA)>
+<!ELEMENT scale (range)+>
+<!ELEMENT range (#PCDATA)>
+
+<!ATTLIST geoclass id ID #REQUIRED>
+<!ATTLIST geoclass type (year|sterling) "year">
+<!ATTLIST range id ID #REQUIRED>
+<!ATTLIST range begin CDATA #REQUIRED>
+<!ATTLIST range end CDATA #REQUIRED>
+
+<!ELEMENT geolocation (#PCDATA)>
+<!ATTLIST geolocation id ID #REQUIRED>
+<!ATTLIST geolocation section CDATA #IMPLIED>
+<!ATTLIST geolocation coordx CDATA #REQUIRED>
+<!ATTLIST geolocation coordy CDATA #REQUIRED>
+
+<!ELEMENT geoitem (#PCDATA)>
+<!ATTLIST geoitem id ID #REQUIRED>
+<!ATTLIST geoitem class IDREF #REQUIRED>
+<!ATTLIST geoitem place IDREF #REQUIRED>
+
+
+
+<!-- 2nd generation dataset structure -->
+<!ELEMENT dataset (dsclass+,dsrecord+)>
+<!ELEMENT dsclass (label,description,shortdesc?,scale?)>
+<!ATTLIST dsclass id ID #REQUIRED>
+<!ATTLIST dsclass type (year|sterling|text|integer|geox|geoy) "text">
+<!ATTLIST dsclass sortkey CDATA #REQUIRED>
+<!ATTLIST dsclass showheader (True|False) "True">
+<!ATTLIST dsclass showcolumn (True|False) "True">
+<!ATTLIST dsclass width CDATA #IMPLIED>
+<!-- standard, that dsclass c0 in all cases should describe the main record -->
+<!ELEMENT dsrecord (prop+)>
+<!ATTLIST dsrecord id ID #REQUIRED>
+<!ATTLIST dsrecord coordx CDATA #IMPLIED>
+<!ATTLIST dsrecord coordy CDATA #IMPLIED>
+<!ELEMENT prop (#PCDATA|ref|emph|br)*>
+<!ATTLIST prop class IDREF #REQUIRED>
+
+
+
+<!-- catalogue structure -->
+<!ELEMENT catalogue (group+)>
+<!ATTLIST catalogue classref CDATA #REQUIRED>
+<!ELEMENT group (head,(item|group)*)>
+<!ATTLIST group id ID #REQUIRED>
+<!ELEMENT item (#PCDATA)>
+
+
+<!-- END catalogue structure -->
+
+<!-- mapset structure (OS) -->
+<!ELEMENT mapset (eastingmin, eastingmax, northingmin, northingmax, eastingratio, northingratio, seriestitle, seriessub, county, mapsheet+, poi*)>
+<!ELEMENT eastingmin (#PCDATA)>
+<!ELEMENT eastingmax (#PCDATA)>
+<!ELEMENT northingmin (#PCDATA)>
+<!ELEMENT northingmax (#PCDATA)>
+<!ELEMENT eastingratio (#PCDATA)>
+<!ELEMENT northingratio (#PCDATA)>
+<!ELEMENT seriestitle (#PCDATA)>
+<!ELEMENT seriessub (#PCDATA)>
+<!ELEMENT county (#PCDATA)>
+<!ELEMENT mapsheet (tile, file, pubyear, swe, swn, nwe, nwn, nee, nen, see, sen)>
+<!ATTLIST mapsheet id CDATA #REQUIRED>
+<!ELEMENT tile (#PCDATA)>
+<!ELEMENT file (#PCDATA)>
+<!ELEMENT pubyear (#PCDATA)>
+<!ELEMENT swe (#PCDATA)>
+<!ELEMENT swn (#PCDATA)>
+<!ELEMENT nwe (#PCDATA)>
+<!ELEMENT nwn (#PCDATA)>
+<!ELEMENT nee (#PCDATA)>
+<!ELEMENT nen (#PCDATA)>
+<!ELEMENT see (#PCDATA)>
+<!ELEMENT sen (#PCDATA)>
+<!ELEMENT poi (#PCDATA)>
+<!ATTLIST poi easting CDATA #REQUIRED>
+<!ATTLIST poi northing CDATA #REQUIRED>
+
+
+
+<!-- entities -->
+<!ENTITY % ent-isoamsa SYSTEM "isoamsa.ent">
+%ent-isoamsa;
+<!ENTITY % ent-isoamsb SYSTEM "isoamsb.ent">
+%ent-isoamsb;
+<!ENTITY % ent-isoamsc SYSTEM "isoamsc.ent">
+%ent-isoamsc;
+<!ENTITY % ent-isoamsn SYSTEM "isoamsn.ent">
+%ent-isoamsn;
+<!ENTITY % ent-isoamso SYSTEM "isoamso.ent">
+%ent-isoamso;
+<!ENTITY % ent-isoamsr SYSTEM "isoamsr.ent">
+%ent-isoamsr;
+<!ENTITY % ent-isobox SYSTEM "isobox.ent">
+%ent-isobox;
+<!ENTITY % ent-isocyr1 SYSTEM "isocyr1.ent">
+%ent-isocyr1;
+<!ENTITY % ent-isocyr2 SYSTEM "isocyr2.ent">
+%ent-isocyr2;
+<!ENTITY % ent-isodia SYSTEM "isodia.ent">
+%ent-isodia;
+<!ENTITY % ent-isogrk1 SYSTEM "isogrk1.ent">
+%ent-isogrk1;
+<!ENTITY % ent-isogrk2 SYSTEM "isogrk2.ent">
+%ent-isogrk2;
+<!ENTITY % ent-isogrk3 SYSTEM "isogrk3.ent">
+%ent-isogrk3;
+<!ENTITY % ent-isogrk4 SYSTEM "isogrk4.ent">
+%ent-isogrk4;
+<!ENTITY % ent-isolat1 SYSTEM "isolat1.ent">
+%ent-isolat1;
+<!ENTITY % ent-isolat2 SYSTEM "isolat2.ent">
+%ent-isolat2;
+<!ENTITY % ent-isonum SYSTEM "isonum.ent">
+%ent-isonum;
+<!ENTITY % ent-isopub SYSTEM "isopub.ent">
+%ent-isopub;
+<!ENTITY % ent-isotech SYSTEM "isotech.ent">
+%ent-isotech;
+
+<!ENTITY % ent-bhoa SYSTEM "bhoa.ent">
+%ent-bhoa;
+
+
+
+

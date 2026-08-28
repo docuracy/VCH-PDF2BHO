@@ -406,13 +406,24 @@ export async function convertToBHO(xhtml) {
         console.log("BHO transformation complete");
 
         let bhoXml = result.principalResult;
+
+        // Index volumes come out with an <index> root, which is a different document type with
+        // its own DTD (entry/key/sub are declared only there). xsl:output cannot vary its
+        // doctype-system in XSLT 1.0, so the declaration is corrected here.
+        if (/<index[\s>]/.test(bhoXml)) {
+            bhoXml = bhoXml.replace(
+                /<!DOCTYPE\s+report\s+SYSTEM\s+"dtd\/report\.dtd">/,
+                '<!DOCTYPE index SYSTEM "dtd/index.dtd">'
+            );
+        }
+
         console.log("BHO XML length:", bhoXml.length);
         console.log("BHO XML preview:", bhoXml.substring(0, 500));
 
         // Refuse to hand back anything that is not a BHO report. The transform emits its
         // processing instruction and DOCTYPE unconditionally, so an input that matched no
         // templates yields a well-formed but empty shell - which previously downloaded silently.
-        if (!/<report[\s>]/.test(bhoXml)) {
+        if (!/<(report|index)[\s>]/.test(bhoXml)) {
             console.error("Transformation produced no <report> element:", bhoXml.substring(0, 1000));
             alert(
                 "BHO conversion produced no <report> element.\n\n" +

@@ -1,0 +1,77 @@
+
+<!--
+     File bhoa.ent produced by British History Online. 
+     Begun for the Statutes of the Realm.
+
+     (C) British History Online 2006
+-->
+
+<!ENTITY bholigct	      "ct">           <!-- ligature ct -->
+<!ENTITY bholngs	      "s">            <!-- Long s -->
+<!ENTITY bhoccrl	      "c[er]">        <!-- c with curl -->
+<!ENTITY bhopcrl	      "p[re]">        <!-- p with curl -->
+<!ENTITY bhotcrl	      "t[er]">        <!-- t with curl IF not last character in word -->
+<!ENTITY bhocent	      "t[um]">        <!-- t with curl IF preceded by "Cen" or "cen"  -->
+<!ENTITY bhoqexc	      "q[uer]">       <!-- q with extension when preceded by string "exche" or "Exche" -->
+<!ENTITY bhoqesq	      "q[uire]">      <!-- q with extension when preceded by string "Es" or "es" -->
+<!ENTITY bhomtie	      "Ma[jes]tie">   <!--Ma followed by superscript tie -->
+<!ENTITY bhomjty	      "Maj[es]ty">    <!--Maj followed by superscript ty -->
+<!ENTITY bhojties	      "Maj[es]ties">  <!--Maj followed by superscript ties -->
+<!ENTITY bhomties	      "Ma[jes]ties">  <!--Ma followed by superscript ties -->
+<!ENTITY bhomsst	      "m[en]t">       <!--m, superscript t -->
+<!ENTITY bhobart	      "Bar[one]t">    <!--Bar, superscript t -->
+<!ENTITY bhomtild	      "m[m]">         <!--m with tilde ONLY if not the last character. -->
+<!ENTITY bhocotil	      "c[i]o">        <!--joint co with tilde -->
+<!ENTITY bhouov	        "u[m]">         <!--u with overbar ONLY if followed by m -->
+<!ENTITY bhooov	        "o[m]">         <!--o with overbar -->
+<!ENTITY bhomov	        "m[m]">         <!--m with overbar -->
+<!ENTITY bhoaovm	      "a[m]">         <!--a with overbar ONLY if followed by m -->
+<!ENTITY bhonov	        "n[n]">         <!--n with overbar -->
+<!ENTITY bhoalias	      "al[ia]s">      <!--string “als” with bar through l -->
+<!ENTITY bhopubr	      "p[er]">        <!--p with straight underbar through descender of letter -->
+<!ENTITY bhopubrc	      "p[ro]">        <!--p with curled underbar through descender -->
+
+<!ENTITY ygrave	      "y">        	<!--y with grave accent &#x1EF3; -->
+<!ENTITY Ygrave	      "Y">        	<!--Y with grave accent &#x1EF2; -->
+
+<!ENTITY frac17 		"1/7" >		<!-- FRACTION 1/7-->
+<!ENTITY frac27 		"2/7" >		<!-- FRACTION 2/7-->
+<!ENTITY frac37 		"3/7" >		<!-- FRACTION 3/7-->
+<!ENTITY frac47 		"4/7" >		<!-- FRACTION 4/7-->
+<!ENTITY frac57 		"5/7" >		<!-- FRACTION 5/7-->
+<!ENTITY frac67 		"6/7" >		<!-- FRACTION 6/7-->
+<!ENTITY frac19 		"1/9" >		<!-- FRACTION 1/9-->
+<!ENTITY frac29 		"2/9" >		<!-- FRACTION 2/9-->
+<!ENTITY frac49 		"4/9" >		<!-- FRACTION 4/9-->
+<!ENTITY frac59 		"5/9" >		<!-- FRACTION 5/9-->
+<!ENTITY frac79 		"7/9" >		<!-- FRACTION 7/9-->
+<!ENTITY frac89 		"8/9" >		<!-- FRACTION 8/9-->
+
+<!-- Cardiff records -->
+<!ENTITY bhowhch 		"w[hi]ch" >		<!-- w superscript ch-->
+<!ENTITY bhowssth		"w[i]th" >		<!-- w superscript th-->
+<!ENTITY bhooov2		"o[n]" >		<!-- o with overbar ONLY if last character of word -->
+
+<!-- Grocer records -->
+<!ENTITY bholibar		"li." >		<!-- l with bar followed by i-->
+<!ENTITY bhoshill		"s." >		<!-- 	s with tilde alone when preceded by Roman numeral -->
+<!ENTITY bhopence		"d." >		<!-- 	d with bar alone -->
+<!ENTITY bhoieme		"[ie]me" >		<!-- 	superscript me -->
+<!ENTITY bhoihu		"Ih[es]u" >		<!-- 	Ihu, h with bar -->
+<!ENTITY bhowsupt		"w[ith]" >		<!-- 	w followed by superscript t -->
+<!ENTITY bhothsut		"th[a]t" >		<!-- 	thorn followed by superscript t -->
+<!ENTITY bhothsue		"the" >		<!-- 	thorn with superscript e -->
+<!ENTITY bhothsus		"th[i]s" >		<!-- 	thorn with superscript s -->
+<!ENTITY bhoyogh		"&#221;" >    <!-- 	lower case yogh -->
+
+<!-- registrum -->
+<!ENTITY bhoctilo		"c[i]" >    <!-- 	tilde c ONLY if followed by o -->
+<!ENTITY bhootilc		"[i]o" >    <!-- 	tilde o ONLY if preceded by c -->
+<!ENTITY bhojhu		"Jh[es]u" >    <!-- 	String 'Jhu' when h has bar or tilde -->
+
+<!-- LPFD Henry Volume 2 080829 -->
+<!ENTITY bhoezh		  "&#x292;" >     <!-- ezh, dram -->
+<!ENTITY bhorecipe  "[Recipe]" >    <!-- recipe, &#x211e; -->
+<!ENTITY bhoounce   "[ounce]" >    <!-- ounce, &#x2125; -->
+<!ENTITY bhoscruple "&#x2108;" >    <!-- scruple -->
+
