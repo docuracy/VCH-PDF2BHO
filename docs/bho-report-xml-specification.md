@@ -48,7 +48,7 @@ questions it left open:
 | 8 | `emph` is `i` or `b` | **`(b\|i\|p\|d\|c\|k\|u)`**, required | Anything else is invalid |
 | 9 | Notes go in a trailing footnote-only section | Notes may appear in **any** section; published files put them at the end of the outermost section | A notes-only section still needs a `head` |
 | 10 | The visible footnote number comes from `@number` / the `ref` text | **Both are ignored by the renderer**; it prints the number in the *id* | See §8 |
-| 11 | Page number = source number + 1 | A property of one source corpus, not of the format | See Appendix B |
+| 11 | Page number = source number + 1 | A property of one body of source material, not of the format | See Appendix B |
 | 12 | Every non-ASCII character as a numeric reference | Safe, but not required: the ISO entity sets are declared | See §9 |
 
 Everything else in v1.0 stands. Two of its observations are worth
@@ -551,11 +551,11 @@ Points of difference from `report.dtd`:
 - BHO renders `/index/section/head` as `h1` and the next level as `h2`,
   a level higher than in a report.
 
-## Appendix B — Conventions of one production pipeline
+## Appendix B — Conventions of a particular converter
 
-These are properties of a particular converter and its source corpus, not
-of the format. They are recorded here so that they are not mistaken for
-rules.
+These are properties of one converter and the material it was written
+against, not of the format. They are recorded here so that they are not
+mistaken for rules.
 
 **Page numbers.** Where the source is OCR of a printed page whose number
 appears as a running foot, the marker read from the page belongs to the
@@ -569,7 +569,7 @@ Either is valid, provided `@id` is unique and `@number` is present.
 
 **Figure filenames.** `/images/[chapter]_[figure id].jpg`, where
 `[chapter]` is a three-digit run delimited by underscores in the source
-filename, is a naming scheme for a particular batch. The format requires
+filename, is one converter's naming scheme. The format requires
 only that `@graphic` begins `/images/` and that the file of that name
 exists in the publication's image directory.
 
