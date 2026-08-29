@@ -47,7 +47,8 @@ The recommendations are graded accordingly:
 
 215 files parsed, from 155 publications (up to two per publication, taken from the
 managed-file list). A sample, not a census, and weighted towards recently touched files
-— but broad enough to settle several questions.
+— but broad enough to settle several questions. What a full census would cost is set out
+in [§9](#9-what-a-complete-audit-would-take).
 
 | Measure | Result |
 |---|---|
@@ -276,6 +277,53 @@ The A and B rows can be applied without touching a single file in the corpus, an
 worth doing on their own. The C rows are worth deciding *against* explicitly, and
 handling in a validator run over the corpus, for as long as nothing validates at
 publication time.
+
+## 9. What a complete audit would take
+
+Every "measured cost" in §8 is an extrapolation from 215 files. Auditing the whole
+corpus would turn each of them into a count, and is a day's work, most of it unattended.
+
+**The dominant unknown is the size of the corpus.** It has not been established: 2,078
+XML files were harvested from 42 pages of the managed-file list before sampling began,
+and the pager goes deeper. Judging by publication ids running past 2000, and roughly
+thirteen XML files per publication in what was seen, **30,000–60,000 files at ~125 KB
+average — 4–8 GB** is the working guess. It could be out by a factor of two. Reading the
+last page number off `/admin/content/files?filename=.xml` would replace it with a real
+figure in about two minutes, and should be the first thing done.
+
+| Phase | Approach | Time |
+|---|---|---|
+| Census | Read the pager total | 2 min |
+| Enumeration | Paginate the Files view for URLs; needs an authenticated session, so browser-side, ~12 pages per request | 1–2 h at 40k files |
+| Download | `curl`, throttled and resumable; the XML is public, so no session needed | 1–3 h, bounded by politeness rather than bandwidth |
+| Validation | `xmllint --dtdvalid` against the vendored DTDs in [`dtd/`](../dtd/) | 10–20 min |
+| Structural checks | One pass for id collisions, undeclared attributes, `emph/@type` anomalies, content-model violations by class, per-publication rollup | 20–30 min |
+| Analysis and write-up | Triage, ranking, revising this document | 2–3 h |
+
+**It collapses to about an hour** if BHO can supply either a file list —
+`SELECT uri FROM file_managed WHERE filemime = 'application/xml'`, one query, and the
+Devel module is already installed — or a tarball of
+`sites/default/files/publications/**/*.xml`. That skips enumeration and download, which
+are some four fifths of the elapsed time. Worth asking before starting.
+
+### Preconditions
+
+- **Permission.** This is a sustained crawl of a live production server, tens of
+  thousands of requests. Throttled and run off-peak, but not begun without BHO's
+  agreement.
+- **Validate against local DTD copies**, never the live ones, or the audit adds 40,000
+  redundant requests for `report.dtd` on top of everything else.
+- **Triage buckets, not a single verdict.** The sample already contains a file that is
+  not well-formed and a file rooted on `<xml>`; neither is an ordinary validity error and
+  both need counting separately.
+- **Encoding.** Files declare `iso-8859-1`; any that are mis-declared will fail to parse,
+  and that is a finding about the data rather than a failure of the tooling.
+
+### Deliverable
+
+A per-file CSV — path, publication id, root element, well-formedness, error classes, id
+collisions — and a rollup by publication, replacing §2 with a census. The download is
+one-time; re-auditing later is cheap with conditional requests.
 
 ---
 
