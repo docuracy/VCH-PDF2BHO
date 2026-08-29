@@ -4,9 +4,11 @@
 <https://www.british-history.ac.uk/dtd/report.dtd>. Every content model
 quoted below is copied from it verbatim.
 
-**Companion:** [BHO / VCH schema references](bho-schema-references.md) —
+**Companions:** [BHO / VCH schema references](bho-schema-references.md) —
 where the DTDs, the display stylesheet, the converters and a validating
-reference file live.
+reference file live; and [a review of the DTDs themselves](bho-dtd-review.md),
+covering where the two grammars disagree with each other and with what BHO
+publishes.
 
 **Scope:** The XML format used to represent digitized reference-work
 content (Victoria County History and comparable series) for ingestion into

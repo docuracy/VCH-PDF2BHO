@@ -1,7 +1,9 @@
 # BHO / VCH schema references
 
 Where the authoritative material lives. The format itself is specified in
-[the report XML specification](bho-report-xml-specification.md).
+[the report XML specification](bho-report-xml-specification.md), and the DTDs
+are reviewed — faults, divergence, redundancy — in
+[the DTD review](bho-dtd-review.md).
 
 ---
 
