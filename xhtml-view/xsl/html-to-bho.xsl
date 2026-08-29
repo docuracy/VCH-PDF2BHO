@@ -25,12 +25,32 @@
                                       and not(self::footer) and not(self::p[@id='subtitle'])]
                                     [count(preceding-sibling::section) = 0]"/>
 
+    <!-- BHO never renders <title>, so the title has to appear as a <head> - but only once. Front
+         matter often carries it as a heading of its own already, in which case repeating it gives
+         the page two identical headings and two identical entries in the table of contents. -->
+    <xsl:variable name="title-text">
+        <xsl:choose>
+            <xsl:when test="//article/header[@id='title']/h1">
+                <xsl:value-of select="normalize-space(//article/header[@id='title']/h1)"/>
+            </xsl:when>
+            <xsl:otherwise>
+                <xsl:value-of select="normalize-space((//article//h2 | //article//h3)[1])"/>
+            </xsl:otherwise>
+        </xsl:choose>
+    </xsl:variable>
+    <xsl:variable name="title-is-a-heading"
+                  select="$title-text != ''
+                          and boolean(//article//*[self::h2 or self::h3 or self::h4 or self::h5
+                                                   or self::h6][normalize-space(.) = $title-text])"/>
+
     <!-- 1 when a leading section is emitted, so top-level section numbering allows for it. One is
-         emitted whenever there is pre-section content, and also when there are no sections at all,
-         because <report> must hold the footnotes somewhere and every <section> needs a <head>. -->
+         emitted whenever there is pre-section content the title can head, and also when there are
+         no sections at all, because <report> must hold the footnotes somewhere and every
+         <section> needs a <head>. Where the title is already a heading, the pre-section content
+         goes into the first section instead (see below). -->
     <xsl:variable name="preamble-offset">
         <xsl:choose>
-            <xsl:when test="$preamble">1</xsl:when>
+            <xsl:when test="$preamble and not($title-is-a-heading)">1</xsl:when>
             <xsl:when test="not(//article/section[not(@class='footnotes')])">1</xsl:when>
             <xsl:otherwise>0</xsl:otherwise>
         </xsl:choose>
@@ -100,15 +120,14 @@
                          <title>, so an article whose title appears nowhere else publishes
                          untitled. Published files (e.g. Nettlebed, Oxon. XVIII) repeat the
                          title as the first section's head in exactly this way. -->
-                    <head>
-                        <xsl:choose>
-                            <xsl:when test="header[@id='title']/h1">
-                                <xsl:apply-templates select="header[@id='title']/h1/node()"/>
-                            </xsl:when>
-                            <xsl:otherwise><xsl:value-of select="(.//h2 | .//h3)[1]"/></xsl:otherwise>
-                        </xsl:choose>
-                    </head>
+                    <head><xsl:call-template name="title-content"/></head>
                     <xsl:apply-templates select="$preamble" mode="section-content"/>
+                    <!-- An untitled opening section belongs here, under the article's own title,
+                         which is how the published volumes read. Folding it forward instead would
+                         bury the introduction under the next heading and put that heading ahead
+                         of text that precedes it. -->
+                    <xsl:apply-templates mode="merge"
+                        select="section[not(@class='footnotes')][1][not(h2|h3|h4|h5|h6)]"/>
                     <!-- Nowhere else to put them if the document has no sections of its own. -->
                     <xsl:if test="not(section[not(@class='footnotes')])">
                         <xsl:apply-templates select="//footer//section[@class='footnotes']" mode="footnotes"/>
@@ -122,6 +141,16 @@
         </xsl:element>
     </xsl:template>
 
+    <!-- The document title as markup, for wherever it has to appear as a <head>. -->
+    <xsl:template name="title-content">
+        <xsl:choose>
+            <xsl:when test="//article/header[@id='title']/h1">
+                <xsl:apply-templates select="//article/header[@id='title']/h1/node()"/>
+            </xsl:when>
+            <xsl:otherwise><xsl:value-of select="$title-text"/></xsl:otherwise>
+        </xsl:choose>
+    </xsl:template>
+
     <!-- Title and subtitle -->
     <xsl:template match="h1" mode="title">
         <title><xsl:apply-templates/></title>
@@ -131,6 +160,17 @@
         <subtitle><xsl:apply-templates/></subtitle>
     </xsl:template>
 
+    <!-- A section with no heading is not a section BHO can publish: the content model is
+         (head, ...), and an empty <head> would give it a blank heading and a blank entry in the
+         table of contents. Its content belongs to the section before it - which is how the
+         published volumes read, an untitled opening running on under the article's own title.
+         Suppressed here, and pulled in by that section below. -->
+    <xsl:template match="section[not(@class='footnotes')][not(h2|h3|h4|h5|h6)]
+                                [preceding-sibling::section[not(@class='footnotes')]
+                                 or $preamble-offset = 1
+                                 or following-sibling::section[not(@class='footnotes')]
+                                                              [h2|h3|h4|h5|h6]]" priority="2"/>
+
     <!-- Process section elements recursively -->
     <xsl:template match="section[not(@class='footnotes')]">
         <section>
@@ -139,11 +179,40 @@
                 <xsl:call-template name="section-number"/>
             </xsl:attribute>
 
-            <!-- Section heading from h2, h3, h4, h5, etc. -->
-            <xsl:if test="h2 | h3 | h4 | h5 | h6">
-                <head>
-                    <xsl:apply-templates select="(h2 | h3 | h4 | h5 | h6)[1]/node()"/>
-                </head>
+            <!-- Section heading from h2, h3, h4, h5, etc. Exactly one <head> is required, and
+                 it must come first; a headless section that could not be folded into a previous
+                 one falls back to an empty head rather than an invalid document. -->
+            <xsl:choose>
+                <xsl:when test="h2 | h3 | h4 | h5 | h6">
+                    <head>
+                        <xsl:apply-templates select="(h2 | h3 | h4 | h5 | h6)[1]/node()"/>
+                    </head>
+                </xsl:when>
+                <!-- Nothing to merge into and no heading of its own - a contents or donors
+                     page, which is one untitled block. It takes the document title, the only
+                     way the title reaches the reader at all. -->
+                <xsl:when test="parent::article and $title-text != '' and not($title-is-a-heading)
+                                and not(preceding-sibling::section[not(@class='footnotes')])">
+                    <head><xsl:call-template name="title-content"/></head>
+                </xsl:when>
+                <xsl:otherwise><head/></xsl:otherwise>
+            </xsl:choose>
+
+            <!-- Pre-section content, where the title was already a heading and so no leading
+                 section was emitted to hold it. It goes to the first section, just after its
+                 head, which is the nearest valid place to the top of the document. -->
+            <xsl:if test="parent::article and $title-is-a-heading and $preamble
+                          and not(preceding-sibling::section[not(@class='footnotes')])">
+                <xsl:apply-templates select="$preamble" mode="section-content"/>
+            </xsl:if>
+
+            <!-- Headless section(s) standing before the first headed one - an epigraph or a
+                 dedication, typically - folded in here, under the heading that follows them,
+                 rather than left with a blank heading of their own. -->
+            <xsl:if test="parent::article and (h2|h3|h4|h5|h6) and $preamble-offset = 0
+                          and not(preceding-sibling::section[not(@class='footnotes')][h2|h3|h4|h5|h6])">
+                <xsl:apply-templates mode="merge-content"
+                    select="preceding-sibling::section[not(@class='footnotes')][not(h2|h3|h4|h5|h6)]"/>
             </xsl:if>
 
             <!-- Content and nested sections in a single document-order pass. Emitting all the
@@ -176,15 +245,57 @@
                                [count(preceding-sibling::section) = $index]"/>
             </xsl:if>
 
+            <!-- The next section, if it has no heading of its own, folded in here - after any
+                 page break that separated the two, so the markers stay in reading order. -->
+            <xsl:apply-templates mode="merge"
+                select="following-sibling::section[not(@class='footnotes')][1][not(h2|h3|h4|h5|h6)]"/>
+
             <!-- The document's footnotes close the last top-level section. <note> is legal
                  anywhere in a section, and this is where the published volumes put them. They
                  used to go in a section of their own, which is invalid without a <head> - and
                  giving it one would publish a spurious "Footnotes" heading, since BHO renders
                  the footnote list itself from //note. -->
-            <xsl:if test="parent::article and not(following-sibling::section[not(@class='footnotes')])">
+            <xsl:if test="parent::article
+                          and not(following-sibling::section[not(@class='footnotes')][h2|h3|h4|h5|h6])">
                 <xsl:apply-templates select="//footer//section[@class='footnotes']" mode="footnotes"/>
             </xsl:if>
         </section>
+    </xsl:template>
+
+    <!-- The content of a headless section, emitted inside the section it was folded into. A run
+         of them chains, each pulling in the next. -->
+    <xsl:template match="section" mode="merge">
+        <xsl:call-template name="merge-body"/>
+        <xsl:apply-templates mode="merge"
+            select="following-sibling::section[not(@class='footnotes')][1][not(h2|h3|h4|h5|h6)]"/>
+    </xsl:template>
+
+    <!-- As above, but for the leading group, which is selected wholesale and so must not chain. -->
+    <xsl:template match="section" mode="merge-content">
+        <xsl:call-template name="merge-body"/>
+    </xsl:template>
+
+    <xsl:template name="merge-body">
+        <xsl:for-each select="*[not(self::h2 or self::h3 or self::h4 or self::h5 or self::h6)]">
+            <xsl:choose>
+                <xsl:when test="self::section[not(@class='footnotes')]">
+                    <xsl:apply-templates select="."/>
+                </xsl:when>
+                <xsl:when test="self::section"/>
+                <xsl:otherwise>
+                    <xsl:apply-templates select="." mode="section-content"/>
+                </xsl:otherwise>
+            </xsl:choose>
+        </xsl:for-each>
+
+        <!-- article-level content that followed this section, which would otherwise be stranded -->
+        <xsl:if test="parent::article">
+            <xsl:variable name="index" select="count(preceding-sibling::section) + 1"/>
+            <xsl:apply-templates mode="section-content"
+                select="../*[not(self::section) and not(self::header) and not(self::title)
+                             and not(self::footer) and not(self::p[@id='subtitle'])]
+                           [count(preceding-sibling::section) = $index]"/>
+        </xsl:if>
     </xsl:template>
 
     <!-- Generate hierarchical section numbering -->
@@ -505,7 +616,7 @@
          the higher priority. -->
     <!-- index.dtd has head as (#PCDATA|key|emph|addenda|ref|page|plt)* - a <sub> nested inside
          it is a sub-entry that belongs to the entry, as a sibling of the head. -->
-    <xsl:template match="head[ancestor::entry][sub]">
+    <xsl:template match="head[ancestor::entry][sub]" priority="2">
         <head><xsl:apply-templates select="node()[not(self::sub)]"/></head>
         <xsl:apply-templates select="sub"/>
     </xsl:template>
